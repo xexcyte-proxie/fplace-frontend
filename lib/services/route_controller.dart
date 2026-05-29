@@ -1,79 +1,56 @@
-import 'package:mapsindoors_mapbox/mapsindoors.dart';
-
+import '../models/indoor_map_models.dart';
+import '../services/mappedin_bridge_service.dart';
 import '../utils/app_logger.dart';
 
-/// Manages route rendering and multi-floor leg navigation.
+/// Manages route state and multi-floor leg navigation via Mappedin bridge.
 class RouteController {
-  RouteController() {
-    appLog('Route', 'RouteController created');
-  }
+  RouteController();
 
-  final MPDirectionsService _directionsService = MPDirectionsService();
-  final MPDirectionsRenderer _directionsRenderer = MPDirectionsRenderer();
-
-  MPRoute? _route;
+  MappedinBridgeService? _bridge;
+  IndoorRoute? _route;
   int _currentLegIndex = 0;
   void Function(int legIndex)? onLegChanged;
 
-  MPRoute? get route => _route;
+  IndoorRoute? get route => _route;
 
   int get currentLegIndex => _currentLegIndex;
 
-  int get legCount => _route?.legs?.length ?? 0;
+  int get legCount => _route?.legs.length ?? 0;
 
   String get currentLegInstructions {
     final legs = _route?.legs;
     if (legs == null || legs.isEmpty) {
       return '';
     }
-
     final index = _currentLegIndex.clamp(0, legs.length - 1);
-    final steps = legs[index].steps;
-    if (steps == null || steps.isEmpty) {
-      return 'Continue on current floor';
-    }
-
-    return steps.map((step) => step.maneuver ?? 'Continue').join(', ');
+    return legs[index].instructionsText;
   }
 
-  Future<MPRoute> generateRoute({
-    required MPPoint origin,
-    required MPPoint destination,
-  }) async {
-    appLog(
-      'Route',
-      'Generating route from floor ${origin.floorIndex} to floor ${destination.floorIndex}',
-    );
-    await _directionsService.setTravelMode(MPDirectionsService.travelModeWalking);
-    final route = await _directionsService.getRoute(
-      origin: origin,
-      destination: destination,
-    );
+  void attachBridge(MappedinBridgeService bridge) {
+    _bridge = bridge;
+  }
 
+  Future<IndoorRoute> applyRoute(IndoorRoute route) async {
+    appLog('Route', 'Route received — ${route.legs.length} leg(s)');
     _route = route;
     _currentLegIndex = 0;
-    appLog('Route', 'Route received — ${route.legs?.length ?? 0} leg(s), rendering on map');
-    await _directionsRenderer.setRoute(route);
-    _directionsRenderer.setOnLegSelectedListener(_handleLegSelected);
-    await _directionsRenderer.selectLegIndex(_currentLegIndex);
-    appLog('Route', 'Displaying leg 1/${route.legs?.length ?? 0}: $currentLegInstructions');
+    await _bridge?.selectLeg(_currentLegIndex);
     onLegChanged?.call(_currentLegIndex);
     return route;
   }
 
   Future<void> selectLeg(int legIndex) async {
-    if (_route?.legs == null || _route!.legs!.isEmpty) {
+    if (_route?.legs == null || _route!.legs.isEmpty) {
       appLog('Route', 'selectLeg($legIndex) skipped — no active route');
       return;
     }
 
-    _currentLegIndex = legIndex.clamp(0, _route!.legs!.length - 1);
+    _currentLegIndex = legIndex.clamp(0, _route!.legs.length - 1);
     appLog(
       'Route',
-      'Selecting leg ${_currentLegIndex + 1}/${_route!.legs!.length} — focusing viewport',
+      'Selecting leg ${_currentLegIndex + 1}/${_route!.legs.length}',
     );
-    await _directionsRenderer.selectLegIndex(_currentLegIndex);
-    appLog('Route', 'Leg instructions: $currentLegInstructions');
+    await _bridge?.selectLeg(_currentLegIndex);
     onLegChanged?.call(_currentLegIndex);
   }
 
@@ -87,25 +64,27 @@ class RouteController {
     return selectLeg(_currentLegIndex + 1);
   }
 
-  void clearRoute() {
-    appLog('Route', 'Clearing route from map');
-    _directionsRenderer.clear();
+  /// Clears local route state only (bridge already cleared).
+  void syncRouteCleared() {
+    if (_route == null && _currentLegIndex == 0) return;
+    appLog('Route', 'Syncing route cleared from map');
     _route = null;
     _currentLegIndex = 0;
+  }
+
+  Future<void> clearRoute() async {
+    if (_route == null) {
+      await _bridge?.clearRoute();
+      return;
+    }
+    appLog('Route', 'Clearing route from map');
+    _route = null;
+    _currentLegIndex = 0;
+    await _bridge?.clearRoute();
   }
 
   void dispose() {
     appLog('Route', 'RouteController disposed');
     clearRoute();
-  }
-
-  void _handleLegSelected(int legIndex) {
-    if (_route?.legs == null || _route!.legs!.isEmpty) {
-      return;
-    }
-
-    appLog('Route', 'Leg selected via map tap: $legIndex');
-    _currentLegIndex = legIndex.clamp(0, _route!.legs!.length - 1);
-    onLegChanged?.call(_currentLegIndex);
   }
 }

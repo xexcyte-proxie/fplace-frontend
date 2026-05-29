@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:mapsindoors_mapbox/mapsindoors.dart';
 
+import '../../models/indoor_map_models.dart';
 import '../../utils/app_logger.dart';
 
 class FloorSelectorFab extends StatelessWidget {
@@ -9,11 +9,13 @@ class FloorSelectorFab extends StatelessWidget {
     required this.floors,
     required this.currentFloor,
     required this.onFloorSelected,
+    this.bottomOffset = 120,
   });
 
-  final List<MPFloor> floors;
-  final MPFloor? currentFloor;
-  final ValueChanged<MPFloor> onFloorSelected;
+  final List<IndoorFloor> floors;
+  final IndoorFloor? currentFloor;
+  final ValueChanged<IndoorFloor> onFloorSelected;
+  final double bottomOffset;
 
   @override
   Widget build(BuildContext context) {
@@ -21,14 +23,18 @@ class FloorSelectorFab extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    appLog('UI', 'Rendering floor selector — ${floors.length} floor(s), current: ${currentFloor?.displayName}');
+    appLog(
+      'UI',
+      'Rendering floor selector — ${floors.length} floor(s), '
+      'current: ${currentFloor?.displayName}',
+    );
 
-    final orderedFloors = List<MPFloor>.from(floors)
-      ..sort((a, b) => b.floorIndex.compareTo(a.floorIndex));
+    final orderedFloors = List<IndoorFloor>.from(floors)
+      ..sort((a, b) => b.sortOrder.compareTo(a.sortOrder));
 
     return Positioned(
       right: 16,
-      bottom: 120,
+      bottom: bottomOffset,
       child: Container(
         width: 50,
         decoration: BoxDecoration(
@@ -42,7 +48,7 @@ class FloorSelectorFab extends StatelessWidget {
           itemCount: orderedFloors.length,
           itemBuilder: (context, index) {
             final floor = orderedFloors[index];
-            final isSelected = currentFloor?.floorIndex == floor.floorIndex;
+            final isSelected = currentFloor?.id == floor.id;
 
             return GestureDetector(
               onTap: () => onFloorSelected(floor),
@@ -54,7 +60,7 @@ class FloorSelectorFab extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 child: Center(
-                  key: ValueKey('floor_${floor.floorIndex}'),
+                  key: ValueKey('floor_${floor.id}'),
                   child: Text(
                     floor.displayName,
                     style: TextStyle(

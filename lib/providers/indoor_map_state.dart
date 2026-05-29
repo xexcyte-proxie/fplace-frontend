@@ -1,4 +1,4 @@
-import 'package:mapsindoors_mapbox/mapsindoors.dart';
+import '../models/indoor_map_models.dart';
 
 enum IndoorMapStatus {
   initial,
@@ -24,22 +24,43 @@ class IndoorMapState {
     this.isArNavigationActive = false,
     this.isArSessionReady = false,
     this.arStatusMessage,
+    this.hasRouteOrigin = false,
+    this.hasRouteDestination = false,
+    this.isCalculatingRoute = false,
+    this.routeDestinationLabel,
   });
 
   final IndoorMapStatus status;
   final String? errorMessage;
-  final List<MPFloor> availableFloors;
-  final MPFloor? currentFloor;
-  final MPLocation? selectedLocation;
-  final List<MPLocation> searchResults;
+  final List<IndoorFloor> availableFloors;
+  final IndoorFloor? currentFloor;
+  final IndoorLocation? selectedLocation;
+  final List<IndoorLocation> searchResults;
   final bool isSearching;
-  final MPRoute? activeRoute;
+  final IndoorRoute? activeRoute;
   final int currentLegIndex;
   final String routeInstructions;
   final bool showRouteSheet;
   final bool isArNavigationActive;
   final bool isArSessionReady;
   final String? arStatusMessage;
+  /// True after the user taps the map to set a route start (green marker).
+  final bool hasRouteOrigin;
+  /// True after the user taps the map or picks a POI as end (red marker).
+  final bool hasRouteDestination;
+  /// Shown while auto-generating directions after both points are set.
+  final bool isCalculatingRoute;
+  /// Display label for the end point (POI name or "End point").
+  final String? routeDestinationLabel;
+
+  bool get canGenerateRoute => hasRouteOrigin && hasRouteDestination;
+
+  String get routePlanningHint {
+    if (isCalculatingRoute) return 'Finding route…';
+    if (!hasRouteOrigin) return 'Tap the map — where are you?';
+    if (!hasRouteDestination) return 'Tap the map — where are you going?';
+    return 'Route ready';
+  }
 
   bool get isEngineLoaded =>
       status == IndoorMapStatus.engineReady ||
@@ -51,11 +72,11 @@ class IndoorMapState {
     switch (status) {
       case IndoorMapStatus.initial:
       case IndoorMapStatus.engineLoading:
-        return 'Loading MapsIndoors engine...';
+        return 'Loading Mappedin Demo Mall...';
       case IndoorMapStatus.engineReady:
-        return 'Initializing Mapbox map...';
+        return 'Initializing 3D map view...';
       case IndoorMapStatus.engineFailure:
-        return errorMessage ?? 'Engine failed to load';
+        return errorMessage ?? 'Map failed to load';
       case IndoorMapStatus.mapReady:
         return 'Ready';
     }
@@ -73,13 +94,13 @@ class IndoorMapState {
   IndoorMapState copyWith({
     IndoorMapStatus? status,
     String? errorMessage,
-    List<MPFloor>? availableFloors,
-    MPFloor? currentFloor,
-    MPLocation? selectedLocation,
+    List<IndoorFloor>? availableFloors,
+    IndoorFloor? currentFloor,
+    IndoorLocation? selectedLocation,
     bool clearSelectedLocation = false,
-    List<MPLocation>? searchResults,
+    List<IndoorLocation>? searchResults,
     bool? isSearching,
-    MPRoute? activeRoute,
+    IndoorRoute? activeRoute,
     bool clearActiveRoute = false,
     int? currentLegIndex,
     String? routeInstructions,
@@ -88,10 +109,19 @@ class IndoorMapState {
     bool? isArSessionReady,
     String? arStatusMessage,
     bool clearArStatusMessage = false,
+    bool clearErrorMessage = false,
+    bool? hasRouteOrigin,
+    bool clearRouteOrigin = false,
+    bool? hasRouteDestination,
+    bool clearRouteDestination = false,
+    bool? isCalculatingRoute,
+    String? routeDestinationLabel,
+    bool clearRouteDestinationLabel = false,
   }) {
     return IndoorMapState(
       status: status ?? this.status,
-      errorMessage: errorMessage,
+      errorMessage:
+          clearErrorMessage ? null : (errorMessage ?? this.errorMessage),
       availableFloors: availableFloors ?? this.availableFloors,
       currentFloor: currentFloor ?? this.currentFloor,
       selectedLocation: clearSelectedLocation
@@ -109,6 +139,15 @@ class IndoorMapState {
       arStatusMessage: clearArStatusMessage
           ? null
           : arStatusMessage ?? this.arStatusMessage,
+      hasRouteOrigin:
+          clearRouteOrigin ? false : (hasRouteOrigin ?? this.hasRouteOrigin),
+      hasRouteDestination: clearRouteDestination
+          ? false
+          : (hasRouteDestination ?? this.hasRouteDestination),
+      isCalculatingRoute: isCalculatingRoute ?? this.isCalculatingRoute,
+      routeDestinationLabel: clearRouteDestinationLabel
+          ? null
+          : (routeDestinationLabel ?? this.routeDestinationLabel),
     );
   }
 }

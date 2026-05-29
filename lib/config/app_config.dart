@@ -1,19 +1,52 @@
-/// Application configuration for MapsIndoors sandbox and Mapbox credentials.
+/// Application configuration for Mappedin and hosted AR.
 ///
-/// Override at build time with dart-define:
-///   flutter run --dart-define=MAPBOX_ACCESS_TOKEN=pk.xxx
+/// Defaults use Mappedin's **free demo mall** and shared demo API credentials
+/// (no Pro account required). See:
+/// https://developer.mappedin.com/docs/demo-keys-and-maps
+///
+/// When you upgrade to Pro, override at build time:
+///   flutter run \
+///     --dart-define=MAPPEDIN_KEY=your_key \
+///     --dart-define=MAPPEDIN_SECRET=your_secret \
+///     --dart-define=MAPPEDIN_MAP_ID=your_map_id
 class AppConfig {
   AppConfig._();
 
-  /// MapsPeople HQ digital twin sandbox solution id.
-  static const String sandboxSolutionId = 'd876ff0e60bb430b8fabb145';
+  /// Mappedin free-tier demo API key (Maker maps).
+  static const String mappedinDemoKey = 'mik_yeBk0Vf0nNJtpesfu560e07e5';
 
-  /// Public Mapbox access token for the rendering canvas.
-  static const String mapboxPublicToken = String.fromEnvironment(
-    'MAPBOX_ACCESS_TOKEN',
-    defaultValue:
-        'pk.eyJ1Ijoib2xhbmthbiIsImEiOiJjbXBpeG92bW0wcWczMnBzNnV5Mm02bnU0In0.wOnx0MEVZYMaH2ox8G6Dfw',
+  /// Mappedin free-tier demo API secret.
+  static const String mappedinDemoSecret =
+      'mis_2g9ST8ZcSFb5R9fPnsvYhrX3RyRwPtDGbMGweCYKEq385431022';
+
+  /// Demo Mall map id (`65c0ff7430b94e3fabd5bb8c`).
+  static const String mappedinDemoMallMapId = '65c0ff7430b94e3fabd5bb8c';
+
+  static const String mappedinDemoVenueName = 'Demo Mall';
+
+  /// Active Mappedin API key — defaults to [mappedinDemoKey].
+  static const String mappedinKey = String.fromEnvironment(
+    'MAPPEDIN_KEY',
+    defaultValue: mappedinDemoKey,
   );
+
+  /// Active Mappedin API secret — defaults to [mappedinDemoSecret].
+  static const String mappedinSecret = String.fromEnvironment(
+    'MAPPEDIN_SECRET',
+    defaultValue: mappedinDemoSecret,
+  );
+
+  /// Active map id — defaults to [mappedinDemoMallMapId].
+  static const String mappedinMapId = String.fromEnvironment(
+    'MAPPEDIN_MAP_ID',
+    defaultValue: mappedinDemoMallMapId,
+  );
+
+  /// True when running with the public demo credentials (no custom keys).
+  static bool get isUsingMappedinDemo =>
+      mappedinKey == mappedinDemoKey &&
+      mappedinSecret == mappedinDemoSecret &&
+      mappedinMapId == mappedinDemoMallMapId;
 
   static const String _eighthWallArUrlRaw = String.fromEnvironment(
     'EIGHTH_WALL_AR_URL',
@@ -21,14 +54,8 @@ class AppConfig {
   );
 
   /// Hosted 8th Wall WebAR page URL loaded inside Flutter WebView.
-  ///
-  /// Override with:
-  ///   flutter run --dart-define=EIGHTH_WALL_AR_URL=https://your-domain/
-  ///
-  /// Common typo `https://https://...` is corrected automatically.
   static String get eighthWallArUrl => _normalizeArUrl(_eighthWallArUrlRaw);
 
-  /// True when [eighthWallArUrl] was auto-corrected (e.g. double `https://`).
   static bool get eighthWallArUrlWasNormalized =>
       _normalizeArUrl(_eighthWallArUrlRaw) != _eighthWallArUrlRaw.trim();
 
@@ -38,7 +65,6 @@ class AppConfig {
       return 'https://fplaces-test.netlify.app/';
     }
 
-    // Fix duplicated schemes, e.g. https://https://example.com
     for (var i = 0; i < 3; i++) {
       if (url.startsWith('https://https://')) {
         url = 'https://${url.substring('https://https://'.length)}';
@@ -49,7 +75,6 @@ class AppConfig {
       }
     }
 
-    // Fix missing colon after scheme.
     if (url.startsWith('https//')) {
       url = 'https://${url.substring('https//'.length)}';
     } else if (url.startsWith('http//')) {

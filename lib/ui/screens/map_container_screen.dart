@@ -1,65 +1,62 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:mapsindoors_mapbox/mapsindoors.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../bloc/indoor_map_bloc.dart';
-import '../../bloc/indoor_map_event.dart';
-import '../../bloc/indoor_map_state.dart';
+import '../../providers/indoor_map_providers.dart';
+import '../../providers/indoor_map_state.dart';
 import '../../services/ar_bridge_service.dart';
 import '../../services/ar_inapp_browser.dart';
-import '../../utils/app_logger.dart';
 import '../../utils/ar_session_logger.dart';
+import '../../utils/map_diagnostic_logger.dart';
 import '../widgets/bottom_sheets.dart';
 import '../widgets/floor_selector_fab.dart';
+import '../widgets/mappedin_map_widget.dart';
+import '../widgets/my_location_fab.dart';
+import '../widgets/route_planner_bar.dart';
 import '../widgets/search_overlay.dart';
 
-class MapContainerScreen extends StatefulWidget {
+class MapContainerScreen extends ConsumerStatefulWidget {
   const MapContainerScreen({super.key});
 
   @override
-  State<MapContainerScreen> createState() => _MapContainerScreenState();
+  ConsumerState<MapContainerScreen> createState() =>
+      _MapContainerScreenState();
 }
 
-class _MapContainerScreenState extends State<MapContainerScreen> {
-  late final MapsIndoorsWidget _mapWidget;
+class _MapContainerScreenState extends ConsumerState<MapContainerScreen> {
   final ArBridgeService _arBridgeService = const ArBridgeService();
   Timer? _mapInitTimeout;
 
   @override
   void initState() {
     super.initState();
-    appLog('UI', 'MapContainerScreen initState — creating MapsIndoorsWidget');
-    _mapWidget = MapsIndoorsWidget(
-      showFloorSelector: false,
-      readyListener: _onMapControlReady,
-    );
-    appLog('UI', 'Dispatching InitializeEngine (map mounts in parallel)');
-    context.read<IndoorMapBloc>().add(const InitializeEngine());
+    MapDiagnosticLogger.step('UI', 'MapContainerScreen initState');
     _startMapInitTimeout();
+  }
+
+  void _onWebViewReady() {
+    MapDiagnosticLogger.step('UI', 'WebView ready callback → starting initializeMap()');
+    ref.read(indoorMapProvider.notifier).initializeMap();
   }
 
   void _startMapInitTimeout() {
     _mapInitTimeout?.cancel();
-    _mapInitTimeout = Timer(const Duration(seconds: 20), () {
-      if (!mounted) {
-        return;
-      }
+    _mapInitTimeout = Timer(const Duration(seconds: 45), () {
+      if (!mounted) return;
 
-      final state = context.read<IndoorMapBloc>().state;
-      if (state.isMapReady) {
-        return;
-      }
+      final mapState = ref.read(indoorMapProvider);
+      if (mapState.isMapReady) return;
 
-      appLog(
+      MapDiagnosticLogger.warn(
         'UI',
-        'WARNING: MapControl not ready after 20s (status: ${state.status})',
+        'Map not ready after 45s (status: ${mapState.status}, '
+        'error: ${mapState.errorMessage ?? 'none'})',
       );
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Map is taking longer than expected. Check Mapbox token and network.',
+            'Map is taking longer than expected. Check your network connection.',
           ),
           duration: Duration(seconds: 5),
         ),
@@ -67,17 +64,8 @@ class _MapContainerScreenState extends State<MapContainerScreen> {
     });
   }
 
-  void _onMapControlReady(MPError? error) {
+  void _onMapReady() {
     _mapInitTimeout?.cancel();
-    appLog('UI', 'MapsIndoorsWidget readyListener — error: $error');
-    if (!mounted) {
-      appLog('UI', 'MapControl ready ignored — widget unmounted');
-      return;
-    }
-
-    context.read<IndoorMapBloc>().add(
-          MapControlReady(error, _mapWidget),
-        );
   }
 
   @override
@@ -88,266 +76,222 @@ class _MapContainerScreenState extends State<MapContainerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocConsumer<IndoorMapBloc, IndoorMapState>(
-      listenWhen: (previous, current) =>
-          previous.status != current.status ||
-          previous.errorMessage != current.errorMessage ||
-          previous.showRouteSheet != current.showRouteSheet ||
-          previous.selectedLocation != current.selectedLocation,
-      listener: (context, state) {
-        appLog('UI', 'State update — $state');
+    final mapState = ref.watch(indoorMapProvider);
+    final mapNotifier = ref.read(indoorMapProvider.notifier);
+    final bridge = ref.watch(mappedinBridgeProvider);
 
-        final message = state.errorMessage;
-        if (message != null && state.status == IndoorMapStatus.engineFailure) {
-          appLog('UI', 'Showing error snackbar: $message');
+    ref.listen<IndoorMapState>(indoorMapProvider, (previous, current) {
+      MapDiagnosticLogger.step('UI', 'State → $current');
+
+      if (current.isMapReady || current.status == IndoorMapStatus.engineFailure) {
+        _mapInitTimeout?.cancel();
+      }
+
+      if (current.isMapReady) {
+        MapDiagnosticLogger.ok('UI', 'Map is ready — hiding loading overlay 🎉');
+        _onMapReady();
+      }
+
+      if (current.status == IndoorMapStatus.engineFailure &&
+          previous?.status != IndoorMapStatus.engineFailure) {
+        MapDiagnosticLogger.error(
+          'UI',
+          'Map failed to load',
+          detail: current.errorMessage,
+        );
+      }
+
+      final message = current.errorMessage;
+      if (message != null && previous?.errorMessage != message) {
+        if (current.status == IndoorMapStatus.engineFailure) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(message),
               backgroundColor: Colors.red.shade700,
             ),
           );
+        } else if (current.isMapReady) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(message)),
+          );
         }
-      },
-      builder: (context, state) {
-        final bloc = context.read<IndoorMapBloc>();
+      }
+    });
 
-        appLog('UI', 'Building map screen — status: ${state.status}');
-
-        return Scaffold(
-          resizeToAvoidBottomInset: false,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              // MapsIndoors requires a Column/Row parent because it uses Flexible.
-              // Fully dispose Mapbox while AR runs — Offstage still keeps GL alive.
-              Visibility(
-                visible: !state.isArNavigationActive,
-                maintainState: false,
-                maintainAnimation: false,
-                maintainSize: false,
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        children: [
-                          _mapWidget,
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              IgnorePointer(
-                ignoring: state.isMapReady,
-                child: AnimatedOpacity(
-                  opacity: state.isMapReady ? 0 : 1,
-                  duration: const Duration(milliseconds: 250),
-                  child: ColoredBox(
-                    color: const Color(0xFF0F172A).withValues(alpha: 0.92),
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (state.status != IndoorMapStatus.engineFailure)
-                            const CircularProgressIndicator(color: Colors.blue),
-                          if (state.status == IndoorMapStatus.engineFailure)
-                            const Icon(
-                              Icons.error_outline,
-                              color: Colors.redAccent,
-                              size: 48,
-                            ),
-                          const SizedBox(height: 16),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 32),
-                            child: Text(
-                              state.loadingMessage,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 14,
-                              ),
-                            ),
+    return Scaffold(
+      resizeToAvoidBottomInset: false,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Visibility(
+            visible: !mapState.isArNavigationActive,
+            maintainState: false,
+            maintainAnimation: false,
+            maintainSize: false,
+            child: MappedinMapWidget(
+              bridge: bridge,
+              onWebViewCreated: (_) {},
+              onWebViewReady: _onWebViewReady,
+              onMapError: mapNotifier.mapLoadFailed,
+            ),
+          ),
+          IgnorePointer(
+            ignoring: mapState.isMapReady,
+            child: AnimatedOpacity(
+              opacity: mapState.isMapReady ? 0 : 1,
+              duration: const Duration(milliseconds: 250),
+              child: ColoredBox(
+                color: const Color(0xFF0F172A).withValues(alpha: 0.92),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (mapState.status != IndoorMapStatus.engineFailure)
+                        const CircularProgressIndicator(color: Colors.blue),
+                      if (mapState.status == IndoorMapStatus.engineFailure)
+                        const Icon(
+                          Icons.error_outline,
+                          color: Colors.redAccent,
+                          size: 48,
+                        ),
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Text(
+                          mapState.loadingMessage,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14,
                           ),
-                        ],
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),
-              IgnorePointer(
-                ignoring: !state.isMapReady,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    SearchOverlay(
-                      bloc: bloc,
-                      onDirectionsPressed: () {
-                        appLog('UI', 'Sample route button tapped');
-                        bloc.add(const GenerateSampleRoute());
-                      },
-                    ),
-                    SearchResultsPanel(
-                      results: state.searchResults,
-                      onLocationSelected: (location) {
-                        appLog('UI', 'Search result tapped: ${location.name}');
-                        bloc.add(SearchResultSelected(location));
-                      },
-                    ),
-                    FloorSelectorFab(
-                      floors: state.availableFloors,
-                      currentFloor: state.currentFloor,
-                      onFloorSelected: (floor) {
-                        appLog('UI', 'Floor FAB tapped: ${floor.displayName}');
-                        bloc.add(FloorSelected(floor));
-                      },
-                    ),
-                    if (state.selectedLocation != null)
-                      LocationDetailSheet(
-                        location: state.selectedLocation!,
-                        onDirections: () {
-                          appLog(
-                            'UI',
-                            'Get Directions tapped for ${state.selectedLocation!.name}',
-                          );
-                          bloc.add(const RouteToSelectedLocation());
-                        },
-                        onDismiss: () {
-                          appLog('UI', 'Location detail dismissed');
-                          bloc.add(const DismissLocationDetail());
-                        },
-                      ),
-                    if (state.showRouteSheet && state.activeRoute != null)
-                      RouteBottomSheet(
-                        instructions: state.routeInstructions,
-                        currentLegIndex: state.currentLegIndex,
-                        legCount: state.activeRoute!.legs?.length ?? 1,
-                        onPreviousLeg: () {
-                          appLog('UI', 'Route previous leg tapped');
-                          bloc.add(const RoutePreviousLeg());
-                        },
-                        onNextLeg: () {
-                          appLog('UI', 'Route next leg tapped');
-                          bloc.add(const RouteNextLeg());
-                        },
-                        onOpenAr: () {
-                          appLog('UI', 'Open AR Guidance tapped');
-                          _openArNavigation(context, bloc, state);
-                        },
-                        onClose: () {
-                          appLog('UI', 'Route sheet closed');
-                          bloc.add(const ClearRoute());
-                        },
-                      ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
-        );
-      },
+          IgnorePointer(
+            ignoring: !mapState.isMapReady,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                SearchOverlay(),
+                SearchResultsPanel(
+                  results: mapState.searchResults,
+                  onLocationSelected: mapNotifier.selectSearchResult,
+                ),
+                FloorSelectorFab(
+                  floors: mapState.availableFloors,
+                  currentFloor: mapState.currentFloor,
+                  onFloorSelected: mapNotifier.selectFloor,
+                  bottomOffset: mapState.showRouteSheet ? 100 : 88,
+                ),
+                MyLocationFab(
+                  enabled: mapState.isMapReady,
+                  onPressed: mapNotifier.goToMyLocation,
+                  bottomOffset: mapState.showRouteSheet ? 100 : 88,
+                ),
+                if (!mapState.showRouteSheet)
+                  RouteHintBar(
+                    hasStart: mapState.hasRouteOrigin,
+                    hasEnd: mapState.hasRouteDestination,
+                    endLabel: mapState.routeDestinationLabel,
+                    isCalculating: mapState.isCalculatingRoute,
+                    onReset: mapNotifier.clearRoutePoints,
+                  ),
+                if (mapState.showRouteSheet && mapState.activeRoute != null)
+                  RouteBottomSheet(
+                    instructions: mapState.routeInstructions,
+                    currentLegIndex: mapState.currentLegIndex,
+                    legCount: mapState.activeRoute!.legs.length,
+                    onPreviousLeg: mapNotifier.routePreviousLeg,
+                    onNextLeg: mapNotifier.routeNextLeg,
+                    onOpenAr: () => _openArNavigation(mapState),
+                    onClose: mapNotifier.clearRoute,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Future<void> _openArNavigation(
-    BuildContext context,
-    IndoorMapBloc bloc,
-    IndoorMapState state,
-  ) async {
+  Future<void> _openArNavigation(IndoorMapState mapState) async {
+    final mapNotifier = ref.read(indoorMapProvider.notifier);
+
     ArSessionLogger.reset();
     ArSessionLogger.log('Launch', 'User tapped Open AR Guidance');
 
-    final route = state.activeRoute;
+    final route = mapState.activeRoute;
     if (route == null) {
-      ArSessionLogger.error('Launch', 'No active route — aborting AR open');
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Generate a route before opening AR.')),
       );
-      ArSessionLogger.complete('Aborted — no route');
       return;
     }
-
-    ArSessionLogger.log(
-      'Launch',
-      'Active route — legs=${route.legs?.length ?? 0} '
-      'currentLeg=${state.currentLegIndex} '
-      'instructions="${state.routeInstructions}"',
-    );
 
     final routePayload = _arBridgeService.buildRoutePayload(
       route: route,
-      currentLegIndex: state.currentLegIndex,
-      instructions: state.routeInstructions,
+      currentLegIndex: mapState.currentLegIndex,
+      instructions: mapState.routeInstructions,
     );
 
-    if (!context.mounted) {
+    if (!mounted) return;
+
+    mapNotifier.openArNavigation();
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+
+    if (!mounted) {
+      mapNotifier.closeArNavigation();
       return;
     }
 
-    bloc.add(const OpenArNavigation());
-    ArSessionLogger.log(
-      'Launch',
-      'Map disposed — waiting 1200ms for GPU/camera release…',
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
-
-    if (!context.mounted) {
-      bloc.add(const CloseArNavigation());
-      return;
-    }
-
-    ArSessionLogger.log('Launch', 'Opening AR via Chrome Custom Tabs…');
     try {
       await openArInAppBrowser(
         routePayload: routePayload,
-        instructions: state.routeInstructions,
+        instructions: mapState.routeInstructions,
         onBridgeEvent: (event) {
           final eventName = event['event']?.toString() ?? 'unknown';
-          ArSessionLogger.log('Bloc', 'Forwarding bridge event → $eventName');
           switch (eventName) {
             case 'sessionReady':
-              bloc.add(const ArSessionReadyChanged(true));
+              mapNotifier.arSessionReadyChanged(true);
               break;
             case 'trackingLost':
-              bloc.add(const ArStatusUpdated('AR tracking lost'));
+              mapNotifier.arStatusUpdated('AR tracking lost');
               break;
             case 'trackingGood':
-              bloc.add(const ArStatusUpdated('AR tracking stable'));
+              mapNotifier.arStatusUpdated('AR tracking stable');
               break;
             case 'maneuverReached':
-              bloc.add(
-                ArStatusUpdated(
-                  event['instruction']?.toString() ?? 'Maneuver reached',
-                ),
+              mapNotifier.arStatusUpdated(
+                event['instruction']?.toString() ?? 'Maneuver reached',
               );
               break;
             default:
-              bloc.add(ArStatusUpdated('AR event: $eventName'));
+              mapNotifier.arStatusUpdated('AR event: $eventName');
               break;
           }
         },
       );
     } on StateError catch (error) {
-      if (context.mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(error.message)),
         );
       }
-    } catch (error, stackTrace) {
-      ArSessionLogger.error(
-        'Launch',
-        'InAppBrowser failed',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (context.mounted) {
+    } catch (error) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('AR failed to open: $error')),
         );
       }
     }
 
-    ArSessionLogger.log('Launch', 'AR session ended');
-    bloc.add(const CloseArNavigation());
+    mapNotifier.closeArNavigation();
     ArSessionLogger.complete('AR session closed');
   }
 }

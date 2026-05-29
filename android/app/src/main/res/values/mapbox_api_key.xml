@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="mapbox_api_key" translatable="false">pk.eyJ1Ijoib2xhbmthbiIsImEiOiJjbXBpeG92bW0wcWczMnBzNnV5Mm02bnU0In0.wOnx0MEVZYMaH2ox8G6Dfw</string>
-    <string name="mapbox_access_token" translatable="false">pk.eyJ1Ijoib2xhbmthbiIsImEiOiJjbXBpeG92bW0wcWczMnBzNnV5Mm02bnU0In0.wOnx0MEVZYMaH2ox8G6Dfw</string>
-</resources>

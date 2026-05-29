@@ -1,25 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:mapsindoors_mapbox/mapsindoors.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/indoor_map_models.dart';
+import '../../providers/indoor_map_providers.dart';
 import '../../utils/app_logger.dart';
-import '../../bloc/indoor_map_bloc.dart';
-import '../../bloc/indoor_map_event.dart';
 
-class SearchOverlay extends StatefulWidget {
-  const SearchOverlay({
-    super.key,
-    required this.bloc,
-    required this.onDirectionsPressed,
-  });
-
-  final IndoorMapBloc bloc;
-  final VoidCallback onDirectionsPressed;
+class SearchOverlay extends ConsumerStatefulWidget {
+  const SearchOverlay({super.key});
 
   @override
-  State<SearchOverlay> createState() => _SearchOverlayState();
+  ConsumerState<SearchOverlay> createState() => _SearchOverlayState();
 }
 
-class _SearchOverlayState extends State<SearchOverlay> {
+class _SearchOverlayState extends ConsumerState<SearchOverlay> {
   final TextEditingController _controller = TextEditingController();
 
   @override
@@ -37,52 +30,48 @@ class _SearchOverlayState extends State<SearchOverlay> {
       child: SafeArea(
         child: Material(
           color: Colors.transparent,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: const [
-                    BoxShadow(color: Colors.black26, blurRadius: 8),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.search, color: Colors.grey.shade400),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: _controller,
-                        style: const TextStyle(color: Colors.white, fontSize: 14),
-                        decoration: const InputDecoration(
-                          hintText: 'Search Sandbox Venue (MapsPeople HQ)...',
-                          hintStyle: TextStyle(color: Colors.grey, fontSize: 14),
-                          border: InputBorder.none,
-                          isDense: true,
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                        onSubmitted: (query) {
-                          appLog('UI', 'Search submitted: "$query"');
-                          widget.bloc.add(SearchSubmitted(query));
-                        },
-                      ),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: const [
+                BoxShadow(color: Colors.black26, blurRadius: 8),
+              ],
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.search, color: Colors.grey.shade400),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    decoration: const InputDecoration(
+                      hintText: 'Search a store or place…',
+                      hintStyle: TextStyle(color: Colors.grey, fontSize: 14),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 12),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.directions, color: Colors.blueAccent),
-                      onPressed: () {
-                        appLog('UI', 'Directions icon tapped in search bar');
-                        widget.onDirectionsPressed();
-                      },
-                      tooltip: 'Generate sample route',
-                    ),
-                  ],
+                    onSubmitted: (query) {
+                      appLog('UI', 'Search submitted: "$query"');
+                      ref.read(indoorMapProvider.notifier).submitSearch(query);
+                    },
+                    onChanged: (_) => setState(() {}),
+                  ),
                 ),
-              ),
-            ],
+                if (_controller.text.isNotEmpty)
+                  IconButton(
+                    icon: Icon(Icons.close, color: Colors.grey.shade500, size: 20),
+                    onPressed: () {
+                      _controller.clear();
+                      ref.read(indoorMapProvider.notifier).submitSearch('');
+                      setState(() {});
+                    },
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -97,8 +86,8 @@ class SearchResultsPanel extends StatelessWidget {
     required this.onLocationSelected,
   });
 
-  final List<MPLocation> results;
-  final ValueChanged<MPLocation> onLocationSelected;
+  final List<IndoorLocation> results;
+  final ValueChanged<IndoorLocation> onLocationSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -107,7 +96,7 @@ class SearchResultsPanel extends StatelessWidget {
     }
 
     return Positioned(
-      top: 120,
+      top: 118,
       left: 16,
       right: 16,
       child: SafeArea(
@@ -119,7 +108,7 @@ class SearchResultsPanel extends StatelessWidget {
             constraints: const BoxConstraints(maxHeight: 220),
             child: ListView.separated(
               shrinkWrap: true,
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: 4),
               itemCount: results.length,
               separatorBuilder: (_, __) => Divider(
                 height: 1,
@@ -129,13 +118,18 @@ class SearchResultsPanel extends StatelessWidget {
                 final location = results[index];
                 return ListTile(
                   dense: true,
+                  leading: const Icon(
+                    Icons.flag_outlined,
+                    color: Colors.redAccent,
+                    size: 20,
+                  ),
                   title: Text(
                     location.name,
                     style: const TextStyle(color: Colors.white),
                   ),
                   subtitle: Text(
                     location.floorName ?? '',
-                    style: TextStyle(color: Colors.grey.shade400),
+                    style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
                   ),
                   onTap: () => onLocationSelected(location),
                 );

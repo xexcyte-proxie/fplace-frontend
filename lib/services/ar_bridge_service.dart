@@ -1,7 +1,6 @@
 import 'dart:convert';
 
-import 'package:mapsindoors_mapbox/mapsindoors.dart';
-
+import '../models/indoor_map_models.dart';
 import '../utils/ar_session_logger.dart';
 
 /// Builds the JSON payload exchanged with the hosted 8th Wall page.
@@ -9,21 +8,21 @@ class ArBridgeService {
   const ArBridgeService();
 
   String buildRoutePayload({
-    required MPRoute route,
+    required IndoorRoute route,
     required int currentLegIndex,
     required String instructions,
     String? destinationName,
   }) {
-    final legs = route.legs ?? const [];
+    final legs = route.legs;
     final maneuvers = <Map<String, dynamic>>[];
 
     for (var legIndex = 0; legIndex < legs.length; legIndex++) {
-      final steps = legs[legIndex].steps ?? const [];
+      final steps = legs[legIndex].steps;
       for (var stepIndex = 0; stepIndex < steps.length; stepIndex++) {
         maneuvers.add({
           'legIndex': legIndex,
           'stepIndex': stepIndex,
-          'instruction': steps[stepIndex].maneuver ?? 'Continue',
+          'instruction': steps[stepIndex].instruction,
         });
       }
     }
@@ -33,7 +32,7 @@ class ArBridgeService {
       'legCount': legs.length,
       'currentLegIndex': currentLegIndex,
       'instructions': instructions,
-      'destinationName': destinationName,
+      'destinationName': destinationName ?? route.destinationName,
       'maneuvers': maneuvers,
       'timestampMs': DateTime.now().millisecondsSinceEpoch,
     });
