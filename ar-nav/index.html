@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fplaces AR Nav Bridge</title>
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #000;
+        color: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      #root {
+        height: 100%;
+        display: grid;
+        place-items: center;
+        text-align: center;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      .panel {
+        max-width: 640px;
+        width: 100%;
+        background: rgba(22, 22, 22, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 16px;
+        padding: 16px;
+      }
+      .status {
+        margin-top: 12px;
+        color: #8be9fd;
+        font-size: 14px;
+      }
+      pre {
+        text-align: left;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #111;
+        border-radius: 8px;
+        padding: 12px;
+        max-height: 35vh;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="panel">
+        <h2>AR Bridge Test Page</h2>
+        <p>
+          This is a quick hosted bridge for Flutter -> 8th Wall style messaging.
+          Replace this page with your real 8th Wall scene later.
+        </p>
+        <div class="status" id="status">Waiting for route payload...</div>
+        <pre id="payload">{}</pre>
+      </div>
+    </div>
+
+    <script>
+      const payloadEl = document.getElementById('payload');
+      const statusEl = document.getElementById('status');
+
+      function sendToFlutter(event) {
+        try {
+          if (window.ArBridge && typeof window.ArBridge.postMessage === 'function') {
+            window.ArBridge.postMessage(JSON.stringify(event));
+          } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ArBridge) {
+            window.webkit.messageHandlers.ArBridge.postMessage(JSON.stringify(event));
+          }
+        } catch (_) {}
+      }
+
+      window.onFlutterRoute = function (payload) {
+        payloadEl.textContent = JSON.stringify(payload, null, 2);
+        statusEl.textContent = 'Route payload received.';
+        sendToFlutter({ event: 'sessionReady' });
+        setTimeout(() => {
+          sendToFlutter({ event: 'trackingGood' });
+        }, 400);
+      };
+
+      window.onFlutterStop = function () {
+        statusEl.textContent = 'Route stopped.';
+        sendToFlutter({ event: 'trackingLost' });
+      };
+
+      setTimeout(() => sendToFlutter({ event: 'sessionReady' }), 800);
+    </script>
+  </body>
+</html>

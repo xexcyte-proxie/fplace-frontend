@@ -1,0 +1,79 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# VS Code
+.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+**/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio / Gradle
+/android/app/debug
+/android/app/profile
+/android/app/release
+/android/.gradle/
+**/.gradle/
+**/local.properties
+*.jks
+*.keystore
+
+# Archives and binaries (too large for git)
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.apk
+*.aab
+*.ipa
+*.dmg
+
+# Duplicate deploy snapshot (keep source at repo root only)
+/ar-nav-deploy/
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+
+# macOS
+**/.DS_Store
+
+# iOS / macOS generated
+**/Pods/
+**/.symlinks/
+**/Flutter/ephemeral/
+**/xcuserdata/
