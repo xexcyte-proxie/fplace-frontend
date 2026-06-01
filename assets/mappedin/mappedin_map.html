@@ -38,23 +38,62 @@
   <body>
     <div id="mappedin-map"></div>
     <script type="module">
+      const MAPPEDIN_CDN =
+        'https://cdn.jsdelivr.net/npm/@mappedin/mappedin-js@6.19.0/';
+
+      function sendToFlutter(message) {
+        if (window.flutter_inappwebview?.callHandler) {
+          window.flutter_inappwebview.callHandler('MappedinBridge', message);
+          return;
+        }
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(message, '*');
+          return;
+        }
+        if (window.MappedinBridge?.postMessage) {
+          window.MappedinBridge.postMessage(message);
+        }
+      }
+
       function debug(step, message, detail) {
         const payload = { step, message };
         if (detail != null) payload.detail = String(detail);
         console.log(`[Mappedin] ${step}: ${message}`, detail ?? '');
-        const messageJson = JSON.stringify({ event: 'debug', ...payload });
-        if (window.flutter_inappwebview?.callHandler) {
-          window.flutter_inappwebview.callHandler('MappedinBridge', messageJson);
-        }
+        sendToFlutter(JSON.stringify({ event: 'debug', ...payload }));
       }
 
       function post(event, payload = {}) {
-        const message = JSON.stringify({ event, ...payload });
-        if (window.flutter_inappwebview?.callHandler) {
-          window.flutter_inappwebview.callHandler('MappedinBridge', message);
-        } else if (window.MappedinBridge?.postMessage) {
-          window.MappedinBridge.postMessage(message);
-        }
+        sendToFlutter(JSON.stringify({ event, ...payload }));
+      }
+
+      function installFlutterInvokeBridge() {
+        window.addEventListener('message', (event) => {
+          let data = event.data;
+          if (typeof data === 'string') {
+            try {
+              data = JSON.parse(data);
+            } catch (_) {
+              return;
+            }
+          }
+          if (!data || data.source !== 'fplaces' || data.kind !== 'invoke') return;
+          const fn = window.MappedinMap?.[data.method];
+          if (typeof fn !== 'function') {
+            post('error', {
+              message: `Unknown MappedinMap method: ${data.method}`,
+              phase: 'invoke',
+            });
+            return;
+          }
+          Promise.resolve(fn.apply(window.MappedinMap, data.args || [])).catch(
+            (error) => {
+              post('error', {
+                message: String(error?.message || error),
+                phase: data.method,
+              });
+            },
+          );
+        });
       }
 
       debug('boot', '🚀 Module script starting');
@@ -79,11 +118,16 @@
         throw error;
       }
 
-      setWorkersUrl('./lib/esm/workers');
-      debug('workers', '👷 Workers URL set to ./lib/esm/workers');
+      const workersBase = window.flutter_inappwebview
+        ? './lib/esm/workers'
+        : `${MAPPEDIN_CDN}lib/esm/workers`;
+      setWorkersUrl(workersBase);
+      debug('workers', '👷 Workers URL set', workersBase);
 
       let mapData = null;
       let mapView = null;
+      /** Set in initMap() — used when serializing routes for AR. */
+      let activeMapConfig = null;
       let activeDirections = null;
       let activeLegs = [];
       let highlightedLocations = [];
@@ -99,6 +143,8 @@
       let routeDestinationMarker = null;
       /** Which marker the next map tap places: 'start' | 'end'. */
       let routeMarkerMode = 'start';
+      /** When true, map clicks are ignored (route sheet / overlays open). */
+      let routePlanningPaused = false;
 
       function rememberMapEntity(entity) {
         if (entity?.id) entityCache.set(entity.id, entity);
@@ -403,6 +449,83 @@
           Math.sin(dLat / 2) ** 2 +
           Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
         return 2 * R * Math.asin(Math.sqrt(h));
+      }
+
+      /** Canonical map coordinate for routing — keeps lat/lng + floor from the user's tap. */
+      function normalizeRouteCoordinate(coordinate) {
+        if (!coordinate) return null;
+        const ll = getCoordLatLng(coordinate);
+        if (!ll || !mapView?.createCoordinate) return coordinate;
+        const floor =
+          resolveFloor(
+            coordinate.floor?.id ||
+              coordinate.floor ||
+              mapView?.currentFloor?.id,
+          ) || mapView?.currentFloor;
+        return mapView.createCoordinate(ll.lat, ll.lng, floor);
+      }
+
+      function featuresFromNearestResults(results, maxMeters = 60) {
+        const out = [];
+        for (const entry of results || []) {
+          const feature = entry?.feature ?? entry?.object ?? entry;
+          const dist = Number(entry?.distance ?? entry?.dist ?? 0);
+          if (!feature) continue;
+          if (dist > maxMeters) continue;
+          out.push(feature);
+        }
+        return out;
+      }
+
+      async function queryNearestSpaces(coordinate) {
+        const q = mapData?.Query;
+        if (!q?.nearest) return [];
+        const attempts = [
+          () => q.nearest(coordinate, ['space'], { limit: 10 }),
+          () => q.nearest(coordinate, { featureTypes: ['space'], limit: 10 }),
+          () => q.nearest(coordinate, ['space']),
+        ];
+        for (const fn of attempts) {
+          try {
+            const result = await fn();
+            if (Array.isArray(result) && result.length) return result;
+          } catch (_) {}
+        }
+        return [];
+      }
+
+      /** Snap a map tap to walkable targets (spaces / entrances) for getDirections(). */
+      async function routableTargetsNearCoordinate(coordinate, maxMeters = 60) {
+        if (!coordinate || !mapData) return [];
+        const normalized = normalizeRouteCoordinate(coordinate) || coordinate;
+        const targets = [];
+
+        try {
+          const atResults = await mapData.Query?.at?.(normalized);
+          if (Array.isArray(atResults)) {
+            for (const hit of atResults) {
+              if (!hit) continue;
+              if (hit.type === 'space' || hit.entrances?.length || hit.spaces?.length) {
+                targets.push(...targetsFromMapEntity(hit));
+              }
+            }
+          }
+        } catch (error) {
+          debug('route', 'Query.at failed', error?.message || error);
+        }
+
+        const nearest = featuresFromNearestResults(
+          await queryNearestSpaces(normalized),
+          maxMeters,
+        );
+        for (const feature of nearest) {
+          targets.push(...targetsFromMapEntity(feature));
+        }
+
+        targets.push(normalized);
+        return uniqueTargets(
+          targets.map((t) => toRoutableTarget(t) || t).filter(Boolean),
+        );
       }
 
       function routingDestinationTargetsFromProfile(profile, origin) {
@@ -733,8 +856,7 @@
         let current = [];
 
         for (const instruction of instructions) {
-          const text = formatInstruction(instruction);
-          current.push({ instruction: text });
+          current.push(instructionStepPayload(instruction));
 
           const type = instruction?.action?.type || '';
           if (type.toLowerCase().includes('connection')) {
@@ -752,9 +874,7 @@
           : [
               {
                 index: 0,
-                steps: instructions.map((i) => ({
-                  instruction: formatInstruction(i),
-                })),
+                steps: instructions.map((i) => instructionStepPayload(i)),
               },
             ];
       }
@@ -768,6 +888,71 @@
             ? ` in ${Math.round(instruction.distance)}m`
             : '';
         return `${action.type || 'Continue'}${bearing}${distance}`;
+      }
+
+      function serializeCoordinate(coord) {
+        if (!coord) return null;
+        const ll = getCoordLatLng(coord);
+        if (!ll) return null;
+        const floorId =
+          coord.floor?.id || coord.floor || mapView?.currentFloor?.id || '';
+        return {
+          latitude: ll.lat,
+          longitude: ll.lng,
+          floorId: String(floorId),
+        };
+      }
+
+      function serializePathCoordinates(coords) {
+        if (!Array.isArray(coords)) return [];
+        return coords.map(serializeCoordinate).filter(Boolean);
+      }
+
+      function instructionStepPayload(instruction) {
+        const action = instruction?.action || {};
+        return {
+          instruction: formatInstruction(instruction),
+          actionType: action.type || 'Continue',
+          bearing: action.bearing ?? null,
+          distanceMeters:
+            instruction?.distance != null ? Number(instruction.distance) : null,
+        };
+      }
+
+      function buildRoutePayloadFromDirections(directions, destLabel, extras = {}) {
+        const summary = summarizeDirections(directions);
+        const legs = buildLegs(directions?.instructions);
+        const pathCoordinates = serializePathCoordinates(directions?.coordinates);
+        const maneuvers = [];
+        for (const leg of legs) {
+          for (let stepIndex = 0; stepIndex < leg.steps.length; stepIndex++) {
+            maneuvers.push({
+              legIndex: leg.index,
+              stepIndex,
+              ...leg.steps[stepIndex],
+            });
+          }
+        }
+        return {
+          legs,
+          destinationName: destLabel,
+          pathCoordinates,
+          maneuvers,
+          distanceMeters: directions?.distance ?? summary?.distance ?? null,
+          durationSeconds: directions?.duration ?? summary?.duration ?? null,
+          origin: extras.origin
+            ? serializeCoordinate(extras.origin)
+            : pathCoordinates[0] ?? null,
+          destination: extras.destination
+            ? serializeCoordinate(extras.destination)
+            : pathCoordinates[pathCoordinates.length - 1] ?? null,
+          mapId: activeMapConfig?.mapId || '',
+          diagnostics: {
+            coordinateCount: pathCoordinates.length,
+            instructionCount: maneuvers.length,
+            ...(extras.diagnostics || {}),
+          },
+        };
       }
 
       function clearHighlights() {
@@ -1087,9 +1272,7 @@
           destinationTargets[0]?.name ||
           '';
 
-        return {
-          legs: activeLegs,
-          destinationName: destLabel,
+        return buildRoutePayloadFromDirections(directions, destLabel, {
           diagnostics: {
             originCount: originTargets.length,
             destinationCount: destinationTargets.length,
@@ -1098,7 +1281,7 @@
             routingMode: 'legacy',
             ...summary,
           },
-        };
+        });
       }
 
       async function executeCoordinateRoute(origin, destination, destLabel) {
@@ -1172,9 +1355,9 @@
           }
         }
 
-        return {
-          legs: activeLegs,
-          destinationName: destLabel,
+        return buildRoutePayloadFromDirections(directions, destLabel, {
+          origin,
+          destination,
           diagnostics: {
             routingMode: 'coordinate-pair',
             originCount: 1,
@@ -1184,7 +1367,7 @@
             minDistanceToDestinationM: minDist,
             ...summary,
           },
-        };
+        });
       }
 
       async function drawRouteBetweenMarkedPoints(options = {}) {
@@ -1308,9 +1491,9 @@
           }
         }
 
-        return {
-          legs: activeLegs,
-          destinationName: destLabel,
+        return buildRoutePayloadFromDirections(directions, destLabel, {
+          origin,
+          destination: destinationTargets[0] || null,
           diagnostics: {
             routingMode: 'profile-spaces',
             originCount: 1,
@@ -1321,7 +1504,7 @@
             minDistanceToDestinationM: minDist,
             ...summary,
           },
-        };
+        });
       }
 
       function selectLeg(legIndex) {
@@ -1352,6 +1535,7 @@
       }
 
       async function initMap(config) {
+        activeMapConfig = config;
         debug('init', '📡 init() called', `mapId=${config.mapId}`);
 
         const options = {
@@ -1375,10 +1559,6 @@
         );
         debug('init', '✅ show3dMap() complete');
 
-        debug('init', '⏳ Adding location labels (MapsIndoors shows these by default)…');
-        const labelCount = addLocationLabels();
-        debug('init', '✅ Labels pass complete', `added=${labelCount}`);
-
         const floors = (mapData.getByType('floor') || []).map((floor, index) =>
           floorPayload(floor, index),
         );
@@ -1396,6 +1576,7 @@
 
         mapView.on('click', async (event) => {
           if (!event.coordinate) return;
+          if (routePlanningPaused) return;
 
           const results = await mapData.Query?.at?.(event.coordinate);
           const hit =
@@ -1455,7 +1636,18 @@
           floors,
           currentFloor,
         });
-        debug('init', '🎉 ready event posted to Flutter');
+        debug('init', '🎉 ready event posted to Flutter — UI unlocked');
+
+        // Labels after ready so Flutter does not stay blocked on a long sync pass.
+        setTimeout(() => {
+          try {
+            debug('init', '⏳ Adding location labels (background)…');
+            const labelCount = addLocationLabels();
+            debug('init', '✅ Labels pass complete', `added=${labelCount}`);
+          } catch (labelError) {
+            debug('init', '⚠️ Labels failed', labelError?.message || labelError);
+          }
+        }, 0);
       }
 
       window.MappedinMap = {
@@ -1530,6 +1722,10 @@
         },
         setRouteMarkerMode(mode) {
           applyRouteMarkerMode(mode);
+        },
+        setRoutePlanningPaused(paused) {
+          routePlanningPaused = !!paused;
+          debug('route', routePlanningPaused ? '⏸️ Map taps paused' : '▶️ Map taps active');
         },
         async drawRouteBetweenMarkedPoints(options = {}) {
           try {
@@ -1719,6 +1915,7 @@
         },
       };
 
+      installFlutterInvokeBridge();
       post('bridgeReady');
       debug('boot', '🔗 bridgeReady posted — waiting for Flutter init()');
     </script>

@@ -1,5 +1,4 @@
-import 'dart:io';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,10 +8,16 @@ import 'utils/map_diagnostic_logger.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (Platform.isAndroid) {
+
+  if (!kIsWeb) {
     await InAppWebViewController.setWebContentsDebuggingEnabled(true);
   }
-  MapDiagnosticLogger.step('App', 'Starting Indoor Navigation POC (Mappedin + Riverpod) 🚀');
+
+  MapDiagnosticLogger.step(
+    'App',
+    'Starting indoor navigation (${kIsWeb ? 'PWA / web' : 'native shell'})',
+  );
+
   runApp(
     const ProviderScope(
       child: IndoorMapPrototypeApp(),

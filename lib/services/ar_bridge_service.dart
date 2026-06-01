@@ -1,9 +1,10 @@
 import 'dart:convert';
 
+import '../config/app_config.dart';
 import '../models/indoor_map_models.dart';
 import '../utils/ar_session_logger.dart';
 
-/// Builds the JSON payload exchanged with the hosted 8th Wall page.
+/// Builds the JSON payload exchanged with the hosted 8th Wall / AR page.
 class ArBridgeService {
   const ArBridgeService();
 
@@ -13,33 +14,21 @@ class ArBridgeService {
     required String instructions,
     String? destinationName,
   }) {
-    final legs = route.legs;
-    final maneuvers = <Map<String, dynamic>>[];
-
-    for (var legIndex = 0; legIndex < legs.length; legIndex++) {
-      final steps = legs[legIndex].steps;
-      for (var stepIndex = 0; stepIndex < steps.length; stepIndex++) {
-        maneuvers.add({
-          'legIndex': legIndex,
-          'stepIndex': stepIndex,
-          'instruction': steps[stepIndex].instruction,
-        });
-      }
+    final body = route.toArJson(
+      currentLegIndex: currentLegIndex,
+      instructions: instructions,
+    );
+    if (destinationName != null) {
+      body['destinationName'] = destinationName;
     }
+    body['mappedinMapId'] = route.mapId ?? AppConfig.mappedinMapId;
+    body['timestampMs'] = DateTime.now().millisecondsSinceEpoch;
 
-    final payload = jsonEncode({
-      'type': 'route_update',
-      'legCount': legs.length,
-      'currentLegIndex': currentLegIndex,
-      'instructions': instructions,
-      'destinationName': destinationName ?? route.destinationName,
-      'maneuvers': maneuvers,
-      'timestampMs': DateTime.now().millisecondsSinceEpoch,
-    });
+    final payload = jsonEncode(body);
     ArSessionLogger.log(
       'Payload',
-      'Built route_update — legs=${legs.length} '
-      'maneuvers=${maneuvers.length} legIndex=$currentLegIndex '
+      'Built route_update — path=${route.pathCoordinates.length} pts '
+      'maneuvers=${route.maneuvers.length} legIndex=$currentLegIndex '
       'chars=${payload.length}',
     );
     return payload;

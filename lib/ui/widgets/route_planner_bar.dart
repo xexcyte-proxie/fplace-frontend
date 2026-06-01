@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'web_pointer_shield.dart';
+
 /// Slim status bar — guides the user through two map taps, then auto-routes.
 class RouteHintBar extends StatelessWidget {
   const RouteHintBar({
@@ -20,7 +22,7 @@ class RouteHintBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hint = _hintText();
-    final showReset = hasStart || hasEnd;
+    final canReset = (hasStart || hasEnd) && !isCalculating;
 
     return Positioned(
       left: 16,
@@ -28,7 +30,8 @@ class RouteHintBar extends StatelessWidget {
       bottom: 16,
       child: SafeArea(
         top: false,
-        child: Material(
+        child: WebPointerShield(
+          child: Material(
           color: const Color(0xFF1E293B),
           elevation: 6,
           borderRadius: BorderRadius.circular(14),
@@ -74,19 +77,26 @@ class RouteHintBar extends StatelessWidget {
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else if (showReset)
-                  IconButton(
-                    onPressed: onReset,
-                    icon: Icon(Icons.restart_alt, color: Colors.grey.shade400),
-                    tooltip: 'Start over',
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                   ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: canReset ? onReset : null,
+                  icon: const Icon(Icons.restart_alt, size: 18),
+                  label: const Text('Reset'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white70,
+                    disabledForegroundColor: Colors.grey.shade700,
+                    side: BorderSide(
+                      color: canReset ? Colors.grey.shade500 : Colors.grey.shade800,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
               ],
             ),
           ),
+        ),
         ),
       ),
     );

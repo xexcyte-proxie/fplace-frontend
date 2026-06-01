@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/indoor_map_models.dart';
 import '../../utils/app_logger.dart';
+import 'web_pointer_shield.dart';
 
 class FloorSelectorFab extends StatelessWidget {
   const FloorSelectorFab({
@@ -35,7 +36,8 @@ class FloorSelectorFab extends StatelessWidget {
     return Positioned(
       right: 16,
       bottom: bottomOffset,
-      child: Container(
+      child: WebPointerShield(
+        child: Container(
         width: 50,
         decoration: BoxDecoration(
           color: const Color(0xFF1E293B),
@@ -73,6 +75,7 @@ class FloorSelectorFab extends StatelessWidget {
               ),
             );
           },
+        ),
         ),
       ),
     );

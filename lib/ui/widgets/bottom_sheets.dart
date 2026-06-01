@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../utils/app_logger.dart';
+import 'web_pointer_shield.dart';
 
 class RouteBottomSheet extends StatelessWidget {
   const RouteBottomSheet({
@@ -12,6 +13,7 @@ class RouteBottomSheet extends StatelessWidget {
     required this.onNextLeg,
     required this.onOpenAr,
     required this.onClose,
+    required this.onResetPoints,
   });
 
   final String instructions;
@@ -21,6 +23,7 @@ class RouteBottomSheet extends StatelessWidget {
   final VoidCallback onNextLeg;
   final VoidCallback onOpenAr;
   final VoidCallback onClose;
+  final VoidCallback onResetPoints;
 
   @override
   Widget build(BuildContext context) {
@@ -30,9 +33,10 @@ class RouteBottomSheet extends StatelessWidget {
       left: 0,
       right: 0,
       bottom: 0,
-      child: Material(
+      child: WebPointerShield(
+        child: Material(
         color: const Color(0xFF1E293B),
-        elevation: 12,
+        elevation: 16,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 8, 28),
@@ -82,17 +86,37 @@ class RouteBottomSheet extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: onOpenAr,
-                  icon: const Icon(Icons.view_in_ar_outlined, size: 20),
-                  label: const Text('AR Guidance'),
-                  style: FilledButton.styleFrom(backgroundColor: Colors.teal),
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onResetPoints,
+                      icon: const Icon(Icons.restart_alt, size: 18),
+                      label: const Text('Reset points'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        side: BorderSide(color: Colors.grey.shade600),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: onOpenAr,
+                      icon: const Icon(Icons.view_in_ar_outlined, size: 20),
+                      label: const Text('AR'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.teal,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
+        ),
         ),
       ),
     );

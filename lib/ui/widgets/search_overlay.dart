@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/indoor_map_models.dart';
 import '../../providers/indoor_map_providers.dart';
 import '../../utils/app_logger.dart';
+import 'web_pointer_shield.dart';
 
 class SearchOverlay extends ConsumerStatefulWidget {
   const SearchOverlay({super.key});
@@ -28,7 +29,8 @@ class _SearchOverlayState extends ConsumerState<SearchOverlay> {
       left: 16,
       right: 16,
       child: SafeArea(
-        child: Material(
+        child: WebPointerShield(
+          child: Material(
           color: Colors.transparent,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -74,6 +76,7 @@ class _SearchOverlayState extends ConsumerState<SearchOverlay> {
             ),
           ),
         ),
+        ),
       ),
     );
   }
@@ -100,7 +103,8 @@ class SearchResultsPanel extends StatelessWidget {
       left: 16,
       right: 16,
       child: SafeArea(
-        child: Material(
+        child: WebPointerShield(
+          child: Material(
           color: const Color(0xFF1E293B),
           borderRadius: BorderRadius.circular(12),
           elevation: 8,
@@ -136,6 +140,7 @@ class SearchResultsPanel extends StatelessWidget {
               },
             ),
           ),
+        ),
         ),
       ),
     );

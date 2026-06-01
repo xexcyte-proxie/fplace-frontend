@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Deploy ar-nav/ to Netlify (production). Requires one-time: netlify login + netlify link
+set -e
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT/ar-nav"
+
+if [[ -n "${NETLIFY_AUTH_TOKEN:-}" && -n "${NETLIFY_SITE_ID:-}" ]]; then
+  echo "→ Deploying with NETLIFY_AUTH_TOKEN to site ${NETLIFY_SITE_ID}…"
+  npx --yes netlify-cli deploy --prod --dir=. --site="$NETLIFY_SITE_ID"
+  exit 0
+fi
+
+if command -v netlify >/dev/null 2>&1; then
+  CLI=(netlify)
+else
+  CLI=(npx --yes netlify-cli)
+fi
+
+if [[ ! -d "$ROOT/.netlify" && ! -f "$ROOT/ar-nav/.netlify/state.json" ]]; then
+  echo ""
+  echo "  First-time setup (once per machine):"
+  echo "    cd $ROOT/ar-nav"
+  echo "    npx netlify-cli login"
+  echo "    npx netlify-cli link    # choose site: fplaces-test"
+  echo ""
+  echo "  Or set env vars and re-run:"
+  echo "    export NETLIFY_AUTH_TOKEN=...   # from Netlify → User settings → Tokens"
+  echo "    export NETLIFY_SITE_ID=...        # Site configuration → Site ID"
+  echo ""
+fi
+
+echo "→ Deploying ar-nav to Netlify (production)…"
+"${CLI[@]}" deploy --prod --dir=.
+
+echo ""
+echo "  Done. App uses: https://fplaces-test.netlify.app/ (or your linked site URL)"
+echo "  Hard-refresh the AR tab on your phone after deploy."

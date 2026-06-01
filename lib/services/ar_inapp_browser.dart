@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart' as url_launcher;
 
 import '../config/app_config.dart';
 import '../utils/ar_session_logger.dart';
@@ -26,19 +27,32 @@ const _bridgeShimScript = '''
   })();
 ''';
 
-/// Builds the 8th Wall launch URL with route data in query params (for Chrome Custom Tabs).
+/// Builds the AR page URL with the full Mappedin route payload.
+///
+/// On web, the polyline is sent in the URL fragment (base64) to avoid query length limits.
 String buildArLaunchUrl({
   required String routePayload,
   required String instructions,
 }) {
   final base = Uri.parse(AppConfig.eighthWallArUrl);
-  return base.replace(
-    queryParameters: {
-      ...base.queryParameters,
-      'fplacesRoute': routePayload,
-      if (instructions.isNotEmpty) 'fplacesInstructions': instructions,
-    },
-  ).toString();
+  final query = <String, String>{
+    ...base.queryParameters,
+    if (instructions.isNotEmpty) 'fplacesInstructions': instructions,
+  };
+
+  if (kIsWeb) {
+    final encoded = base64Url.encode(utf8.encode(routePayload));
+    return base.replace(queryParameters: query, fragment: 'route=$encoded').toString();
+  }
+
+  return base
+      .replace(
+        queryParameters: {
+          ...query,
+          'fplacesRoute': routePayload,
+        },
+      )
+      .toString();
 }
 
 class _ArChromeSafariBrowser extends ChromeSafariBrowser {
@@ -210,7 +224,7 @@ class ArInAppBrowser extends InAppBrowser {
   }
 }
 
-/// Opens AR using Chrome Custom Tabs (real Chrome — camera works) with InAppBrowser fallback.
+/// Opens AR in a new browser tab (PWA) or Chrome Custom Tabs / InAppBrowser (native).
 Future<void> openArInAppBrowser({
   required String routePayload,
   required String instructions,
@@ -221,21 +235,38 @@ Future<void> openArInAppBrowser({
     throw StateError('Camera permission denied');
   }
 
-  final launchUrl = buildArLaunchUrl(
+  final arUrl = buildArLaunchUrl(
     routePayload: routePayload,
     instructions: instructions,
   );
 
+  if (kIsWeb) {
+    final uri = Uri.parse(arUrl);
+    final opened = await url_launcher.launchUrl(
+      uri,
+      webOnlyWindowName: '_blank',
+      mode: url_launcher.LaunchMode.externalApplication,
+    );
+    if (!opened) {
+      throw StateError('Could not open AR in a new browser tab.');
+    }
+    ArSessionLogger.log('Launch', 'PWA AR opened in new tab');
+  }
+
+  if (kIsWeb) {
+    return;
+  }
+
   final customTabsAvailable = await ChromeSafariBrowser.isAvailable();
   ArSessionLogger.log(
     'Launch',
-    'Custom Tabs available=$customTabsAvailable urlChars=${launchUrl.length}',
+    'Custom Tabs available=$customTabsAvailable urlChars=${arUrl.length}',
   );
 
   if (customTabsAvailable) {
     final browser = _ArChromeSafariBrowser();
     await browser.open(
-      url: WebUri(launchUrl),
+      url: WebUri(arUrl),
       settings: ChromeSafariBrowserSettings(
         shareState: CustomTabsShareState.SHARE_STATE_OFF,
         showTitle: false,
@@ -253,7 +284,7 @@ Future<void> openArInAppBrowser({
     instructions: instructions,
     onBridgeEvent: onBridgeEvent,
   );
-  await browser.openSession(launchUrl);
+  await browser.openSession(arUrl);
   await browser.waitUntilClosed();
   await browser.closeSession();
   browser.dispose();

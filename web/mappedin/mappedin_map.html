@@ -1,0 +1,1921 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Mappedin Map</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "@mappedin/mappedin-js": "https://cdn.jsdelivr.net/npm/@mappedin/mappedin-js@6.19.0/lib/esm/index.min.js",
+          "zod": "https://cdn.jsdelivr.net/npm/zod@4.1.12/+esm"
+        }
+      }
+    </script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #0f172a;
+      }
+      #mappedin-map {
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="mappedin-map"></div>
+    <script type="module">
+      const MAPPEDIN_CDN =
+        'https://cdn.jsdelivr.net/npm/@mappedin/mappedin-js@6.19.0/';
+
+      function sendToFlutter(message) {
+        if (window.flutter_inappwebview?.callHandler) {
+          window.flutter_inappwebview.callHandler('MappedinBridge', message);
+          return;
+        }
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(message, '*');
+          return;
+        }
+        if (window.MappedinBridge?.postMessage) {
+          window.MappedinBridge.postMessage(message);
+        }
+      }
+
+      function debug(step, message, detail) {
+        const payload = { step, message };
+        if (detail != null) payload.detail = String(detail);
+        console.log(`[Mappedin] ${step}: ${message}`, detail ?? '');
+        sendToFlutter(JSON.stringify({ event: 'debug', ...payload }));
+      }
+
+      function post(event, payload = {}) {
+        sendToFlutter(JSON.stringify({ event, ...payload }));
+      }
+
+      function installFlutterInvokeBridge() {
+        window.addEventListener('message', (event) => {
+          let data = event.data;
+          if (typeof data === 'string') {
+            try {
+              data = JSON.parse(data);
+            } catch (_) {
+              return;
+            }
+          }
+          if (!data || data.source !== 'fplaces' || data.kind !== 'invoke') return;
+          const fn = window.MappedinMap?.[data.method];
+          if (typeof fn !== 'function') {
+            post('error', {
+              message: `Unknown MappedinMap method: ${data.method}`,
+              phase: 'invoke',
+            });
+            return;
+          }
+          Promise.resolve(fn.apply(window.MappedinMap, data.args || [])).catch(
+            (error) => {
+              post('error', {
+                message: String(error?.message || error),
+                phase: data.method,
+              });
+            },
+          );
+        });
+      }
+
+      debug('boot', '🚀 Module script starting');
+
+      let getMapData;
+      let setWorkersUrl;
+      let show3dMap;
+
+      try {
+        debug('import', '⏳ Importing @mappedin/mappedin-js…');
+        const sdk = await import('@mappedin/mappedin-js');
+        getMapData = sdk.getMapData;
+        setWorkersUrl = sdk.setWorkersUrl;
+        show3dMap = sdk.show3dMap;
+        debug('import', '✅ SDK imported successfully');
+      } catch (error) {
+        post('error', {
+          message: `SDK import failed: ${error?.message || error}`,
+          stack: error?.stack,
+          phase: 'import',
+        });
+        throw error;
+      }
+
+      const workersBase = window.flutter_inappwebview
+        ? './lib/esm/workers'
+        : `${MAPPEDIN_CDN}lib/esm/workers`;
+      setWorkersUrl(workersBase);
+      debug('workers', '👷 Workers URL set', workersBase);
+
+      let mapData = null;
+      let mapView = null;
+      /** Set in initMap() — used when serializing routes for AR. */
+      let activeMapConfig = null;
+      let activeDirections = null;
+      let activeLegs = [];
+      let highlightedLocations = [];
+      /** Search/focus hits — Search API ids often differ from getById; keep SDK objects. */
+      const entityCache = new Map();
+      /** Selected destination for routing (Maker location-profile). */
+      let selectedLocationProfile = null;
+      /** "You are here" — set by tapping the map (Mappedin click coordinate). */
+      let userRouteOrigin = null;
+      let routeOriginMarker = null;
+      /** Route end — second map tap or POI selection. */
+      let userRouteDestination = null;
+      let routeDestinationMarker = null;
+      /** Which marker the next map tap places: 'start' | 'end'. */
+      let routeMarkerMode = 'start';
+      /** When true, map clicks are ignored (route sheet / overlays open). */
+      let routePlanningPaused = false;
+
+      function rememberMapEntity(entity) {
+        if (entity?.id) entityCache.set(entity.id, entity);
+      }
+
+      function lookupMapEntity(id) {
+        if (!id || !mapData) return null;
+        if (entityCache.has(id)) return entityCache.get(id);
+
+        const types = [
+          'space',
+          'location-profile',
+          'enterprise-location',
+          'object',
+          'door',
+          'node',
+          'point-of-interest',
+        ];
+        for (const type of types) {
+          const byId = mapData.getById(type, id);
+          if (byId) {
+            rememberMapEntity(byId);
+            return byId;
+          }
+          if (mapData.getByExternalId) {
+            const byExternal = mapData.getByExternalId(type, id);
+            if (byExternal?.length) {
+              rememberMapEntity(byExternal[0]);
+              return byExternal[0];
+            }
+          }
+        }
+        return null;
+      }
+
+      function floorPayload(floor, index) {
+        return {
+          id: floor.id,
+          displayName: floor.name || floor.shortName || `L${index}`,
+          sortOrder: index,
+        };
+      }
+
+      function locationPayload(item, floorName) {
+        const center = item.center || item.anchor || item.position;
+        return {
+          id: item.id,
+          name: item.name || 'Unknown',
+          description: item.description || '',
+          floorName: floorName || '',
+          floorId: item.floor?.id || item.floor || center?.floor || '',
+          buildingName: item.floorStack?.name || '',
+          latitude: center?.latitude ?? null,
+          longitude: center?.longitude ?? null,
+        };
+      }
+
+      function getFloorName(floorId) {
+        if (!mapData || !floorId) return '';
+        const floor = mapData.getById('floor', floorId);
+        return floor?.name || '';
+      }
+
+      function resolveTarget(target) {
+        if (!target || !mapData) return null;
+        if (typeof target === 'string') {
+          const entity = lookupMapEntity(target);
+          if (entity) {
+            if (entity.spaces?.length) {
+              return resolveSpaceRef(entity.spaces[0]) || entity;
+            }
+            return entity;
+          }
+          return null;
+        }
+        return target;
+      }
+
+      function resolveSpaceRef(ref) {
+        if (!ref || !mapData) return null;
+        if (typeof ref === 'object' && ref.id) return ref;
+        if (typeof ref === 'string') return mapData.getById('space', ref);
+        return null;
+      }
+
+      function resolveFloor(floorRef) {
+        if (!floorRef || !mapData) return mapView?.currentFloor || null;
+        if (typeof floorRef === 'object') return floorRef;
+        return mapData.getById('floor', floorRef);
+      }
+
+      function toRoutableTarget(target) {
+        if (!target) return null;
+        if (Array.isArray(target.spaces)) {
+          const anchor = profileAnchor(target);
+          if (anchor) return toRoutableTarget(anchor) || anchor;
+          return target;
+        }
+        if (target.entrances?.length) {
+          return target.entrances[0] || target;
+        }
+        const center = target.center || target.anchor || target.position;
+        if (
+          center?.latitude != null &&
+          center?.longitude != null &&
+          mapView?.createCoordinate
+        ) {
+          return mapView.createCoordinate(
+            Number(center.latitude),
+            Number(center.longitude),
+            resolveFloor(target.floor?.id || target.floor),
+          );
+        }
+        return target;
+      }
+
+      function targetsFromMapEntity(entity) {
+        if (!entity) return [];
+        const raw = [];
+
+        if (entity.spaces?.length) {
+          for (const ref of entity.spaces) {
+            const space = resolveSpaceRef(ref);
+            if (space) raw.push(space);
+          }
+        }
+        if (entity.points?.length) {
+          for (const point of entity.points) {
+            if (point) raw.push(point);
+          }
+        }
+        if (entity.mapObjects?.length) {
+          for (const obj of entity.mapObjects) {
+            if (obj) raw.push(obj);
+          }
+        }
+        if (!raw.length) raw.push(entity);
+
+        return uniqueTargets(
+          raw.map((t) => toRoutableTarget(t) || t).filter(Boolean),
+        );
+      }
+
+      function collectRoutableTargetsByName(name, { exactOnly = false } = {}) {
+        const needle = (name || '').trim().toLowerCase();
+        if (!needle) return [];
+
+        const targets = [];
+        const nameMatches = (value) => {
+          const hay = (value || '').trim().toLowerCase();
+          if (exactOnly) return hay === needle;
+          return hay === needle || hay.startsWith(needle) || needle.startsWith(hay);
+        };
+
+        for (const profile of mapData.getByType('location-profile') || []) {
+          if (!nameMatches(profile.name)) continue;
+          targets.push(...targetsFromMapEntity(profile));
+        }
+        for (const space of mapData.getByType('space') || []) {
+          if (!nameMatches(space.name)) continue;
+          targets.push(...targetsFromMapEntity(space));
+        }
+
+        return uniqueTargets(targets);
+      }
+
+      function uniqueTargets(targets) {
+        const seen = new Set();
+        const unique = [];
+        for (const target of targets) {
+          if (!target) continue;
+          const key =
+            target.id ||
+            `${target.latitude ?? ''},${target.longitude ?? ''}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          unique.push(target);
+        }
+        return unique;
+      }
+
+      function describeNavigationTarget(target) {
+        if (!target) return '(null)';
+        const parts = [];
+        if (target.name) parts.push(`name="${target.name}"`);
+        if (target.id) parts.push(`id=${target.id}`);
+        if (target.type) parts.push(`type=${target.type}`);
+        if (target.latitude != null && target.longitude != null) {
+          parts.push(
+            `coord=${Number(target.latitude).toFixed(5)},${Number(target.longitude).toFixed(5)}`,
+          );
+        }
+        const center = target.center || target.anchor;
+        if (center?.latitude != null) {
+          parts.push(
+            `center=${Number(center.latitude).toFixed(5)},${Number(center.longitude).toFixed(5)}`,
+          );
+        }
+        if (target.entrances?.length) {
+          parts.push(`entrances=${target.entrances.length}`);
+        }
+        return parts.length ? parts.join(' ') : String(target);
+      }
+
+      function logRouteTargets(label, targets) {
+        debug('route', label, `count=${targets.length}`);
+        targets.forEach((t, i) => {
+          debug('route', `  ${label}[${i}]`, describeNavigationTarget(t));
+        });
+      }
+
+      function summarizeDirections(directions) {
+        if (!directions) return null;
+        const instructions = (directions.instructions || []).map((inst, i) => {
+          const action = inst?.action;
+          const bearing = action?.bearing ? ` ${action.bearing}` : '';
+          const dist =
+            inst?.distance != null
+              ? ` ${Math.round(inst.distance)}m`
+              : '';
+          return `${i + 1}. ${action?.type || 'Continue'}${bearing}${dist}`;
+        });
+        return {
+          distance: directions.distance ?? null,
+          duration: directions.duration ?? null,
+          instructionCount: instructions.length,
+          coordinateCount: directions.coordinates?.length ?? 0,
+          instructionsPreview: instructions.slice(0, 12),
+        };
+      }
+
+      function resolveLocationProfileForSelection(id, nameHint) {
+        const cached = lookupMapEntity(id);
+        if (cached && Array.isArray(cached.spaces)) return cached;
+
+        const profile = mapData.getById('location-profile', id);
+        if (profile) {
+          rememberMapEntity(profile);
+          return profile;
+        }
+
+        const space =
+          mapData.getById('space', id) ||
+          (cached && !Array.isArray(cached.spaces) ? cached : null);
+        if (space) {
+          for (const p of mapData.getByType('location-profile') || []) {
+            for (const ref of p.spaces || []) {
+              const s = resolveSpaceRef(ref);
+              if (s?.id === space.id) {
+                rememberMapEntity(p);
+                return p;
+              }
+            }
+          }
+        }
+
+        if (nameHint) {
+          const needle = nameHint.trim().toLowerCase();
+          const match = (mapData.getByType('location-profile') || []).find(
+            (p) => (p.name || '').trim().toLowerCase() === needle,
+          );
+          if (match) {
+            rememberMapEntity(match);
+            return match;
+          }
+        }
+        return null;
+      }
+
+      function destinationSpacesFromProfile(profile) {
+        if (!profile?.spaces?.length) return [];
+        const spaces = [];
+        for (const ref of profile.spaces) {
+          const space = resolveSpaceRef(ref);
+          if (space) spaces.push(space);
+        }
+        return uniqueTargets(spaces);
+      }
+
+      function getCoordLatLng(target) {
+        if (!target) return null;
+        if (target.latitude != null && target.longitude != null) {
+          return { lat: Number(target.latitude), lng: Number(target.longitude) };
+        }
+        const center = target.center || target.anchor || target.position;
+        if (center?.latitude != null && center?.longitude != null) {
+          return { lat: Number(center.latitude), lng: Number(center.longitude) };
+        }
+        return null;
+      }
+
+      function distanceMetersBetween(a, b) {
+        const p1 = getCoordLatLng(a);
+        const p2 = getCoordLatLng(b);
+        if (!p1 || !p2) return Infinity;
+        const R = 6371000;
+        const dLat = ((p2.lat - p1.lat) * Math.PI) / 180;
+        const dLng = ((p2.lng - p1.lng) * Math.PI) / 180;
+        const lat1 = (p1.lat * Math.PI) / 180;
+        const lat2 = (p2.lat * Math.PI) / 180;
+        const h =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+        return 2 * R * Math.asin(Math.sqrt(h));
+      }
+
+      /** Canonical map coordinate for routing — keeps lat/lng + floor from the user's tap. */
+      function normalizeRouteCoordinate(coordinate) {
+        if (!coordinate) return null;
+        const ll = getCoordLatLng(coordinate);
+        if (!ll || !mapView?.createCoordinate) return coordinate;
+        const floor =
+          resolveFloor(
+            coordinate.floor?.id ||
+              coordinate.floor ||
+              mapView?.currentFloor?.id,
+          ) || mapView?.currentFloor;
+        return mapView.createCoordinate(ll.lat, ll.lng, floor);
+      }
+
+      function featuresFromNearestResults(results, maxMeters = 60) {
+        const out = [];
+        for (const entry of results || []) {
+          const feature = entry?.feature ?? entry?.object ?? entry;
+          const dist = Number(entry?.distance ?? entry?.dist ?? 0);
+          if (!feature) continue;
+          if (dist > maxMeters) continue;
+          out.push(feature);
+        }
+        return out;
+      }
+
+      async function queryNearestSpaces(coordinate) {
+        const q = mapData?.Query;
+        if (!q?.nearest) return [];
+        const attempts = [
+          () => q.nearest(coordinate, ['space'], { limit: 10 }),
+          () => q.nearest(coordinate, { featureTypes: ['space'], limit: 10 }),
+          () => q.nearest(coordinate, ['space']),
+        ];
+        for (const fn of attempts) {
+          try {
+            const result = await fn();
+            if (Array.isArray(result) && result.length) return result;
+          } catch (_) {}
+        }
+        return [];
+      }
+
+      /** Snap a map tap to walkable targets (spaces / entrances) for getDirections(). */
+      async function routableTargetsNearCoordinate(coordinate, maxMeters = 60) {
+        if (!coordinate || !mapData) return [];
+        const normalized = normalizeRouteCoordinate(coordinate) || coordinate;
+        const targets = [];
+
+        try {
+          const atResults = await mapData.Query?.at?.(normalized);
+          if (Array.isArray(atResults)) {
+            for (const hit of atResults) {
+              if (!hit) continue;
+              if (hit.type === 'space' || hit.entrances?.length || hit.spaces?.length) {
+                targets.push(...targetsFromMapEntity(hit));
+              }
+            }
+          }
+        } catch (error) {
+          debug('route', 'Query.at failed', error?.message || error);
+        }
+
+        const nearest = featuresFromNearestResults(
+          await queryNearestSpaces(normalized),
+          maxMeters,
+        );
+        for (const feature of nearest) {
+          targets.push(...targetsFromMapEntity(feature));
+        }
+
+        targets.push(normalized);
+        return uniqueTargets(
+          targets.map((t) => toRoutableTarget(t) || t).filter(Boolean),
+        );
+      }
+
+      function routingDestinationTargetsFromProfile(profile, origin) {
+        const spaces = destinationSpacesFromProfile(profile);
+        const targets = [];
+        for (const space of spaces) {
+          if (space.entrances?.length) {
+            for (const entrance of space.entrances) {
+              targets.push(entrance);
+            }
+          } else {
+            targets.push(space);
+          }
+        }
+        const unique = uniqueTargets(targets);
+        if (!origin || unique.length <= 1) return unique;
+
+        const sorted = [...unique].sort(
+          (a, b) => distanceMetersBetween(origin, b) - distanceMetersBetween(origin, a),
+        );
+        debug(
+          'route',
+          '🎯 Destination targets (entrances preferred)',
+          `count=${sorted.length} nearest=${Math.round(distanceMetersBetween(origin, sorted[0]))}m`,
+        );
+        return sorted;
+      }
+
+      function minDistanceToTargets(origin, targets) {
+        let min = Infinity;
+        for (const t of targets) {
+          min = Math.min(min, distanceMetersBetween(origin, t));
+        }
+        return min;
+      }
+
+      function isValidDirections(directions) {
+        if (!directions) return false;
+        const dist = Number(directions.distance) || 0;
+        const coordCount = directions.coordinates?.length ?? 0;
+        const instrCount = directions.instructions?.length ?? 0;
+        return dist >= 1 || coordCount >= 2 || instrCount > 0;
+      }
+
+      function showRouteOriginMarker(coordinate) {
+        if (!coordinate || !mapView?.Markers?.add) return;
+        try {
+          if (routeOriginMarker?.remove) routeOriginMarker.remove();
+        } catch (_) {}
+        routeOriginMarker = mapView.Markers.add(
+          coordinate,
+          `<div style="width:16px;height:16px;border-radius:50%;background:#22c55e;border:3px solid white;box-shadow:0 1px 4px rgba(0,0,0,.35);"></div>`,
+        );
+      }
+
+      function showRouteDestinationMarker(coordinate) {
+        if (!coordinate || !mapView?.Markers?.add) return;
+        try {
+          if (routeDestinationMarker?.remove) routeDestinationMarker.remove();
+        } catch (_) {}
+        routeDestinationMarker = mapView.Markers.add(
+          coordinate,
+          `<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:3px solid white;box-shadow:0 1px 4px rgba(0,0,0,.35);"></div>`,
+        );
+      }
+
+      function markerCoordinateForTarget(target) {
+        if (!target) return null;
+        if (target.latitude != null && target.longitude != null) return target;
+        const center = target.center || target.anchor || target.position;
+        if (center?.latitude != null && center?.longitude != null) return center;
+        return target;
+      }
+
+      function applyRouteMarkerMode(mode) {
+        routeMarkerMode = mode === 'end' ? 'end' : 'start';
+        post('routeMarkerModeChanged', { mode: routeMarkerMode });
+      }
+
+      function setUserRouteOriginFromCoordinate(coordinate, source = 'map tap') {
+        if (!coordinate) return;
+        if (
+          userRouteDestination &&
+          distanceMetersBetween(coordinate, userRouteDestination) < 3
+        ) {
+          post('error', {
+            message:
+              'Start point is too close to the end point. Tap farther away on the map.',
+            phase: 'routePlanning',
+          });
+          return;
+        }
+        userRouteOrigin = coordinate;
+        showRouteOriginMarker(coordinate);
+        const floorId =
+          coordinate.floor?.id ||
+          coordinate.floor ||
+          mapView?.currentFloor?.id ||
+          '';
+        debug(
+          'route',
+          `📍 Start point set (${source})`,
+          describeNavigationTarget(coordinate),
+        );
+        post('routeOriginSet', {
+          latitude: coordinate.latitude,
+          longitude: coordinate.longitude,
+          floorId: String(floorId),
+          source,
+        });
+        if (!userRouteDestination) {
+          applyRouteMarkerMode('end');
+        }
+      }
+
+      function setUserRouteDestinationFromTarget(target, source = 'map tap', label) {
+        const routable = toRoutableTarget(target) || target;
+        if (!routable) return;
+        if (userRouteOrigin && distanceMetersBetween(userRouteOrigin, routable) < 3) {
+          post('error', {
+            message:
+              'End point is too close to the start point. Tap farther away on the map.',
+            phase: 'routePlanning',
+          });
+          return;
+        }
+        userRouteDestination = routable;
+        showRouteDestinationMarker(markerCoordinateForTarget(routable));
+        const floorId =
+          routable.floor?.id ||
+          routable.floor ||
+          mapView?.currentFloor?.id ||
+          '';
+        debug(
+          'route',
+          `🎯 End point set (${source})`,
+          describeNavigationTarget(routable),
+        );
+        post('routeDestinationSet', {
+          latitude: routable.latitude ?? null,
+          longitude: routable.longitude ?? null,
+          floorId: String(floorId),
+          source,
+          label: label || routable.name || 'End point',
+        });
+      }
+
+      function setUserRouteDestinationFromCoordinate(coordinate, source = 'map tap') {
+        if (!coordinate) return;
+        setUserRouteDestinationFromTarget(coordinate, source, 'End point');
+      }
+
+      function removeRouteDestination() {
+        userRouteDestination = null;
+        try {
+          if (routeDestinationMarker?.remove) routeDestinationMarker.remove();
+        } catch (_) {}
+        routeDestinationMarker = null;
+        post('routeDestinationCleared');
+      }
+
+      function resetRoutePoints() {
+        userRouteOrigin = null;
+        userRouteDestination = null;
+        try {
+          if (routeOriginMarker?.remove) routeOriginMarker.remove();
+          if (routeDestinationMarker?.remove) routeDestinationMarker.remove();
+        } catch (_) {}
+        routeOriginMarker = null;
+        routeDestinationMarker = null;
+        routeMarkerMode = 'start';
+        post('routeOriginCleared');
+        post('routeDestinationCleared');
+        post('routeMarkerModeChanged', { mode: 'start' });
+      }
+
+      function handleRoutePlanningTap(coordinate) {
+        if (!coordinate) return;
+        if (!userRouteOrigin) {
+          setUserRouteOriginFromCoordinate(coordinate, 'map tap');
+          return;
+        }
+        setUserRouteDestinationFromCoordinate(coordinate, 'map tap');
+      }
+
+      async function focusOnUserLocation(options = {}) {
+        const lat = Number(options.latitude);
+        const lng = Number(options.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          throw new Error('Invalid GPS coordinates');
+        }
+        if (!mapView?.createCoordinate) {
+          throw new Error('Map is not ready yet');
+        }
+
+        const floor = resolveFloor(options.floorId);
+        const coordinate = mapView.createCoordinate(lat, lng, floor);
+        if (!coordinate) {
+          throw new Error(
+            'Could not place your location on this map. You may be outside the venue.',
+          );
+        }
+
+        if (floor && mapView.setFloor) {
+          const floorId = floor.id || floor;
+          if (floorId) mapView.setFloor(floorId);
+        }
+
+        mapView.Camera?.focusOn?.(coordinate, { maxZoomLevel: 20 });
+
+        if (options.setRouteOrigin !== false) {
+          setUserRouteOriginFromCoordinate(coordinate, 'GPS');
+        }
+
+        post('userLocationFocused', {
+          latitude: lat,
+          longitude: lng,
+          floorId: String(
+            coordinate.floor?.id ||
+              coordinate.floor ||
+              mapView?.currentFloor?.id ||
+              '',
+          ),
+          accuracyMeters: options.accuracyMeters ?? null,
+        });
+        return true;
+      }
+
+      async function selectLocationForRoute(locationId, options = {}) {
+        const nameHint = options.name || options.destinationName || '';
+        const profile = resolveLocationProfileForSelection(locationId, nameHint);
+        selectedLocationProfile = profile;
+
+        if (profile) {
+          rememberMapEntity(profile);
+          debug(
+            'select',
+            '✅ Stored location-profile',
+            `${profile.name} spaces=${profile.spaces?.length ?? 0}`,
+          );
+        } else {
+          debug('select', '⚠️ No location-profile for selection', locationId);
+        }
+
+        await focusLocation(locationId);
+
+        const entity = profile || lookupMapEntity(locationId) || resolveTarget(locationId);
+        if (entity) {
+          const anchor = profile ? profileAnchor(profile) : entity;
+          if (anchor) {
+            const destTargets = profile
+              ? routingDestinationTargetsFromProfile(profile, userRouteOrigin)
+              : [toRoutableTarget(anchor) || anchor];
+            const destTarget = destTargets[0] || anchor;
+            setUserRouteDestinationFromTarget(
+              destTarget,
+              'POI',
+              nameHint || entity.name || 'Destination',
+            );
+          }
+
+          post('locationSelected', {
+            location: locationPayload(
+              {
+                ...entity,
+                id: locationId,
+                name: nameHint || entity.name,
+                center: anchor?.center || entity.center,
+              },
+              getFloorName(
+                anchor?.floor?.id ||
+                  anchor?.floor ||
+                  entity.floor?.id ||
+                  entity.floor,
+              ),
+            ),
+          });
+        }
+      }
+
+      function collectRoutableTargetsForId(id, nameHint) {
+        if (!id || !mapData) return [];
+
+        const targets = [];
+        const entity = lookupMapEntity(id);
+        if (entity) {
+          targets.push(...targetsFromMapEntity(entity));
+        }
+
+        const resolved = resolveTarget(id);
+        if (resolved) {
+          targets.push(...targetsFromMapEntity(resolved));
+        }
+
+        const seedName = (nameHint || entity?.name || resolved?.name || '').trim();
+        if (seedName) {
+          const byName = collectRoutableTargetsByName(seedName, { exactOnly: true });
+          debug('route', '🔎 Name lookup (exact)', `"${seedName}" → ${byName.length} target(s)`);
+          targets.push(...byName);
+        }
+
+        if (seedName && /^washrooms?$/i.test(seedName)) {
+          for (const p of mapData.getByType('location-profile') || []) {
+            if (!/^washrooms?$/i.test(p.name || '')) continue;
+            targets.push(...targetsFromMapEntity(p));
+          }
+        }
+
+        return uniqueTargets(targets);
+      }
+
+      function profileAnchor(profile) {
+        const spaces = profile?.spaces || [];
+        if (spaces.length) return resolveSpaceRef(spaces[0]);
+        const points = profile?.points || [];
+        if (points.length) return points[0];
+        const objects = profile?.mapObjects || [];
+        if (objects.length) return objects[0];
+        return null;
+      }
+
+      function buildLegs(instructions) {
+        if (!instructions?.length) {
+          return [{ index: 0, steps: [{ instruction: 'Continue' }] }];
+        }
+
+        const legs = [];
+        let current = [];
+
+        for (const instruction of instructions) {
+          current.push(instructionStepPayload(instruction));
+
+          const type = instruction?.action?.type || '';
+          if (type.toLowerCase().includes('connection')) {
+            legs.push({ index: legs.length, steps: [...current] });
+            current = [];
+          }
+        }
+
+        if (current.length) {
+          legs.push({ index: legs.length, steps: current });
+        }
+
+        return legs.length
+          ? legs
+          : [
+              {
+                index: 0,
+                steps: instructions.map((i) => instructionStepPayload(i)),
+              },
+            ];
+      }
+
+      function formatInstruction(instruction) {
+        const action = instruction?.action;
+        if (!action) return 'Continue';
+        const bearing = action.bearing ? ` ${action.bearing}` : '';
+        const distance =
+          instruction.distance != null
+            ? ` in ${Math.round(instruction.distance)}m`
+            : '';
+        return `${action.type || 'Continue'}${bearing}${distance}`;
+      }
+
+      function serializeCoordinate(coord) {
+        if (!coord) return null;
+        const ll = getCoordLatLng(coord);
+        if (!ll) return null;
+        const floorId =
+          coord.floor?.id || coord.floor || mapView?.currentFloor?.id || '';
+        return {
+          latitude: ll.lat,
+          longitude: ll.lng,
+          floorId: String(floorId),
+        };
+      }
+
+      function serializePathCoordinates(coords) {
+        if (!Array.isArray(coords)) return [];
+        return coords.map(serializeCoordinate).filter(Boolean);
+      }
+
+      function instructionStepPayload(instruction) {
+        const action = instruction?.action || {};
+        return {
+          instruction: formatInstruction(instruction),
+          actionType: action.type || 'Continue',
+          bearing: action.bearing ?? null,
+          distanceMeters:
+            instruction?.distance != null ? Number(instruction.distance) : null,
+        };
+      }
+
+      function buildRoutePayloadFromDirections(directions, destLabel, extras = {}) {
+        const summary = summarizeDirections(directions);
+        const legs = buildLegs(directions?.instructions);
+        const pathCoordinates = serializePathCoordinates(directions?.coordinates);
+        const maneuvers = [];
+        for (const leg of legs) {
+          for (let stepIndex = 0; stepIndex < leg.steps.length; stepIndex++) {
+            maneuvers.push({
+              legIndex: leg.index,
+              stepIndex,
+              ...leg.steps[stepIndex],
+            });
+          }
+        }
+        return {
+          legs,
+          destinationName: destLabel,
+          pathCoordinates,
+          maneuvers,
+          distanceMeters: directions?.distance ?? summary?.distance ?? null,
+          durationSeconds: directions?.duration ?? summary?.duration ?? null,
+          origin: extras.origin
+            ? serializeCoordinate(extras.origin)
+            : pathCoordinates[0] ?? null,
+          destination: extras.destination
+            ? serializeCoordinate(extras.destination)
+            : pathCoordinates[pathCoordinates.length - 1] ?? null,
+          mapId: activeMapConfig?.mapId || '',
+          diagnostics: {
+            coordinateCount: pathCoordinates.length,
+            instructionCount: maneuvers.length,
+            ...(extras.diagnostics || {}),
+          },
+        };
+      }
+
+      function clearHighlights() {
+        highlightedLocations.forEach((marker) => {
+          try {
+            marker?.remove?.();
+          } catch (_) {}
+        });
+        highlightedLocations = [];
+      }
+
+      /**
+       * MapsIndoors shows POI/room names on the map out of the box.
+       * Mappedin requires labels to be added explicitly via mapView.Labels.
+       *
+       * Demo Mall uses Maker keys (mik_*) — amenities like washrooms live in
+       * location-profile, not enterprise-location.
+       */
+      function addLocationLabels() {
+        if (!mapView?.Labels?.add || !mapData) return 0;
+
+        let count = 0;
+        const labeledSpaceIds = new Set();
+
+        function addLabel(target, text, options = {}) {
+          if (!target || !text?.trim()) return;
+          const spaceId = target.id;
+          if (spaceId && labeledSpaceIds.has(spaceId)) return;
+          try {
+            mapView.Labels.add(target, text.trim(), {
+              interactive: true,
+              rank: 'medium',
+              ...options,
+            });
+            if (spaceId) labeledSpaceIds.add(spaceId);
+            count++;
+          } catch (error) {
+            debug('labels', '⚠️ Failed to add label', `${text}: ${error?.message}`);
+          }
+        }
+
+        // Maker maps (mik_* keys): washrooms, stores, etc.
+        const profiles = mapData.getByType('location-profile') || [];
+        debug('labels', '📋 location-profile count', String(profiles.length));
+        for (const profile of profiles) {
+          const anchor = profileAnchor(profile);
+          if (anchor) {
+            addLabel(anchor, profile.name, { rank: 'high' });
+          }
+        }
+
+        // CMS / Enterprise maps only (Maker maps use location-profile above).
+        if (mapData.isEnterpriseMode) {
+        for (const location of mapData.getByType('enterprise-location') || []) {
+          const anchor =
+            (location.spaces || [])
+              .map((entry) =>
+                typeof entry === 'string'
+                  ? mapData.getById('space', entry)
+                  : entry,
+              )
+              .filter(Boolean)[0] || location;
+          addLabel(anchor, location.name, { rank: 'high' });
+        }
+        }
+
+        // Named spaces not already covered by a profile (avoid invalid-parent warnings).
+        for (const space of mapData.getByType('space') || []) {
+          if (!space.name || labeledSpaceIds.has(space.id)) continue;
+          addLabel(space, space.name);
+        }
+
+        debug('labels', '🏷️ Location labels added', `count=${count}`);
+        return count;
+      }
+
+      async function searchLocations(query, limit = 30) {
+        const trimmed = (query || '').trim().toLowerCase();
+        if (!trimmed) return [];
+
+        try {
+          if (mapData?.Search?.enable) {
+            await mapData.Search.enable();
+            const results = await mapData.Search.query(query, {
+              places: { limit },
+              enterpriseLocations: { limit },
+              locationProfiles: { limit },
+            });
+
+            const locations = [];
+            for (const group of [
+              results?.places,
+              results?.enterpriseLocations,
+              results?.locationProfiles,
+            ]) {
+              if (!Array.isArray(group)) continue;
+              for (const entry of group) {
+                const item = entry?.item;
+                if (!item?.id) continue;
+                rememberMapEntity(item);
+                const profileForItem = resolveLocationProfileForSelection(
+                  item.id,
+                  item.name,
+                );
+                if (profileForItem) rememberMapEntity(profileForItem);
+                locations.push(
+                  locationPayload(item, getFloorName(item.floor)),
+                );
+              }
+            }
+            if (locations.length) return locations.slice(0, limit);
+          }
+        } catch (error) {
+          console.warn('Search API unavailable, falling back to filter', error);
+        }
+
+        const locations = [];
+
+        for (const profile of mapData.getByType('location-profile') || []) {
+          const name = (profile.name || '').toLowerCase();
+          const tags = (profile.searchTags || []).join(' ').toLowerCase();
+          if (!name.includes(trimmed) && !tags.includes(trimmed)) continue;
+          const anchor = profileAnchor(profile);
+          rememberMapEntity(profile);
+          locations.push(
+            locationPayload(
+              { ...profile, id: profile.id, center: anchor?.center },
+              getFloorName(anchor?.floor?.id || anchor?.floor),
+            ),
+          );
+        }
+
+        const spaces = mapData.getByType('space') || [];
+        for (const space of spaces) {
+          if (!(space.name || '').toLowerCase().includes(trimmed)) continue;
+          if (locations.some((loc) => loc.id === space.id)) continue;
+          rememberMapEntity(space);
+          locations.push(
+            locationPayload(space, getFloorName(space.floor?.id || space.floor)),
+          );
+        }
+
+        return locations.slice(0, limit);
+      }
+
+      function highlightSearchResults(locations) {
+        clearHighlights();
+        if (!mapView || !locations?.length) return;
+
+        for (const loc of locations) {
+          const space = resolveTarget(loc.id);
+          if (!space?.center) continue;
+          const marker = mapView.Markers?.add?.(space.center, `<div style="
+            width:12px;height:12px;border-radius:50%;
+            background:#3b82f6;border:2px solid white;
+          "></div>`);
+          if (marker) highlightedLocations.push(marker);
+        }
+      }
+
+      async function focusLocation(locationId) {
+        const entity = lookupMapEntity(locationId);
+        const target = entity || resolveTarget(locationId);
+        if (!target) return false;
+        rememberMapEntity(target);
+
+        if (target.floor) {
+          mapView.setFloor(target.floor.id || target.floor);
+        }
+
+        mapView.Camera?.focusOn?.(target, { maxZoomLevel: 20 });
+        return true;
+      }
+
+      function findDefaultRouteOrigins() {
+        const origins = [];
+        const add = (target) => {
+          const routable = toRoutableTarget(target) || target;
+          if (routable) origins.push(routable);
+        };
+
+        const doors = mapData.getByType('door') || [];
+        const entranceDoors = doors.filter((d) => d.type === 'entrance');
+        for (const door of entranceDoors.length ? entranceDoors : doors.slice(0, 3)) {
+          add(door);
+        }
+
+        const patterns = [
+          /entrance/i,
+          /food court/i,
+          /cafeteria/i,
+          /centre court/i,
+          /center court/i,
+          /lobby/i,
+          /main/i,
+          /reception/i,
+          /atrium/i,
+          /mall/i,
+        ];
+
+        for (const pattern of patterns) {
+          for (const profile of mapData.getByType('location-profile') || []) {
+            if (!pattern.test(profile.name || '')) continue;
+            const anchor = profileAnchor(profile);
+            if (anchor) add(anchor);
+          }
+        }
+
+        const spaces = mapData.getByType('space') || [];
+        for (const pattern of patterns) {
+          const space = spaces.find((s) => pattern.test(s.name || ''));
+          if (space) add(space);
+        }
+
+        for (const name of ['Cafeteria', 'Gymnasium', 'Food Court', 'Centre Court']) {
+          const space = spaces.find(
+            (s) => (s.name || '').toLowerCase() === name.toLowerCase(),
+          );
+          if (space) add(space);
+        }
+
+        for (const space of spaces) {
+          if (space.entrances?.length || space.center) add(space);
+          if (origins.length >= 12) break;
+        }
+
+        return uniqueTargets(origins);
+      }
+
+      async function drawRoute(origin, destination) {
+        let originTargets = [];
+        let destinationTargets = [];
+
+        if (Array.isArray(origin)) {
+          for (const entry of origin) {
+            if (typeof entry === 'string') {
+              originTargets.push(...collectRoutableTargetsForId(entry));
+            } else {
+              const routable = toRoutableTarget(entry) || entry;
+              if (routable) originTargets.push(routable);
+            }
+          }
+        } else if (typeof origin === 'string') {
+          originTargets = collectRoutableTargetsForId(origin);
+        } else if (origin) {
+          originTargets = [toRoutableTarget(origin) || origin];
+        }
+
+        if (Array.isArray(destination)) {
+          for (const entry of destination) {
+            if (typeof entry === 'string') {
+              destinationTargets.push(...collectRoutableTargetsForId(entry));
+            } else {
+              const routable = toRoutableTarget(entry) || entry;
+              if (routable) destinationTargets.push(routable);
+            }
+          }
+        } else if (typeof destination === 'string') {
+          destinationTargets = collectRoutableTargetsForId(destination);
+        } else if (destination) {
+          destinationTargets = [toRoutableTarget(destination) || destination];
+        }
+
+        originTargets = uniqueTargets(originTargets.filter(Boolean));
+        destinationTargets = uniqueTargets(destinationTargets.filter(Boolean));
+
+        logRouteTargets('origin', originTargets);
+        logRouteTargets('destination', destinationTargets);
+
+        if (!originTargets.length || !destinationTargets.length) {
+          throw new Error('Could not resolve route endpoints');
+        }
+
+        const from =
+          originTargets.length === 1 ? originTargets[0] : originTargets;
+        const to =
+          destinationTargets.length === 1
+            ? destinationTargets[0]
+            : destinationTargets;
+
+        debug(
+          'route',
+          '⏳ getDirections()',
+          `from=${Array.isArray(from) ? from.length : 1} to=${Array.isArray(to) ? to.length : 1}`,
+        );
+
+        mapView.Navigation?.clear?.();
+        mapView.Paths?.removeAll?.();
+
+        const directions = await mapData.getDirections(from, to);
+        if (!directions) {
+          debug('route', '❌ getDirections() returned null/undefined', '');
+          throw new Error('No route found between selected locations');
+        }
+
+        const summary = summarizeDirections(directions);
+        debug(
+          'route',
+          '✅ getDirections() OK',
+          summary
+            ? `distance=${summary.distance}m duration=${summary.duration}s instructions=${summary.instructionCount} coords=${summary.coordinateCount}`
+            : '',
+        );
+        if (summary?.instructionsPreview?.length) {
+          for (const line of summary.instructionsPreview) {
+            debug('route', '👣', line);
+          }
+        }
+
+        activeDirections = directions;
+        activeLegs = buildLegs(directions.instructions);
+        mapView.Navigation.draw(directions);
+        debug('route', '✅ Navigation.draw() complete', `legs=${activeLegs.length}`);
+
+        const destLabel =
+          destinationTargets.find((t) => t.name)?.name ||
+          destinationTargets[0]?.name ||
+          '';
+
+        return buildRoutePayloadFromDirections(directions, destLabel, {
+          diagnostics: {
+            originCount: originTargets.length,
+            destinationCount: destinationTargets.length,
+            origins: originTargets.map(describeNavigationTarget),
+            destinations: destinationTargets.map(describeNavigationTarget),
+            routingMode: 'legacy',
+            ...summary,
+          },
+        });
+      }
+
+      async function executeCoordinateRoute(origin, destination, destLabel) {
+        logRouteTargets('origin', [origin]);
+        logRouteTargets('destination', [destination]);
+
+        if (!origin || !destination) {
+          throw new Error('Could not resolve route endpoints');
+        }
+
+        const minDist = distanceMetersBetween(origin, destination);
+        debug('route', '📏 Start → end', `${Math.round(minDist)}m`);
+        if (minDist < 3) {
+          throw new Error(
+            'Start and end points are too close together. Tap two different spots on the map.',
+          );
+        }
+
+        debug('route', '⏳ getDirections(start → end)', destLabel);
+
+        mapView.Navigation?.clear?.();
+        mapView.Paths?.removeAll?.();
+
+        const directions = await mapData.getDirections(origin, destination);
+        if (!directions) {
+          debug('route', '❌ getDirections() returned null/undefined', '');
+          throw new Error('No route found between start and end points');
+        }
+
+        const summary = summarizeDirections(directions);
+        if (!isValidDirections(directions)) {
+          debug(
+            'route',
+            '❌ Degenerate directions (0m / no path)',
+            summary ? JSON.stringify(summary) : '',
+          );
+          throw new Error(
+            `No walkable route found (${Math.round(minDist)}m apart). Try points in a hallway or near an entrance.`,
+          );
+        }
+
+        debug(
+          'route',
+          '✅ getDirections() OK',
+          summary
+            ? `distance=${summary.distance}m duration=${summary.duration}s instructions=${summary.instructionCount}`
+            : '',
+        );
+        if (summary?.instructionsPreview?.length) {
+          for (const line of summary.instructionsPreview) {
+            debug('route', '👣', line);
+          }
+        }
+
+        activeDirections = directions;
+        activeLegs = buildLegs(directions.instructions);
+
+        try {
+          mapView.Navigation.draw(directions);
+          debug('route', '✅ Navigation.draw() complete', `legs=${activeLegs.length}`);
+        } catch (drawError) {
+          debug('route', '❌ Navigation.draw() failed', drawError?.message || drawError);
+          if (directions.coordinates?.length >= 2) {
+            mapView.Paths?.add?.(directions.coordinates, {
+              width: 0.8,
+              color: '#3b82f6',
+            });
+            debug('route', '✅ Drew path via Paths.add fallback', '');
+          } else {
+            throw drawError;
+          }
+        }
+
+        return buildRoutePayloadFromDirections(directions, destLabel, {
+          origin,
+          destination,
+          diagnostics: {
+            routingMode: 'coordinate-pair',
+            originCount: 1,
+            destinationCount: 1,
+            origins: [describeNavigationTarget(origin)],
+            destinations: [describeNavigationTarget(destination)],
+            minDistanceToDestinationM: minDist,
+            ...summary,
+          },
+        });
+      }
+
+      async function drawRouteBetweenMarkedPoints(options = {}) {
+        let origin = userRouteOrigin;
+        let destination = userRouteDestination;
+        let destLabel =
+          options.destinationName ||
+          userRouteDestination?.name ||
+          'End point';
+
+        if (
+          options.originLatitude != null &&
+          options.originLongitude != null &&
+          mapView?.createCoordinate
+        ) {
+          origin = mapView.createCoordinate(
+            Number(options.originLatitude),
+            Number(options.originLongitude),
+            resolveFloor(options.originFloorId),
+          );
+        }
+        if (
+          options.destinationLatitude != null &&
+          options.destinationLongitude != null &&
+          mapView?.createCoordinate
+        ) {
+          destination = mapView.createCoordinate(
+            Number(options.destinationLatitude),
+            Number(options.destinationLongitude),
+            resolveFloor(options.destinationFloorId),
+          );
+        }
+
+        if (!origin) {
+          throw new Error('Tap the map to set a start point (green marker).');
+        }
+        if (!destination) {
+          throw new Error('Tap the map to set an end point (red marker).');
+        }
+
+        return executeCoordinateRoute(origin, destination, destLabel);
+      }
+
+      async function executeProfileRoute(origin, destinationTargets, destLabel) {
+        logRouteTargets('origin (userCoordinate)', [origin]);
+        logRouteTargets('destination (profile.spaces)', destinationTargets);
+
+        if (!origin || !destinationTargets.length) {
+          throw new Error('Could not resolve route endpoints');
+        }
+
+        const minDist = minDistanceToTargets(origin, destinationTargets);
+        debug('route', '📏 Origin → nearest destination', `${Math.round(minDist)}m`);
+        if (minDist < 8) {
+          throw new Error(
+            `Your start point is only ${Math.round(minDist)}m from ${destLabel}. Tap the map in a hallway or near an entrance, away from the destination, then get directions again.`,
+          );
+        }
+
+        const to =
+          destinationTargets.length === 1
+            ? destinationTargets[0]
+            : destinationTargets;
+
+        debug(
+          'route',
+          '⏳ getDirections(userCoordinate → profile.spaces)',
+          `to=${Array.isArray(to) ? to.length : 1}`,
+        );
+
+        mapView.Navigation?.clear?.();
+        mapView.Paths?.removeAll?.();
+
+        const directions = await mapData.getDirections(origin, to);
+        if (!directions) {
+          debug('route', '❌ getDirections() returned null/undefined', '');
+          throw new Error('No route found between your location and destination');
+        }
+
+        const summary = summarizeDirections(directions);
+        if (!isValidDirections(directions)) {
+          debug(
+            'route',
+            '❌ Degenerate directions (0m / no path)',
+            summary ? JSON.stringify(summary) : '',
+          );
+          throw new Error(
+            `No walkable route to ${destLabel} from your start point (${Math.round(minDist)}m away). Move your green start marker farther from the store.`,
+          );
+        }
+
+        debug(
+          'route',
+          '✅ getDirections() OK',
+          summary
+            ? `distance=${summary.distance}m duration=${summary.duration}s instructions=${summary.instructionCount}`
+            : '',
+        );
+        if (summary?.instructionsPreview?.length) {
+          for (const line of summary.instructionsPreview) {
+            debug('route', '👣', line);
+          }
+        }
+
+        activeDirections = directions;
+        activeLegs = buildLegs(directions.instructions);
+
+        try {
+          mapView.Navigation.draw(directions);
+          debug('route', '✅ Navigation.draw() complete', `legs=${activeLegs.length}`);
+        } catch (drawError) {
+          debug('route', '❌ Navigation.draw() failed', drawError?.message || drawError);
+          if (directions.coordinates?.length >= 2) {
+            mapView.Paths?.add?.(directions.coordinates, {
+              width: 0.8,
+              color: '#3b82f6',
+            });
+            debug('route', '✅ Drew path via Paths.add fallback', '');
+          } else {
+            throw drawError;
+          }
+        }
+
+        return buildRoutePayloadFromDirections(directions, destLabel, {
+          origin,
+          destination: destinationTargets[0] || null,
+          diagnostics: {
+            routingMode: 'profile-spaces',
+            originCount: 1,
+            destinationCount: destinationTargets.length,
+            origins: [describeNavigationTarget(origin)],
+            destinations: destinationTargets.map(describeNavigationTarget),
+            profileName: destLabel,
+            minDistanceToDestinationM: minDist,
+            ...summary,
+          },
+        });
+      }
+
+      function selectLeg(legIndex) {
+        if (!activeDirections || !activeLegs.length) return;
+        const index = Math.max(0, Math.min(legIndex, activeLegs.length - 1));
+        const leg = activeLegs[index];
+        if (leg?.steps?.[0] && activeDirections.coordinates?.[0]) {
+          const coord = activeDirections.coordinates[0];
+          mapView.Navigation?.highlightPathSection?.(
+            activeDirections.coordinates[0],
+            coord,
+            { animationDuration: 0, color: '#9d9d9d' },
+          );
+        }
+        const instructions = (leg.steps || [])
+          .map((s) => s.instruction)
+          .join(', ');
+        post('legSelected', { legIndex: index, instructions });
+      }
+
+      function clearRouteOnMap() {
+        const hadRoute = activeDirections != null || activeLegs.length > 0;
+        activeDirections = null;
+        activeLegs = [];
+        mapView?.Navigation?.clear?.();
+        mapView?.Paths?.removeAll?.();
+        return hadRoute;
+      }
+
+      async function initMap(config) {
+        activeMapConfig = config;
+        debug('init', '📡 init() called', `mapId=${config.mapId}`);
+
+        const options = {
+          key: config.key,
+          secret: config.secret,
+          mapId: config.mapId,
+          search: { enabled: true },
+        };
+
+        debug('init', '⏳ getMapData() — downloading/parsing venue…');
+        mapData = await getMapData(options);
+        debug('init', '✅ getMapData() complete');
+
+        debug('init', '⏳ show3dMap() — rendering 3D view…');
+        mapView = await show3dMap(
+          document.getElementById('mappedin-map'),
+          mapData,
+          config.initialFloorId
+            ? { initialFloor: config.initialFloorId }
+            : undefined,
+        );
+        debug('init', '✅ show3dMap() complete');
+
+        const floors = (mapData.getByType('floor') || []).map((floor, index) =>
+          floorPayload(floor, index),
+        );
+
+        floors.sort((a, b) => a.sortOrder - b.sortOrder);
+        debug('init', '🏢 Floors parsed', `count=${floors.length}`);
+
+        const current = mapView.currentFloor;
+        const currentFloor = current
+          ? floorPayload(
+              current,
+              floors.findIndex((f) => f.id === current.id),
+            )
+          : floors[0] || null;
+
+        mapView.on('click', async (event) => {
+          if (!event.coordinate) return;
+          if (routePlanningPaused) return;
+
+          const results = await mapData.Query?.at?.(event.coordinate);
+          const hit =
+            results?.find?.((r) => r.type === 'location-profile') ||
+            results?.find?.((r) => r.type === 'space') ||
+            results?.[0];
+
+          if (!userRouteOrigin) {
+            handleRoutePlanningTap(event.coordinate);
+            return;
+          }
+
+          if (hit?.name) {
+            const profile =
+              hit.type === 'location-profile' || Array.isArray(hit.spaces)
+                ? hit
+                : resolveLocationProfileForSelection(hit.id, hit.name);
+            if (profile) {
+              selectedLocationProfile = profile;
+              rememberMapEntity(profile);
+              const targets = routingDestinationTargetsFromProfile(
+                profile,
+                userRouteOrigin,
+              );
+              const destTarget = targets[0] || profileAnchor(profile) || hit;
+              setUserRouteDestinationFromTarget(
+                destTarget,
+                'POI',
+                hit.name || profile.name,
+              );
+              return;
+            }
+          }
+
+          handleRoutePlanningTap(event.coordinate);
+        });
+
+        debug(
+          'route',
+          'ℹ️ Route planning',
+          'Tap map for start (green), then destination (red) — route generates automatically',
+        );
+
+        mapView.on('floor-change', (event) => {
+          const floor = event?.floor;
+          if (!floor) return;
+          post('floorChanged', {
+            floor: floorPayload(
+              floor,
+              floors.findIndex((f) => f.id === floor.id),
+            ),
+          });
+        });
+
+        post('ready', {
+          mapName: config.mapId,
+          floors,
+          currentFloor,
+        });
+        debug('init', '🎉 ready event posted to Flutter — UI unlocked');
+
+        setTimeout(() => {
+          try {
+            debug('init', '⏳ Adding location labels (background)…');
+            const labelCount = addLocationLabels();
+            debug('init', '✅ Labels pass complete', `added=${labelCount}`);
+          } catch (labelError) {
+            debug('init', '⚠️ Labels failed', labelError?.message || labelError);
+          }
+        }, 0);
+      }
+
+      window.MappedinMap = {
+        async init(config) {
+          try {
+            await initMap(config);
+          } catch (error) {
+            debug('init', '💥 init() failed', error?.message || error);
+            post('error', {
+              message: String(error?.message || error),
+              stack: error?.stack,
+              phase: 'init',
+            });
+          }
+        },
+        setFloor(floorId) {
+          if (mapView && floorId) {
+            mapView.setFloor(floorId);
+          }
+        },
+        async search(query, limit) {
+          try {
+            const results = await searchLocations(query, limit || 30);
+            post('searchResults', { results });
+          } catch (error) {
+            post('error', {
+              message: String(error?.message || error),
+              phase: 'search',
+            });
+          }
+        },
+        clearFilter() {
+          clearHighlights();
+          post('searchResults', { results: [] });
+        },
+        highlightResults(locations) {
+          highlightSearchResults(locations);
+        },
+        async focusLocation(locationId) {
+          try {
+            await focusLocation(locationId);
+          } catch (error) {
+            post('error', {
+              message: String(error?.message || error),
+              phase: 'focus',
+            });
+          }
+        },
+        async selectLocation(locationId, options = {}) {
+          try {
+            await selectLocationForRoute(locationId, options);
+          } catch (error) {
+            post('error', {
+              message: String(error?.message || error),
+              phase: 'select',
+            });
+          }
+        },
+        clearRouteOrigin() {
+          userRouteOrigin = null;
+          try {
+            if (routeOriginMarker?.remove) routeOriginMarker.remove();
+          } catch (_) {}
+          routeOriginMarker = null;
+          post('routeOriginCleared');
+        },
+        clearRouteDestination() {
+          removeRouteDestination();
+        },
+        clearRoutePoints() {
+          resetRoutePoints();
+        },
+        setRouteMarkerMode(mode) {
+          applyRouteMarkerMode(mode);
+        },
+        setRoutePlanningPaused(paused) {
+          routePlanningPaused = !!paused;
+          debug('route', routePlanningPaused ? '⏸️ Map taps paused' : '▶️ Map taps active');
+        },
+        async drawRouteBetweenMarkedPoints(options = {}) {
+          try {
+            const route = await drawRouteBetweenMarkedPoints(options);
+            post('routeDrawn', { route });
+          } catch (error) {
+            post('error', {
+              message: String(error?.message || error),
+              phase: 'route',
+            });
+          }
+        },
+        async focusOnUserLocation(options = {}) {
+          try {
+            await focusOnUserLocation(options);
+          } catch (error) {
+            post('error', {
+              message: String(error?.message || error),
+              phase: 'userLocation',
+            });
+          }
+        },
+        async drawRoute(originId, destinationId) {
+          try {
+            const route = await drawRoute(originId, destinationId);
+            post('routeDrawn', { route });
+          } catch (error) {
+            post('error', {
+              message: String(error?.message || error),
+              phase: 'route',
+            });
+          }
+        },
+        clearRoute() {
+          const hadRoute = clearRouteOnMap();
+          if (hadRoute) post('routeCleared');
+        },
+        selectLeg(legIndex) {
+          selectLeg(legIndex);
+        },
+        async drawSampleRoute() {
+          try {
+            const profiles = mapData.getByType('location-profile') || [];
+            const routableProfiles = profiles.filter(
+              (p) => profileAnchor(p) || p.spaces?.length || p.points?.length,
+            );
+
+            const meetingRooms = routableProfiles.filter((p) =>
+              /meeting room/i.test(p.name || ''),
+            );
+            if (meetingRooms.length >= 2) {
+              debug(
+                'route',
+                '🛤️ Sample (MapsIndoors-style)',
+                `${meetingRooms[0].name} → ${meetingRooms[meetingRooms.length - 1].name}`,
+              );
+              const route = await drawRoute(
+                targetsFromMapEntity(meetingRooms[0]),
+                targetsFromMapEntity(meetingRooms[meetingRooms.length - 1]),
+              );
+              post('routeDrawn', { route });
+              return;
+            }
+
+            const foodCourt = routableProfiles.find((p) =>
+              /food court/i.test(p.name || ''),
+            );
+            const gym = routableProfiles.find((p) =>
+              /gymnasium|gym/i.test(p.name || ''),
+            );
+            const originEntity =
+              foodCourt || routableProfiles.find((p) => /cafeteria/i.test(p.name || '')) || routableProfiles[0];
+            const destEntity =
+              gym ||
+              routableProfiles.find((p) => p.id !== originEntity?.id) ||
+              routableProfiles[1];
+
+            if (!originEntity || !destEntity) {
+              throw new Error(
+                'Sample route needs at least two labelled places on this map',
+              );
+            }
+
+            debug(
+              'route',
+              '🛤️ Sample',
+              `${originEntity.name} → ${destEntity.name}`,
+            );
+            const route = await drawRoute(
+              targetsFromMapEntity(originEntity),
+              targetsFromMapEntity(destEntity),
+            );
+            post('routeDrawn', { route });
+          } catch (error) {
+            post('error', {
+              message: String(error?.message || error),
+              phase: 'route',
+            });
+          }
+        },
+        async drawRouteToLocation(destinationId, options = {}) {
+          try {
+            debug(
+              'route',
+              '▶️ drawRouteToLocation',
+              `id=${destinationId} name="${options.destinationName || ''}" hasProfile=${!!selectedLocationProfile} hasOrigin=${!!userRouteOrigin}`,
+            );
+
+            const profile =
+              selectedLocationProfile ||
+              resolveLocationProfileForSelection(
+                destinationId,
+                options.destinationName,
+              );
+
+            let destinationTargets = routingDestinationTargetsFromProfile(
+              profile,
+              userRouteOrigin || null,
+            );
+            if (!destinationTargets.length) {
+              debug(
+                'route',
+                '⚠️ profile.spaces empty — fallback name/id resolve',
+                options.destinationName || destinationId,
+              );
+              destinationTargets = collectRoutableTargetsForId(
+                destinationId,
+                options.destinationName,
+              );
+            }
+
+            let origin = null;
+            if (
+              options.originLatitude != null &&
+              options.originLongitude != null &&
+              mapView?.createCoordinate
+            ) {
+              origin = mapView.createCoordinate(
+                Number(options.originLatitude),
+                Number(options.originLongitude),
+                resolveFloor(options.originFloorId),
+              );
+            } else if (userRouteOrigin) {
+              origin = userRouteOrigin;
+            } else {
+              const fallbackOrigins = findDefaultRouteOrigins();
+              if (fallbackOrigins.length) {
+                origin = fallbackOrigins[0];
+                debug(
+                  'route',
+                  '⚠️ No map-tap origin — using fallback entrance/POI',
+                  describeNavigationTarget(origin),
+                );
+              }
+            }
+
+            if (!origin) {
+              throw new Error(
+                'Tap the map to set your starting point, then get directions again.',
+              );
+            }
+
+            if (!destinationTargets.length) {
+              throw new Error(
+                `Could not resolve destination spaces for "${options.destinationName || destinationId}"`,
+              );
+            }
+
+            const destLabel =
+              profile?.name || options.destinationName || destinationId;
+            const route = await executeProfileRoute(
+              origin,
+              destinationTargets,
+              destLabel,
+            );
+            post('routeDrawn', { route });
+          } catch (error) {
+            post('error', {
+              message: String(error?.message || error),
+              phase: 'route',
+            });
+          }
+        },
+        deselectLocation() {
+          selectedLocationProfile = null;
+          post('locationSelected', { location: null });
+        },
+      };
+
+      installFlutterInvokeBridge();
+      post('bridgeReady');
+      debug('boot', '🔗 bridgeReady posted — waiting for Flutter init()');
+    </script>
+  </body>
+</html>

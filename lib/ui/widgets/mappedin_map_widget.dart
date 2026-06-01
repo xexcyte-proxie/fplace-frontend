@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
@@ -10,13 +11,13 @@ class MappedinMapWidget extends StatefulWidget {
   const MappedinMapWidget({
     super.key,
     required this.bridge,
-    required this.onWebViewCreated,
+    this.onWebViewCreated,
     this.onWebViewReady,
     this.onMapError,
   });
 
   final MappedinBridgeService bridge;
-  final ValueChanged<InAppWebViewController> onWebViewCreated;
+  final ValueChanged<InAppWebViewController>? onWebViewCreated;
   final VoidCallback? onWebViewReady;
   final ValueChanged<String>? onMapError;
 
@@ -25,7 +26,7 @@ class MappedinMapWidget extends StatefulWidget {
 }
 
 class _MappedinMapWidgetState extends State<MappedinMapWidget> {
-  static final _settings = InAppWebViewSettings(
+  static final _nativeSettings = InAppWebViewSettings(
     javaScriptEnabled: true,
     domStorageEnabled: true,
     allowsInlineMediaPlayback: true,
@@ -37,11 +38,50 @@ class _MappedinMapWidgetState extends State<MappedinMapWidget> {
   );
 
   var _loadStopCount = 0;
+  var _webAttachStarted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      widget.bridge.prepareWebHost(
+        onRawMessage: widget.bridge.handleRawMessage,
+        onIframeLoaded: widget.onWebViewReady,
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) => _attachWebHost());
+    }
+  }
+
+  Future<void> _attachWebHost() async {
+    if (_webAttachStarted) return;
+    _webAttachStarted = true;
+    MapDiagnosticLogger.step('WebView', 'PWA iframe — attaching bridge');
+    try {
+      await widget.bridge.attachWeb();
+    } catch (error, stackTrace) {
+      MapDiagnosticLogger.error(
+        'WebView',
+        'PWA attach() failed',
+        detail: '$error\n$stackTrace',
+      );
+      widget.onMapError?.call('Map iframe attach failed: $error');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (kIsWeb) {
+      final viewType = widget.bridge.webViewType;
+      if (viewType == null) {
+        return const ColoredBox(color: Color(0xFF0F172A));
+      }
+      return SizedBox.expand(
+        child: HtmlElementView(viewType: viewType),
+      );
+    }
+
     return InAppWebView(
-      initialSettings: _settings,
+      initialSettings: _nativeSettings,
       initialUserScripts: UnmodifiableListView([
         UserScript(
           source: '''
@@ -58,7 +98,7 @@ class _MappedinMapWidgetState extends State<MappedinMapWidget> {
       ]),
       onWebViewCreated: (controller) async {
         MapDiagnosticLogger.step('WebView', 'InAppWebView created — attaching bridge');
-        widget.onWebViewCreated(controller);
+        widget.onWebViewCreated?.call(controller);
         try {
           await widget.bridge.attach(controller);
         } catch (error, stackTrace) {

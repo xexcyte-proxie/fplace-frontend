@@ -1,22 +1,28 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../config/app_config.dart';
 import '../models/indoor_map_models.dart';
 import '../utils/map_diagnostic_logger.dart';
+import 'mappedin_bridge_web.dart';
 
 typedef MappedinBridgeCallback = void Function(String event, Map<String, dynamic> data);
 
-/// Controls the Mappedin Web SDK running inside an InAppWebView.
+/// Controls the Mappedin Web SDK (iframe on PWA, InAppWebView on native shells).
 class MappedinBridgeService {
   MappedinBridgeService() {
-    MapDiagnosticLogger.step('Bridge', 'MappedinBridgeService created');
+    MapDiagnosticLogger.step(
+      'Bridge',
+      'MappedinBridgeService created (${kIsWeb ? 'PWA/web' : 'native WebView'})',
+    );
   }
 
   InAppWebViewController? _controller;
+  MappedinBridgeWebHost? _webHost;
   final _readyCompleter = Completer<void>();
   bool _bridgeReady = false;
   bool _mapReady = false;
@@ -26,8 +32,27 @@ class MappedinBridgeService {
 
   bool get isMapReady => _mapReady;
   bool get isBridgeReady => _bridgeReady;
+  bool get isWebHost => kIsWeb;
+
+  /// PWA: register iframe view factory before building [HtmlElementView].
+  void prepareWebHost({
+    required void Function(String rawMessage) onRawMessage,
+    VoidCallback? onIframeLoaded,
+  }) {
+    if (!kIsWeb) return;
+    _webHost = MappedinBridgeWebHost(
+      onMessage: onRawMessage,
+      onIframeLoaded: onIframeLoaded,
+    );
+    _webHost!.registerViewFactory();
+  }
+
+  String? get webViewType => kIsWeb ? MappedinBridgeWebHost.viewType : null;
 
   Future<void> attach(InAppWebViewController controller) async {
+    if (kIsWeb) {
+      throw StateError('attach(InAppWebViewController) is not used on web/PWA');
+    }
     _attachStartedAt = DateTime.now();
     _controller = controller;
     MapDiagnosticLogger.step(
@@ -46,6 +71,19 @@ class MappedinBridgeService {
       },
     );
 
+    await _loadMapHtmlIntoWebView(controller);
+  }
+
+  Future<void> attachWeb() async {
+    if (!kIsWeb || _webHost == null) {
+      throw StateError('Web host not prepared — call prepareWebHost() first');
+    }
+    _attachStartedAt = DateTime.now();
+    MapDiagnosticLogger.step('Bridge', 'Attaching PWA iframe map host');
+    await _webHost!.attach();
+  }
+
+  Future<void> _loadMapHtmlIntoWebView(InAppWebViewController controller) async {
     MapDiagnosticLogger.step(
       'Bridge',
       'Loading mappedin_map.html from assets '
@@ -68,7 +106,7 @@ class MappedinBridgeService {
     MapDiagnosticLogger.ok('Bridge', 'loadData() submitted to WebView (${elapsed}ms)');
   }
 
-  Future<void> waitUntilReady({Duration timeout = const Duration(seconds: 45)}) async {
+  Future<void> waitUntilReady({Duration timeout = const Duration(seconds: 90)}) async {
     if (_bridgeReady) {
       MapDiagnosticLogger.ok('Bridge', 'Already bridge-ready — skipping wait');
       return;
@@ -93,24 +131,26 @@ class MappedinBridgeService {
   }
 
   Future<void> _invoke(String method, [List<dynamic> args = const []]) async {
-    final controller = _controller;
-    if (controller == null) {
-      MapDiagnosticLogger.error('Bridge', 'WebView not attached — cannot call $method()');
-      throw StateError('Mappedin WebView not attached');
-    }
-
     MapDiagnosticLogger.step('Bridge', 'JS → MappedinMap.$method(${args.length} arg(s))');
 
-    final argsJson = args.map(jsonEncode).join(', ');
     try {
-      await controller.evaluateJavascript(
-        source: 'window.MappedinMap.$method($argsJson);',
-      );
+      if (kIsWeb) {
+        await _webHost?.invoke(method, args);
+      } else {
+        final controller = _controller;
+        if (controller == null) {
+          throw StateError('Mappedin WebView not attached');
+        }
+        final argsJson = args.map(jsonEncode).join(', ');
+        await controller.evaluateJavascript(
+          source: 'window.MappedinMap.$method($argsJson);',
+        );
+      }
       MapDiagnosticLogger.ok('Bridge', 'JS call dispatched: $method()');
     } catch (error) {
       MapDiagnosticLogger.error(
         'Bridge',
-        'evaluateJavascript failed for $method()',
+        'Failed to dispatch $method()',
         detail: error,
       );
       rethrow;
@@ -149,7 +189,6 @@ class MappedinBridgeService {
   Future<void> focusLocation(String locationId) =>
       _invoke('focusLocation', [locationId]);
 
-  /// Focus map and store the selected [location-profile] in JS for routing.
   Future<void> selectLocation(
     String locationId, {
     required String name,
@@ -176,17 +215,37 @@ class MappedinBridgeService {
   Future<void> setRouteMarkerMode(String target) =>
       _invoke('setRouteMarkerMode', [target]);
 
+  Future<void> setRoutePlanningPaused(bool paused) =>
+      _invoke('setRoutePlanningPaused', [paused]);
+
   Future<void> drawRouteBetweenMarkedPoints({
     String? destinationName,
+    double? originLatitude,
+    double? originLongitude,
+    String? originFloorId,
+    double? destinationLatitude,
+    double? destinationLongitude,
+    String? destinationFloorId,
   }) {
     final options = <String, dynamic>{};
     if (destinationName != null) {
       options['destinationName'] = destinationName;
     }
+    if (originLatitude != null) options['originLatitude'] = originLatitude;
+    if (originLongitude != null) options['originLongitude'] = originLongitude;
+    if (originFloorId != null) options['originFloorId'] = originFloorId;
+    if (destinationLatitude != null) {
+      options['destinationLatitude'] = destinationLatitude;
+    }
+    if (destinationLongitude != null) {
+      options['destinationLongitude'] = destinationLongitude;
+    }
+    if (destinationFloorId != null) {
+      options['destinationFloorId'] = destinationFloorId;
+    }
     return _invoke('drawRouteBetweenMarkedPoints', [options]);
   }
 
-  /// Centers the map on device GPS and optionally sets the route start marker.
   Future<void> focusOnUserLocation({
     required double latitude,
     required double longitude,
@@ -253,6 +312,8 @@ class MappedinBridgeService {
 
   Future<void> deselectLocation() => _invoke('deselectLocation');
 
+  void handleRawMessage(String raw) => _handleMessage(raw);
+
   Future<void> _waitForBridge() async {
     if (_bridgeReady) return;
     await waitUntilReady();
@@ -279,6 +340,10 @@ class MappedinBridgeService {
     if (progress == 0 || progress == 100 || progress % 25 == 0) {
       MapDiagnosticLogger.step('WebView', 'Loading progress: $progress%');
     }
+  }
+
+  void dispose() {
+    _webHost?.dispose();
   }
 
   void _handleMessage(String raw) {

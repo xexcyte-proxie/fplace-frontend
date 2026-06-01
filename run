@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Local dev on Mac: Flutter LAUNCHES Chrome with debug connected (hot reload works).
+set -e
+cd "$(dirname "$0")"
+echo "→ Stopping anything on port 8080 (if present)…"
+lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+echo "→ Starting on http://localhost:8080 (Chrome will open automatically)…"
+flutter run -d chrome --web-port 8080 "$@"

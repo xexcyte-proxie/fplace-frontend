@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 class DeviceLocationResult {
@@ -21,14 +22,16 @@ class DeviceLocationException implements Exception {
   String toString() => message;
 }
 
-/// Reads the device GPS position after checking OS location permission.
+/// Browser Geolocation (PWA) or OS GPS (native shells).
 class DeviceLocationService {
   Future<DeviceLocationResult> getCurrentPosition() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      throw DeviceLocationException(
-        'Location services are turned off. Enable them in system settings.',
-      );
+    if (!kIsWeb) {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw DeviceLocationException(
+          'Location services are turned off. Enable them in system settings.',
+        );
+      }
     }
 
     var permission = await Geolocator.checkPermission();
@@ -36,18 +39,24 @@ class DeviceLocationService {
       permission = await Geolocator.requestPermission();
     }
     if (permission == LocationPermission.denied) {
-      throw DeviceLocationException('Location permission was denied.');
+      throw DeviceLocationException(
+        kIsWeb
+            ? 'Location permission was denied. Tap the location button and choose Allow.'
+            : 'Location permission was denied. Tap the location button to try again.',
+      );
     }
     if (permission == LocationPermission.deniedForever) {
       throw DeviceLocationException(
-        'Location permission is blocked. Enable it in app settings.',
+        kIsWeb
+            ? 'Location is blocked for this site. Enable it in your browser site settings.'
+            : 'Location permission is blocked. Enable it in app settings.',
       );
     }
 
     final position = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
+      locationSettings: LocationSettings(
         accuracy: LocationAccuracy.high,
-        timeLimit: Duration(seconds: 15),
+        timeLimit: const Duration(seconds: 15),
       ),
     );
 

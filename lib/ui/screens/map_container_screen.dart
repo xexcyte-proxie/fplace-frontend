@@ -12,6 +12,7 @@ import '../../utils/map_diagnostic_logger.dart';
 import '../widgets/bottom_sheets.dart';
 import '../widgets/floor_selector_fab.dart';
 import '../widgets/mappedin_map_widget.dart';
+import '../widgets/location_permission_prompt.dart';
 import '../widgets/my_location_fab.dart';
 import '../widgets/route_planner_bar.dart';
 import '../widgets/search_overlay.dart';
@@ -90,6 +91,13 @@ class _MapContainerScreenState extends ConsumerState<MapContainerScreen> {
       if (current.isMapReady) {
         MapDiagnosticLogger.ok('UI', 'Map is ready — hiding loading overlay 🎉');
         _onMapReady();
+        if (previous?.isMapReady != true) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              LocationPermissionPrompt.maybePromptAfterMapReady(context);
+            }
+          });
+        }
       }
 
       if (current.status == IndoorMapStatus.engineFailure &&
@@ -123,37 +131,69 @@ class _MapContainerScreenState extends ConsumerState<MapContainerScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Visibility(
-            visible: !mapState.isArNavigationActive,
-            maintainState: false,
-            maintainAnimation: false,
-            maintainSize: false,
-            child: MappedinMapWidget(
-              bridge: bridge,
-              onWebViewCreated: (_) {},
-              onWebViewReady: _onWebViewReady,
-              onMapError: mapNotifier.mapLoadFailed,
+          IgnorePointer(
+            ignoring: mapState.showRouteSheet,
+            child: Visibility(
+              visible: !mapState.isArNavigationActive,
+              maintainState: false,
+              maintainAnimation: false,
+              maintainSize: false,
+              child: MappedinMapWidget(
+                bridge: bridge,
+                onWebViewReady: _onWebViewReady,
+                onMapError: mapNotifier.mapLoadFailed,
+              ),
             ),
           ),
-          IgnorePointer(
-            ignoring: mapState.isMapReady,
-            child: AnimatedOpacity(
-              opacity: mapState.isMapReady ? 0 : 1,
-              duration: const Duration(milliseconds: 250),
+          if (!mapState.isMapReady &&
+              mapState.status != IndoorMapStatus.engineFailure)
+            Positioned.fill(
               child: ColoredBox(
                 color: const Color(0xFF0F172A).withValues(alpha: 0.92),
                 child: Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (mapState.status != IndoorMapStatus.engineFailure)
-                        const CircularProgressIndicator(color: Colors.blue),
-                      if (mapState.status == IndoorMapStatus.engineFailure)
-                        const Icon(
-                          Icons.error_outline,
-                          color: Colors.redAccent,
-                          size: 48,
+                      const CircularProgressIndicator(color: Colors.blue),
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Text(
+                          mapState.loadingMessage,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            height: 1.4,
+                          ),
                         ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Status: ${mapState.status.name}',
+                        style: TextStyle(
+                          color: Colors.grey.shade500,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if (mapState.status == IndoorMapStatus.engineFailure)
+            Positioned.fill(
+              child: ColoredBox(
+                color: const Color(0xFF0F172A).withValues(alpha: 0.92),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
+                        color: Colors.redAccent,
+                        size: 48,
+                      ),
                       const SizedBox(height: 16),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -171,10 +211,8 @@ class _MapContainerScreenState extends ConsumerState<MapContainerScreen> {
                 ),
               ),
             ),
-          ),
-          IgnorePointer(
-            ignoring: !mapState.isMapReady,
-            child: Stack(
+          if (mapState.isMapReady)
+            Stack(
               fit: StackFit.expand,
               children: [
                 SearchOverlay(),
@@ -210,10 +248,10 @@ class _MapContainerScreenState extends ConsumerState<MapContainerScreen> {
                     onNextLeg: mapNotifier.routeNextLeg,
                     onOpenAr: () => _openArNavigation(mapState),
                     onClose: mapNotifier.clearRoute,
+                    onResetPoints: mapNotifier.clearRoutePoints,
                   ),
               ],
             ),
-          ),
         ],
       ),
     );

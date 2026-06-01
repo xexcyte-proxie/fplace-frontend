@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'location_permission_prompt.dart';
+import 'web_pointer_shield.dart';
+
 class MyLocationFab extends StatefulWidget {
   const MyLocationFab({
     super.key,
@@ -24,6 +27,8 @@ class _MyLocationFabState extends State<MyLocationFab> {
 
     setState(() => _isLocating = true);
     try {
+      final granted = await LocationPermissionPrompt.ensureGranted(context);
+      if (!granted || !mounted) return;
       await widget.onPressed();
     } finally {
       if (mounted) {
@@ -37,7 +42,8 @@ class _MyLocationFabState extends State<MyLocationFab> {
     return Positioned(
       left: 16,
       bottom: widget.bottomOffset,
-      child: Material(
+      child: WebPointerShield(
+        child: Material(
         color: const Color(0xFF1E293B),
         elevation: 4,
         shadowColor: Colors.black38,
@@ -61,6 +67,7 @@ class _MyLocationFabState extends State<MyLocationFab> {
                     color: widget.enabled ? Colors.blueAccent : Colors.grey,
                   ),
           ),
+        ),
         ),
       ),
     );

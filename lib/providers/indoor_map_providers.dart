@@ -13,7 +13,10 @@ import 'indoor_map_state.dart';
 
 final mappedinBridgeProvider = Provider<MappedinBridgeService>((ref) {
   final bridge = MappedinBridgeService();
-  ref.onDispose(() => bridge.onEvent = null);
+  ref.onDispose(() {
+    bridge.onEvent = null;
+    bridge.dispose();
+  });
   return bridge;
 });
 
@@ -315,10 +318,13 @@ class IndoorMapNotifier extends Notifier<IndoorMapState> {
       await _routeController.clearRoute();
     }
     await _bridge.clearRoutePoints();
+    await _bridge.setRoutePlanningPaused(false);
     state = state.copyWith(
       clearRouteOrigin: true,
       clearRouteDestination: true,
       clearRouteDestinationLabel: true,
+      clearRouteOriginCoordinates: true,
+      clearRouteDestinationCoordinates: true,
       isCalculatingRoute: false,
       clearActiveRoute: true,
       showRouteSheet: false,
@@ -340,6 +346,7 @@ class IndoorMapNotifier extends Notifier<IndoorMapState> {
       routeInstructions: _routeController.currentLegInstructions,
       clearSelectedLocation: true,
     );
+    await _bridge.setRoutePlanningPaused(true);
   }
 
   void onRouteLegChanged(int legIndex, {String? instructions}) {
@@ -380,6 +387,7 @@ class IndoorMapNotifier extends Notifier<IndoorMapState> {
       routeInstructions: '',
       currentLegIndex: 0,
     );
+    unawaited(_bridge.setRoutePlanningPaused(false));
   }
 
   Future<void> dismissLocationDetail() async {
@@ -455,12 +463,18 @@ class IndoorMapNotifier extends Notifier<IndoorMapState> {
         );
         state = state.copyWith(
           hasRouteOrigin: true,
+          routeOriginLatitude: _parseEventCoordinate(data['latitude']),
+          routeOriginLongitude: _parseEventCoordinate(data['longitude']),
+          routeOriginFloorId: data['floorId']?.toString(),
           clearErrorMessage: true,
         );
         _scheduleAutoRoute();
         break;
       case 'routeOriginCleared':
-        state = state.copyWith(clearRouteOrigin: true);
+        state = state.copyWith(
+          clearRouteOrigin: true,
+          clearRouteOriginCoordinates: true,
+        );
         break;
       case 'routeDestinationSet':
         MapDiagnosticLogger.routeStep(
@@ -471,6 +485,9 @@ class IndoorMapNotifier extends Notifier<IndoorMapState> {
         state = state.copyWith(
           hasRouteDestination: true,
           routeDestinationLabel: data['label']?.toString() ?? 'End point',
+          routeDestinationLatitude: _parseEventCoordinate(data['latitude']),
+          routeDestinationLongitude: _parseEventCoordinate(data['longitude']),
+          routeDestinationFloorId: data['floorId']?.toString(),
           clearErrorMessage: true,
         );
         _scheduleAutoRoute();
@@ -479,6 +496,7 @@ class IndoorMapNotifier extends Notifier<IndoorMapState> {
         state = state.copyWith(
           clearRouteDestination: true,
           clearRouteDestinationLabel: true,
+          clearRouteDestinationCoordinates: true,
         );
         break;
       case 'searchResults':
@@ -537,5 +555,10 @@ class IndoorMapNotifier extends Notifier<IndoorMapState> {
         );
         break;
     }
+  }
+
+  double? _parseEventCoordinate(Object? value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
   }
 }

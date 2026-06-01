@@ -28,6 +28,12 @@ class IndoorMapState {
     this.hasRouteDestination = false,
     this.isCalculatingRoute = false,
     this.routeDestinationLabel,
+    this.routeOriginLatitude,
+    this.routeOriginLongitude,
+    this.routeOriginFloorId,
+    this.routeDestinationLatitude,
+    this.routeDestinationLongitude,
+    this.routeDestinationFloorId,
   });
 
   final IndoorMapStatus status;
@@ -52,6 +58,12 @@ class IndoorMapState {
   final bool isCalculatingRoute;
   /// Display label for the end point (POI name or "End point").
   final String? routeDestinationLabel;
+  final double? routeOriginLatitude;
+  final double? routeOriginLongitude;
+  final String? routeOriginFloorId;
+  final double? routeDestinationLatitude;
+  final double? routeDestinationLongitude;
+  final String? routeDestinationFloorId;
 
   bool get canGenerateRoute => hasRouteOrigin && hasRouteDestination;
 
@@ -72,9 +84,9 @@ class IndoorMapState {
     switch (status) {
       case IndoorMapStatus.initial:
       case IndoorMapStatus.engineLoading:
-        return 'Loading Mappedin Demo Mall...';
+        return 'Loading map SDK…\nFirst open on phone can take 1–2 minutes.';
       case IndoorMapStatus.engineReady:
-        return 'Initializing 3D map view...';
+        return 'Starting 3D map…';
       case IndoorMapStatus.engineFailure:
         return errorMessage ?? 'Map failed to load';
       case IndoorMapStatus.mapReady:
@@ -117,6 +129,14 @@ class IndoorMapState {
     bool? isCalculatingRoute,
     String? routeDestinationLabel,
     bool clearRouteDestinationLabel = false,
+    double? routeOriginLatitude,
+    double? routeOriginLongitude,
+    String? routeOriginFloorId,
+    bool clearRouteOriginCoordinates = false,
+    double? routeDestinationLatitude,
+    double? routeDestinationLongitude,
+    String? routeDestinationFloorId,
+    bool clearRouteDestinationCoordinates = false,
   }) {
     return IndoorMapState(
       status: status ?? this.status,
@@ -148,6 +168,24 @@ class IndoorMapState {
       routeDestinationLabel: clearRouteDestinationLabel
           ? null
           : (routeDestinationLabel ?? this.routeDestinationLabel),
+      routeOriginLatitude: clearRouteOriginCoordinates
+          ? null
+          : (routeOriginLatitude ?? this.routeOriginLatitude),
+      routeOriginLongitude: clearRouteOriginCoordinates
+          ? null
+          : (routeOriginLongitude ?? this.routeOriginLongitude),
+      routeOriginFloorId: clearRouteOriginCoordinates
+          ? null
+          : (routeOriginFloorId ?? this.routeOriginFloorId),
+      routeDestinationLatitude: clearRouteDestinationCoordinates
+          ? null
+          : (routeDestinationLatitude ?? this.routeDestinationLatitude),
+      routeDestinationLongitude: clearRouteDestinationCoordinates
+          ? null
+          : (routeDestinationLongitude ?? this.routeDestinationLongitude),
+      routeDestinationFloorId: clearRouteDestinationCoordinates
+          ? null
+          : (routeDestinationFloorId ?? this.routeDestinationFloorId),
     );
   }
 }
