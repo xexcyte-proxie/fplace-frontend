@@ -1,7 +1,9 @@
 [build]
   publish = "."
 
+# SPA fallback for deep links only — do not rewrite static assets (css/, js/, config.js)
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+  force = false

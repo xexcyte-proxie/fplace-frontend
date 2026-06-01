@@ -2,314 +2,32 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta http-equiv="Permissions-Policy" content="camera=(self), geolocation=(self)" />
+    <!-- XR Engine: Niantic Spatial, Inc. https://github.com/8thwall/engine/blob/main/LICENSE -->
     <title>Fplaces AR Navigation</title>
-    <style>
-      html, body {
-        margin: 0;
-        height: 100%;
-        background: #0f172a;
-        color: #fff;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      }
-      #camera {
-        position: fixed;
-        inset: 0;
-        object-fit: cover;
-        width: 100%;
-        height: 100%;
-        z-index: 0;
-        background: #111;
-      }
-      #hud {
-        position: fixed;
-        inset: 0;
-        z-index: 2;
-        pointer-events: none;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        padding: 16px;
-        box-sizing: border-box;
-      }
-      .banner {
-        background: rgba(15, 23, 42, 0.88);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 12px;
-        padding: 10px 14px;
-        font-size: 13px;
-      }
-      .instruction {
-        background: rgba(0, 0, 0, 0.78);
-        border-radius: 14px;
-        padding: 14px 16px;
-        font-size: 20px;
-        font-weight: 700;
-        line-height: 1.3;
-      }
-      .meta {
-        margin-top: 6px;
-        font-size: 13px;
-        font-weight: 500;
-        color: #94a3b8;
-      }
-      .warn {
-        color: #fbbf24;
-      }
-      #debug {
-        pointer-events: auto;
-        max-height: 28vh;
-        overflow: auto;
-        font-size: 11px;
-        font-family: ui-monospace, monospace;
-        display: none;
-      }
-      #debug.visible {
-        display: block;
-      }
-    </style>
+    <link rel="stylesheet" href="./css/ar.css" />
   </head>
   <body>
     <video id="camera" autoplay playsinline muted></video>
     <div id="hud">
-      <div class="banner" id="status">Waiting for route…</div>
-      <div>
+      <div class="banner" id="status">Open AR from the map after generating a route.</div>
+      <div class="hud-bottom">
         <div class="instruction" id="instruction">—</div>
         <div class="meta" id="meta"></div>
         <div class="meta warn" id="offPath"></div>
       </div>
-      <pre id="debug" class="banner"></pre>
     </div>
 
-    <script>
-      const statusEl = document.getElementById('status');
-      const instructionEl = document.getElementById('instruction');
-      const metaEl = document.getElementById('meta');
-      const offPathEl = document.getElementById('offPath');
-      const debugEl = document.getElementById('debug');
-      const cameraEl = document.getElementById('camera');
+    <script src="./config.js"></script>
+    <script src="./js/route-bridge.js"></script>
+    <script src="./js/route-navigator.js"></script>
+    <script src="./js/fallback-nav.js"></script>
 
-      let activeRoute = null;
-      let maneuverIndex = 0;
-      let enrichedManeuvers = [];
-      let geoWatchId = null;
-
-      function sendToFlutter(event) {
-        try {
-          const msg = JSON.stringify(event);
-          if (window.ArBridge?.postMessage) {
-            window.ArBridge.postMessage(msg);
-          } else if (window.webkit?.messageHandlers?.ArBridge) {
-            window.webkit.messageHandlers.ArBridge.postMessage(msg);
-          }
-        } catch (_) {}
-      }
-
-      function haversineMeters(a, b) {
-        const R = 6371000;
-        const dLat = ((b.latitude - a.latitude) * Math.PI) / 180;
-        const dLng = ((b.longitude - a.longitude) * Math.PI) / 180;
-        const lat1 = (a.latitude * Math.PI) / 180;
-        const lat2 = (b.latitude * Math.PI) / 180;
-        const h =
-          Math.sin(dLat / 2) ** 2 +
-          Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-        return 2 * R * Math.asin(Math.sqrt(h));
-      }
-
-      function findClosestPathIndex(path, lat, lng) {
-        let best = 0;
-        let bestD = Infinity;
-        for (let i = 0; i < path.length; i++) {
-          const d = haversineMeters(
-            { latitude: lat, longitude: lng },
-            path[i],
-          );
-          if (d < bestD) {
-            bestD = d;
-            best = i;
-          }
-        }
-        return { index: best, distanceMeters: bestD };
-      }
-
-      function enrichManeuvers(route) {
-        const path = route.pathCoordinates || [];
-        const maneuvers = route.maneuvers || [];
-        if (!maneuvers.length) return [];
-        if (!path.length) {
-          return maneuvers.map((m, i) => ({ ...m, pathIndex: i }));
-        }
-        return maneuvers.map((m, i) => ({
-          ...m,
-          pathIndex: Math.min(
-            path.length - 1,
-            Math.max(
-              0,
-              Math.floor(((i + 1) * path.length) / maneuvers.length) - 1,
-            ),
-          ),
-        }));
-      }
-
-      function formatManeuver(m) {
-        if (!m) return 'Follow the route';
-        const parts = [m.instruction || m.actionType || 'Continue'];
-        if (m.distanceMeters != null && m.distanceMeters > 0) {
-          parts.push(`(${Math.round(m.distanceMeters)} m)`);
-        }
-        if (m.bearing) parts.push(m.bearing);
-        return parts.join(' ');
-      }
-
-      function updateHud() {
-        const m = enrichedManeuvers[maneuverIndex];
-        instructionEl.textContent =
-          activeRoute?.instructions || formatManeuver(m);
-        const total = activeRoute?.distanceMeters;
-        const dest = activeRoute?.destinationName || 'Destination';
-        metaEl.textContent = [
-          dest,
-          total != null ? `${Math.round(total)} m total` : '',
-          `Step ${maneuverIndex + 1} / ${enrichedManeuvers.length || 1}`,
-          activeRoute?.pathCoordinates?.length
-            ? `${activeRoute.pathCoordinates.length} path points`
-            : '',
-        ]
-          .filter(Boolean)
-          .join(' · ');
-      }
-
-      function applyRoute(route) {
-        activeRoute = route;
-        maneuverIndex = Math.min(
-          route.currentLegIndex || 0,
-          (route.maneuvers?.length || 1) - 1,
-        );
-        enrichedManeuvers = enrichManeuvers(route);
-        statusEl.textContent = `Route loaded — ${route.pathCoordinates?.length || 0} coordinates, ${enrichedManeuvers.length} maneuvers`;
-        updateHud();
-        startCamera();
-        startGeolocation();
-        sendToFlutter({ event: 'sessionReady' });
-        setTimeout(() => sendToFlutter({ event: 'trackingGood' }), 400);
-        if (location.search.includes('debug=1')) {
-          debugEl.classList.add('visible');
-          debugEl.textContent = JSON.stringify(route, null, 2);
-        }
-      }
-
-      function advanceManeuverIfNeeded(pathIndex) {
-        while (
-          maneuverIndex < enrichedManeuvers.length - 1 &&
-          pathIndex >= enrichedManeuvers[maneuverIndex + 1].pathIndex
-        ) {
-          maneuverIndex++;
-          const m = enrichedManeuvers[maneuverIndex];
-          sendToFlutter({
-            event: 'maneuverReached',
-            instruction: m.instruction,
-            legIndex: m.legIndex,
-            stepIndex: m.stepIndex,
-          });
-          updateHud();
-        }
-      }
-
-      function startGeolocation() {
-        if (!navigator.geolocation || !activeRoute?.pathCoordinates?.length) {
-          offPathEl.textContent =
-            'GPS unavailable — follow on-screen directions only.';
-          return;
-        }
-        if (geoWatchId != null) navigator.geolocation.clearWatch(geoWatchId);
-        geoWatchId = navigator.geolocation.watchPosition(
-          (pos) => {
-            const { latitude, longitude, accuracy } = pos.coords;
-            const path = activeRoute.pathCoordinates;
-            const { index, distanceMeters } = findClosestPathIndex(
-              path,
-              latitude,
-              longitude,
-            );
-            if (distanceMeters > 30) {
-              offPathEl.textContent = `Off route (~${Math.round(distanceMeters)} m from path, ±${Math.round(accuracy || 0)} m GPS)`;
-            } else {
-              offPathEl.textContent = '';
-            }
-            advanceManeuverIfNeeded(index);
-            const dest = path[path.length - 1];
-            if (dest && haversineMeters({ latitude, longitude }, dest) < 12) {
-              instructionEl.textContent = `Arrived at ${activeRoute.destinationName || 'destination'}`;
-              sendToFlutter({
-                event: 'maneuverReached',
-                instruction: 'Arrived at destination',
-              });
-            }
-          },
-          (err) => {
-            offPathEl.textContent = `GPS error: ${err.message}`;
-          },
-          { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 },
-        );
-      }
-
-      async function startCamera() {
-        if (!navigator.mediaDevices?.getUserMedia) return;
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment' },
-            audio: false,
-          });
-          cameraEl.srcObject = stream;
-        } catch (_) {
-          statusEl.textContent += ' (camera blocked — directions still work)';
-        }
-      }
-
-      function parseRouteFromPage() {
-        const params = new URLSearchParams(location.search);
-        const hash = location.hash.startsWith('#')
-          ? location.hash.slice(1)
-          : location.hash;
-        if (hash.startsWith('route=')) {
-          try {
-            const b64 = hash.slice('route='.length);
-            const json = atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
-            return JSON.parse(json);
-          } catch (e) {
-            console.warn('hash route parse failed', e);
-          }
-        }
-        const raw = params.get('fplacesRoute');
-        if (raw) {
-          try {
-            return JSON.parse(raw);
-          } catch (e) {
-            console.warn('query route parse failed', e);
-          }
-        }
-        return null;
-      }
-
-      window.onFlutterRoute = function (payload) {
-        applyRoute(payload);
-      };
-
-      window.onFlutterStop = function () {
-        if (geoWatchId != null) navigator.geolocation.clearWatch(geoWatchId);
-        activeRoute = null;
-        statusEl.textContent = 'Route stopped.';
-        sendToFlutter({ event: 'trackingLost' });
-      };
-
-      const initial = parseRouteFromPage();
-      if (initial) {
-        applyRoute(initial);
-      } else {
-        statusEl.textContent =
-          'Open AR from the map app after generating a route.';
-      }
-    </script>
+    <!-- Loaded only when 8th Wall app key is configured -->
+    <script id="xr-bootstrap"></script>
+    <script src="./js/xr-nav-scene.js"></script>
+    <script src="./js/bootstrap.js"></script>
   </body>
 </html>
