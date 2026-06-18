@@ -14,6 +14,8 @@ class RouteBottomSheet extends StatelessWidget {
     required this.onOpenAr,
     required this.onClose,
     required this.onResetPoints,
+    this.onFocusStart,
+    this.onFocusEnd,
   });
 
   final String instructions;
@@ -24,6 +26,8 @@ class RouteBottomSheet extends StatelessWidget {
   final VoidCallback onOpenAr;
   final VoidCallback onClose;
   final VoidCallback onResetPoints;
+  final VoidCallback? onFocusStart;
+  final VoidCallback? onFocusEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -86,6 +90,42 @@ class RouteBottomSheet extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 8),
+              if (onFocusStart != null || onFocusEnd != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      if (onFocusStart != null)
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: onFocusStart,
+                            icon: const Icon(Icons.trip_origin, size: 16, color: Color(0xFF22C55E)),
+                            label: const Text('Start'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              side: BorderSide(color: Colors.grey.shade600),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                            ),
+                          ),
+                        ),
+                      if (onFocusStart != null && onFocusEnd != null)
+                        const SizedBox(width: 8),
+                      if (onFocusEnd != null)
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: onFocusEnd,
+                            icon: const Icon(Icons.flag, size: 16, color: Color(0xFFEF4444)),
+                            label: const Text('End'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              side: BorderSide(color: Colors.grey.shade600),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               Row(
                 children: [
                   Expanded(

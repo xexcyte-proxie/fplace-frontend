@@ -307,10 +307,27 @@ class IndoorMapNotifier extends Notifier<IndoorMapState> {
     try {
       await _bridge.drawRouteBetweenMarkedPoints(
         destinationName: state.routeDestinationLabel,
+        originLatitude: state.routeOriginLatitude,
+        originLongitude: state.routeOriginLongitude,
+        originFloorId: state.routeOriginFloorId,
+        destinationLatitude: state.routeDestinationLatitude,
+        destinationLongitude: state.routeDestinationLongitude,
+        destinationFloorId: state.routeDestinationFloorId,
       );
     } finally {
       state = state.copyWith(isCalculatingRoute: false);
     }
+  }
+
+  Future<void> focusRouteStart() => _focusRoutePoint('start');
+
+  Future<void> focusRouteEnd() => _focusRoutePoint('end');
+
+  Future<void> _focusRoutePoint(String which) async {
+    if (!state.isMapReady) return;
+    if (which == 'start' && !state.hasRouteOrigin) return;
+    if (which == 'end' && !state.hasRouteDestination) return;
+    await _bridge.focusRoutePoint(which);
   }
 
   Future<void> clearRoutePoints() async {

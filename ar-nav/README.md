@@ -67,8 +67,32 @@ Loaded from:
 - `#route=<base64-json>` (Flutter web launch)
 - `?fplacesRoute=<json>` (debug)
 - `window.onFlutterRoute(payload)` (in-app WebView)
+- `window.onFlutterPosition({ latitude, longitude, heading?, accuracy?, floorId? })` (live position)
 
 Expected fields: `pathCoordinates`, `maneuvers`, `instructions`, `destinationName`, `distanceMeters`, `origin`, `destination`.
+
+## Debug logging
+
+AR debug is **on by default** when opened from Flutter (`?arDebug=1&arPanel=1`).
+
+| Where | What you see |
+|-------|----------------|
+| **Phone screen** | Green debug panel at top (last ~48 log lines) |
+| **Browser DevTools** | `[fplaces AR] STEP N (Xms) [Phase] message` |
+| **Flutter console** | `[Fplaces/AR] STEP N (Xms) [Phase] message` (InAppBrowser + mirrored page logs) |
+
+Disable panel: `?arPanel=0`  
+Disable all: `?arDebug=0`
+
+Phases: `Boot`, `Bridge`, `Bootstrap`, `Navigator`, `Compass`, `Arrow`, `XR`, `Fallback`, `Position`
+
+### "Oops, something went wrong!"
+
+That is 8th Wall's generic XR crash screen. After deploying latest `ar-nav/`, you get the **real error** in the green debug panel and a red status line, then automatic fallback to compass mode.
+
+**Remote console on phone:** iPhone → Mac Safari → Develop → [iPhone] → AR tab. Filter for `fplaces AR` or `RuntimeError`.
+
+**Skip XR to test arrow only:** `?xrMode=fallback`
 
 ## Limitations (POC)
 

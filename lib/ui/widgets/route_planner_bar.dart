@@ -11,6 +11,8 @@ class RouteHintBar extends StatelessWidget {
     required this.endLabel,
     required this.isCalculating,
     required this.onReset,
+    this.onFocusStart,
+    this.onFocusEnd,
   });
 
   final bool hasStart;
@@ -18,6 +20,8 @@ class RouteHintBar extends StatelessWidget {
   final String? endLabel;
   final bool isCalculating;
   final VoidCallback onReset;
+  final VoidCallback? onFocusStart;
+  final VoidCallback? onFocusEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -39,12 +43,20 @@ class RouteHintBar extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
               children: [
-                _StepDot(active: true, done: hasStart, color: const Color(0xFF22C55E)),
+                _StepDot(
+                  active: true,
+                  done: hasStart,
+                  color: const Color(0xFF22C55E),
+                  onTap: hasStart ? onFocusStart : null,
+                  tooltip: hasStart ? 'Show start on map' : null,
+                ),
                 _StepLine(done: hasStart),
                 _StepDot(
                   active: hasStart,
                   done: hasEnd,
                   color: const Color(0xFFEF4444),
+                  onTap: hasEnd ? onFocusEnd : null,
+                  tooltip: hasEnd ? 'Show destination on map' : null,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -105,8 +117,8 @@ class RouteHintBar extends StatelessWidget {
   String _hintText() {
     if (isCalculating) return 'Finding route…';
     if (!hasStart) return 'Tap the map — where are you?';
-    if (!hasEnd) return 'Tap the map — where are you going?';
-    return 'Route ready';
+    if (!hasEnd) return 'Tap the map — where are you going? (flag marks destination)';
+    return 'Route ready — tap ● to view on map';
   }
 }
 
@@ -115,15 +127,19 @@ class _StepDot extends StatelessWidget {
     required this.active,
     required this.done,
     required this.color,
+    this.onTap,
+    this.tooltip,
   });
 
   final bool active;
   final bool done;
   final Color color;
+  final VoidCallback? onTap;
+  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedContainer(
+    final dot = AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       width: 12,
       height: 12,
@@ -133,6 +149,23 @@ class _StepDot extends StatelessWidget {
         border: Border.all(
           color: active ? color : Colors.grey.shade600,
           width: 2,
+        ),
+      ),
+    );
+
+    if (onTap == null) return dot;
+
+    return Tooltip(
+      message: tooltip ?? '',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: dot,
+          ),
         ),
       ),
     );

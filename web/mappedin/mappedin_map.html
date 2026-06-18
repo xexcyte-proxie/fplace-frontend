@@ -569,34 +569,126 @@
         return dist >= 1 || coordCount >= 2 || instrCount > 0;
       }
 
-      function showRouteOriginMarker(coordinate) {
-        if (!coordinate || !mapView?.Markers?.add) return;
+      const ROUTE_START_MARKER_HTML =
+        '<div aria-hidden="true" style="width:22px;height:22px;border-radius:50%;' +
+        'background:#22c55e;border:3px solid #fff;' +
+        'box-shadow:0 0 0 4px rgba(34,197,94,.35),0 2px 8px rgba(0,0,0,.4);"></div>';
+
+      const ROUTE_DESTINATION_MARKER_HTML =
+        '<div aria-hidden="true" style="display:flex;flex-direction:column;align-items:center;' +
+        'filter:drop-shadow(0 2px 6px rgba(0,0,0,.45));margin-top:-34px;margin-left:-15px;">' +
+        '<div style="display:flex;align-items:flex-end;height:32px;">' +
+        '<div style="width:3px;height:32px;background:linear-gradient(to bottom,#b91c1c,#7f1d1d);border-radius:2px;"></div>' +
+        '<div style="width:26px;height:17px;background:linear-gradient(135deg,#ef4444,#dc2626);' +
+        'border:2px solid #fff;border-radius:2px 3px 3px 0;margin-bottom:4px;box-sizing:border-box;"></div>' +
+        '</div>' +
+        '<div style="width:8px;height:8px;border-radius:50%;background:#7f1d1d;border:2px solid #fff;margin-top:-2px;"></div>' +
+        '</div>';
+
+      function addRouteMarker(coordinate, html, previousMarker) {
+        if (!coordinate || !mapView?.Markers?.add) {
+          debug('route', '⚠️ Marker skipped — map not ready', '');
+          return previousMarker;
+        }
         try {
-          if (routeOriginMarker?.remove) routeOriginMarker.remove();
+          if (previousMarker?.remove) previousMarker.remove();
         } catch (_) {}
-        routeOriginMarker = mapView.Markers.add(
+        try {
+          return mapView.Markers.add(coordinate, html);
+        } catch (error) {
+          debug('route', '❌ Marker placement failed', error?.message || error);
+          return null;
+        }
+      }
+
+      function showRouteOriginMarker(coordinate) {
+        routeOriginMarker = addRouteMarker(
           coordinate,
-          `<div style="width:16px;height:16px;border-radius:50%;background:#22c55e;border:3px solid white;box-shadow:0 1px 4px rgba(0,0,0,.35);"></div>`,
+          ROUTE_START_MARKER_HTML,
+          routeOriginMarker,
         );
       }
 
       function showRouteDestinationMarker(coordinate) {
-        if (!coordinate || !mapView?.Markers?.add) return;
-        try {
-          if (routeDestinationMarker?.remove) routeDestinationMarker.remove();
-        } catch (_) {}
-        routeDestinationMarker = mapView.Markers.add(
+        routeDestinationMarker = addRouteMarker(
           coordinate,
-          `<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:3px solid white;box-shadow:0 1px 4px rgba(0,0,0,.35);"></div>`,
+          ROUTE_DESTINATION_MARKER_HTML,
+          routeDestinationMarker,
         );
       }
 
-      function markerCoordinateForTarget(target) {
-        if (!target) return null;
-        if (target.latitude != null && target.longitude != null) return target;
-        const center = target.center || target.anchor || target.position;
-        if (center?.latitude != null && center?.longitude != null) return center;
-        return target;
+      function resolveTapCoordinate(coordinate) {
+        if (!coordinate) return null;
+        const canonical =
+          canonicalMarkerCoordinate(coordinate) ||
+          normalizeRouteCoordinate(coordinate);
+        if (canonical) return canonical;
+        const ll = getCoordLatLng(coordinate);
+        if (ll && mapView?.createCoordinate) {
+          return (
+            mapView.createCoordinate(
+              ll.lat,
+              ll.lng,
+              resolveFloor(
+                coordinate.floor?.id ||
+                  coordinate.floor ||
+                  mapView?.currentFloor?.id,
+              ),
+            ) || coordinate
+          );
+        }
+        return coordinate.latitude != null && coordinate.longitude != null
+          ? coordinate
+          : null;
+      }
+
+      function coordinateFloorId(coordinate) {
+        if (!coordinate) return '';
+        return String(
+          coordinate.floor?.id ||
+            coordinate.floor ||
+            mapView?.currentFloor?.id ||
+            '',
+        );
+      }
+
+      function canonicalMarkerCoordinate(target, floorHint) {
+        const normalized = normalizeRouteCoordinate(target);
+        if (normalized) return normalized;
+        const ll = getCoordLatLng(target);
+        if (!ll || !mapView?.createCoordinate) return null;
+        return mapView.createCoordinate(
+          ll.lat,
+          ll.lng,
+          resolveFloor(
+            floorHint ||
+              target?.floor?.id ||
+              target?.floor ||
+              mapView?.currentFloor?.id,
+          ),
+        );
+      }
+
+      function coordinateFromLatLngOptions(options) {
+        if (
+          options?.latitude == null ||
+          options?.longitude == null ||
+          !mapView?.createCoordinate
+        ) {
+          return null;
+        }
+        return canonicalMarkerCoordinate(
+          mapView.createCoordinate(
+            Number(options.latitude),
+            Number(options.longitude),
+            resolveFloor(options.floorId),
+          ),
+        );
+      }
+
+      function syncRouteMarkers() {
+        if (userRouteOrigin) showRouteOriginMarker(userRouteOrigin);
+        if (userRouteDestination) showRouteDestinationMarker(userRouteDestination);
       }
 
       function applyRouteMarkerMode(mode) {
@@ -604,11 +696,55 @@
         post('routeMarkerModeChanged', { mode: routeMarkerMode });
       }
 
+      function applyRoutePointOptions(options = {}) {
+        let origin = userRouteOrigin;
+        let destination = userRouteDestination;
+
+        if (
+          options.originLatitude != null &&
+          options.originLongitude != null &&
+          mapView?.createCoordinate
+        ) {
+          origin = canonicalMarkerCoordinate(
+            mapView.createCoordinate(
+              Number(options.originLatitude),
+              Number(options.originLongitude),
+              resolveFloor(options.originFloorId),
+            ),
+          );
+          if (origin) {
+            userRouteOrigin = origin;
+            showRouteOriginMarker(origin);
+          }
+        }
+
+        if (
+          options.destinationLatitude != null &&
+          options.destinationLongitude != null &&
+          mapView?.createCoordinate
+        ) {
+          destination = canonicalMarkerCoordinate(
+            mapView.createCoordinate(
+              Number(options.destinationLatitude),
+              Number(options.destinationLongitude),
+              resolveFloor(options.destinationFloorId),
+            ),
+          );
+          if (destination) {
+            userRouteDestination = destination;
+            showRouteDestinationMarker(destination);
+          }
+        }
+
+        return { origin, destination };
+      }
+
       function setUserRouteOriginFromCoordinate(coordinate, source = 'map tap') {
-        if (!coordinate) return;
+        const canonical = resolveTapCoordinate(coordinate);
+        if (!canonical) return;
         if (
           userRouteDestination &&
-          distanceMetersBetween(coordinate, userRouteDestination) < 3
+          distanceMetersBetween(canonical, userRouteDestination) < 3
         ) {
           post('error', {
             message:
@@ -617,22 +753,18 @@
           });
           return;
         }
-        userRouteOrigin = coordinate;
-        showRouteOriginMarker(coordinate);
-        const floorId =
-          coordinate.floor?.id ||
-          coordinate.floor ||
-          mapView?.currentFloor?.id ||
-          '';
+        userRouteOrigin = canonical;
+        showRouteOriginMarker(canonical);
+        const ll = getCoordLatLng(canonical);
         debug(
           'route',
           `📍 Start point set (${source})`,
-          describeNavigationTarget(coordinate),
+          describeNavigationTarget(canonical),
         );
         post('routeOriginSet', {
-          latitude: coordinate.latitude,
-          longitude: coordinate.longitude,
-          floorId: String(floorId),
+          latitude: ll?.lat ?? null,
+          longitude: ll?.lng ?? null,
+          floorId: coordinateFloorId(canonical),
           source,
         });
         if (!userRouteDestination) {
@@ -640,10 +772,14 @@
         }
       }
 
-      function setUserRouteDestinationFromTarget(target, source = 'map tap', label) {
-        const routable = toRoutableTarget(target) || target;
-        if (!routable) return;
-        if (userRouteOrigin && distanceMetersBetween(userRouteOrigin, routable) < 3) {
+      function setUserRouteDestinationFromCoordinate(
+        coordinate,
+        source = 'map tap',
+        label = 'End point',
+      ) {
+        const canonical = resolveTapCoordinate(coordinate);
+        if (!canonical) return;
+        if (userRouteOrigin && distanceMetersBetween(userRouteOrigin, canonical) < 3) {
           post('error', {
             message:
               'End point is too close to the start point. Tap farther away on the map.',
@@ -651,30 +787,47 @@
           });
           return;
         }
-        userRouteDestination = routable;
-        showRouteDestinationMarker(markerCoordinateForTarget(routable));
-        const floorId =
-          routable.floor?.id ||
-          routable.floor ||
-          mapView?.currentFloor?.id ||
-          '';
+        userRouteDestination = canonical;
+        showRouteDestinationMarker(canonical);
+        const ll = getCoordLatLng(canonical);
         debug(
           'route',
           `🎯 End point set (${source})`,
-          describeNavigationTarget(routable),
+          describeNavigationTarget(canonical),
         );
         post('routeDestinationSet', {
-          latitude: routable.latitude ?? null,
-          longitude: routable.longitude ?? null,
-          floorId: String(floorId),
+          latitude: ll?.lat ?? null,
+          longitude: ll?.lng ?? null,
+          floorId: coordinateFloorId(canonical),
           source,
-          label: label || routable.name || 'End point',
+          label: label || 'End point',
         });
       }
 
-      function setUserRouteDestinationFromCoordinate(coordinate, source = 'map tap') {
-        if (!coordinate) return;
-        setUserRouteDestinationFromTarget(coordinate, source, 'End point');
+      function setUserRouteDestinationFromTarget(target, source = 'map tap', label) {
+        const canonical =
+          canonicalMarkerCoordinate(target) || normalizeRouteCoordinate(target);
+        if (!canonical) return;
+        setUserRouteDestinationFromCoordinate(
+          canonical,
+          source,
+          label || target?.name || 'End point',
+        );
+      }
+
+      function focusRoutePoint(which) {
+        const coord = which === 'end' ? userRouteDestination : userRouteOrigin;
+        if (!coord) return false;
+
+        const floor = resolveFloor(
+          coord.floor?.id || coord.floor || mapView?.currentFloor?.id,
+        );
+        if (floor && mapView?.setFloor) {
+          mapView.setFloor(floor.id || floor);
+        }
+        mapView?.Camera?.focusOn?.(coord, { maxZoomLevel: 20 });
+        applyRouteMarkerMode(which === 'end' ? 'end' : 'start');
+        return true;
       }
 
       function removeRouteDestination() {
@@ -703,7 +856,7 @@
 
       function handleRoutePlanningTap(coordinate) {
         if (!coordinate) return;
-        if (!userRouteOrigin) {
+        if (routeMarkerMode === 'start' || !userRouteOrigin) {
           setUserRouteOriginFromCoordinate(coordinate, 'map tap');
           return;
         }
@@ -774,13 +927,12 @@
         const entity = profile || lookupMapEntity(locationId) || resolveTarget(locationId);
         if (entity) {
           const anchor = profile ? profileAnchor(profile) : entity;
-          if (anchor) {
-            const destTargets = profile
-              ? routingDestinationTargetsFromProfile(profile, userRouteOrigin)
-              : [toRoutableTarget(anchor) || anchor];
-            const destTarget = destTargets[0] || anchor;
-            setUserRouteDestinationFromTarget(
-              destTarget,
+          const displayCoord =
+            coordinateFromLatLngOptions(options) ||
+            canonicalMarkerCoordinate(anchor || entity);
+          if (displayCoord) {
+            setUserRouteDestinationFromCoordinate(
+              displayCoord,
               'POI',
               nameHint || entity.name || 'Destination',
             );
@@ -918,20 +1070,67 @@
         };
       }
 
+      function geographicBearingDegrees(from, to) {
+        if (!from || !to) return null;
+        const lat1 = (from.latitude * Math.PI) / 180;
+        const lat2 = (to.latitude * Math.PI) / 180;
+        const dLng = ((to.longitude - from.longitude) * Math.PI) / 180;
+        const y = Math.sin(dLng) * Math.cos(lat2);
+        const x =
+          Math.cos(lat1) * Math.sin(lat2) -
+          Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+        return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+      }
+
+      function segmentBearingAtPath(path, index, lookahead) {
+        if (!path.length) return null;
+        const fromIdx = Math.min(Math.max(0, index), path.length - 1);
+        let toIdx = Math.min(fromIdx + lookahead, path.length - 1);
+        if (toIdx <= fromIdx && fromIdx > 0) {
+          return geographicBearingDegrees(path[fromIdx - 1], path[fromIdx]);
+        }
+        if (toIdx <= fromIdx) {
+          toIdx = Math.min(fromIdx + 1, path.length - 1);
+        }
+        return geographicBearingDegrees(path[fromIdx], path[toIdx]);
+      }
+
+      function enrichManeuversWithHeading(path, maneuvers) {
+        if (!maneuvers.length) return [];
+        if (!path.length) {
+          return maneuvers.map((m, i) => ({ ...m, pathIndex: i }));
+        }
+        return maneuvers.map((m, i) => {
+          const pathIndex = Math.min(
+            path.length - 1,
+            Math.max(
+              0,
+              Math.floor(((i + 1) * path.length) / maneuvers.length) - 1,
+            ),
+          );
+          return {
+            ...m,
+            pathIndex,
+            headingDegrees: segmentBearingAtPath(path, pathIndex, 2),
+          };
+        });
+      }
+
       function buildRoutePayloadFromDirections(directions, destLabel, extras = {}) {
         const summary = summarizeDirections(directions);
         const legs = buildLegs(directions?.instructions);
         const pathCoordinates = serializePathCoordinates(directions?.coordinates);
-        const maneuvers = [];
+        const rawManeuvers = [];
         for (const leg of legs) {
           for (let stepIndex = 0; stepIndex < leg.steps.length; stepIndex++) {
-            maneuvers.push({
+            rawManeuvers.push({
               legIndex: leg.index,
               stepIndex,
               ...leg.steps[stepIndex],
             });
           }
         }
+        const maneuvers = enrichManeuversWithHeading(pathCoordinates, rawManeuvers);
         return {
           legs,
           destinationName: destLabel,
@@ -1338,6 +1537,8 @@
         activeDirections = directions;
         activeLegs = buildLegs(directions.instructions);
 
+        syncRouteMarkers();
+
         try {
           mapView.Navigation.draw(directions);
           debug('route', '✅ Navigation.draw() complete', `legs=${activeLegs.length}`);
@@ -1353,6 +1554,8 @@
             throw drawError;
           }
         }
+
+        syncRouteMarkers();
 
         return buildRoutePayloadFromDirections(directions, destLabel, {
           origin,
@@ -1370,43 +1573,20 @@
       }
 
       async function drawRouteBetweenMarkedPoints(options = {}) {
-        let origin = userRouteOrigin;
-        let destination = userRouteDestination;
-        let destLabel =
+        const { origin, destination } = applyRoutePointOptions(options);
+        const destLabel =
           options.destinationName ||
           userRouteDestination?.name ||
           'End point';
-
-        if (
-          options.originLatitude != null &&
-          options.originLongitude != null &&
-          mapView?.createCoordinate
-        ) {
-          origin = mapView.createCoordinate(
-            Number(options.originLatitude),
-            Number(options.originLongitude),
-            resolveFloor(options.originFloorId),
-          );
-        }
-        if (
-          options.destinationLatitude != null &&
-          options.destinationLongitude != null &&
-          mapView?.createCoordinate
-        ) {
-          destination = mapView.createCoordinate(
-            Number(options.destinationLatitude),
-            Number(options.destinationLongitude),
-            resolveFloor(options.destinationFloorId),
-          );
-        }
 
         if (!origin) {
           throw new Error('Tap the map to set a start point (green marker).');
         }
         if (!destination) {
-          throw new Error('Tap the map to set an end point (red marker).');
+          throw new Error('Tap the map to set a destination (flag marker).');
         }
 
+        syncRouteMarkers();
         return executeCoordinateRoute(origin, destination, destLabel);
       }
 
@@ -1574,49 +1754,48 @@
           : floors[0] || null;
 
         mapView.on('click', async (event) => {
-          if (!event.coordinate) return;
-          if (routePlanningPaused) return;
+          if (!event.coordinate || routePlanningPaused) return;
 
-          const results = await mapData.Query?.at?.(event.coordinate);
-          const hit =
-            results?.find?.((r) => r.type === 'location-profile') ||
-            results?.find?.((r) => r.type === 'space') ||
-            results?.[0];
-
-          if (!userRouteOrigin) {
-            handleRoutePlanningTap(event.coordinate);
+          const tapCoord = resolveTapCoordinate(event.coordinate);
+          if (!tapCoord) {
+            debug('route', '⚠️ Tap ignored — could not resolve coordinate', '');
             return;
           }
 
-          if (hit?.name) {
-            const profile =
-              hit.type === 'location-profile' || Array.isArray(hit.spaces)
-                ? hit
-                : resolveLocationProfileForSelection(hit.id, hit.name);
-            if (profile) {
-              selectedLocationProfile = profile;
-              rememberMapEntity(profile);
-              const targets = routingDestinationTargetsFromProfile(
-                profile,
-                userRouteOrigin,
-              );
-              const destTarget = targets[0] || profileAnchor(profile) || hit;
-              setUserRouteDestinationFromTarget(
-                destTarget,
-                'POI',
-                hit.name || profile.name,
-              );
-              return;
-            }
+          if (routeMarkerMode === 'start' || !userRouteOrigin) {
+            setUserRouteOriginFromCoordinate(tapCoord, 'map tap');
+            return;
           }
 
-          handleRoutePlanningTap(event.coordinate);
+          let label = 'End point';
+          let source = 'map tap';
+          try {
+            const results = await mapData.Query?.at?.(tapCoord);
+            const hit =
+              results?.find?.((r) => r.type === 'location-profile') ||
+              results?.find?.((r) => r.type === 'space') ||
+              results?.[0];
+            if (hit?.name) {
+              const profile =
+                hit.type === 'location-profile' || Array.isArray(hit.spaces)
+                  ? hit
+                  : resolveLocationProfileForSelection(hit.id, hit.name);
+              if (profile) {
+                selectedLocationProfile = profile;
+                rememberMapEntity(profile);
+                label = hit.name || profile.name || label;
+                source = 'POI';
+              }
+            }
+          } catch (_) {}
+
+          setUserRouteDestinationFromCoordinate(tapCoord, source, label);
         });
 
         debug(
           'route',
           'ℹ️ Route planning',
-          'Tap map for start (green), then destination (red) — route generates automatically',
+          'Tap map for start (green dot), then destination (flag) — route generates automatically',
         );
 
         mapView.on('floor-change', (event) => {
@@ -1720,6 +1899,16 @@
         },
         setRouteMarkerMode(mode) {
           applyRouteMarkerMode(mode);
+        },
+        focusRoutePoint(which) {
+          try {
+            focusRoutePoint(which);
+          } catch (error) {
+            post('error', {
+              message: String(error?.message || error),
+              phase: 'focusRoutePoint',
+            });
+          }
         },
         setRoutePlanningPaused(paused) {
           routePlanningPaused = !!paused;

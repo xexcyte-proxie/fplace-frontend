@@ -14,22 +14,24 @@ class ArSessionLogger {
     _stopwatch
       ..reset()
       ..start();
-    appLog('AR', '══════ AR SESSION START ══════');
+    appLog('AR', '══════ AR SESSION START (Flutter) ══════');
   }
 
-  static void log(String phase, String message) {
+  static void log(String phase, String message, {Object? detail}) {
     _step++;
     appLog(
       'AR',
       'STEP $_step (${_elapsedMs}ms) [$phase] $message',
+      detail: detail,
     );
   }
 
-  static void warn(String phase, String message) {
+  static void warn(String phase, String message, {Object? detail}) {
     _step++;
     appLog(
       'AR',
       'STEP $_step WARN (${_elapsedMs}ms) [$phase] $message',
+      detail: detail,
     );
   }
 
@@ -38,15 +40,14 @@ class ArSessionLogger {
     String message, {
     Object? error,
     StackTrace? stackTrace,
+    Object? detail,
   }) {
     _step++;
     appLog(
       'AR',
       'STEP $_step ERROR (${_elapsedMs}ms) [$phase] $message',
+      detail: detail ?? error,
     );
-    if (error != null) {
-      appLog('AR', '  cause: $error');
-    }
     if (stackTrace != null) {
       debugPrint(stackTrace.toString());
     }
@@ -58,7 +59,7 @@ class ArSessionLogger {
       'AR',
       'STEP $_step (${_elapsedMs}ms) [Done] $outcome',
     );
-    appLog('AR', '══════ AR SESSION END ══════');
+    appLog('AR', '══════ AR SESSION END (Flutter) ══════');
   }
 
   static int get _elapsedMs => _stopwatch.elapsedMilliseconds;

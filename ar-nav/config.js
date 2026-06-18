@@ -27,6 +27,13 @@
 
     /** Enable GPS progress along pathCoordinates (outdoor / window only) */
     useGpsProgress: true,
+
+    /** Ms to wait for XR8/THREE before falling back to camera + path arrows */
+    xrLoadTimeoutMs: 12000,
+
+    /** Verbose AR debug logs + on-screen panel (override with ?arDebug=0) */
+    arDebug: true,
+    arDebugPanel: true,
   };
 
   const urlKey = params.get('appKey');

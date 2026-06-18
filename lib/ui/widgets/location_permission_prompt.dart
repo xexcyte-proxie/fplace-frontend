@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'app_dialog.dart';
+
 /// Explains why location is needed, then triggers the OS / browser permission prompt.
 class LocationPermissionPrompt {
   static var _mapReadyPromptShown = false;
@@ -24,7 +26,7 @@ class LocationPermissionPrompt {
     }
 
     if (showRationale && context.mounted) {
-      final allow = await showDialog<bool>(
+      final allow = await showAppDialog<bool>(
         context: context,
         barrierDismissible: false,
         builder: (dialogContext) => AlertDialog(
@@ -79,7 +81,7 @@ class LocationPermissionPrompt {
     if (_isGranted(permission)) return;
     if (!context.mounted) return;
 
-    final continueFlow = await showDialog<bool>(
+    final continueFlow = await showAppDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Enable your location?'),
@@ -105,7 +107,7 @@ class LocationPermissionPrompt {
   }
 
   static Future<void> _showBlockedDialog(BuildContext context) async {
-    await showDialog<void>(
+    await showAppDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Location is blocked'),

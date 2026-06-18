@@ -78,3 +78,6 @@ app.*.map.json
 **/.symlinks/
 **/Flutter/ephemeral/
 **/xcuserdata/
+
+# Local Netlify folder
+.netlify

@@ -3,8 +3,8 @@ import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart' as url_launcher;
 
@@ -38,21 +38,38 @@ String buildArLaunchUrl({
   final query = <String, String>{
     ...base.queryParameters,
     if (instructions.isNotEmpty) 'fplacesInstructions': instructions,
+    'arDebug': '1',
+    'arPanel': '1',
   };
 
+  late final String url;
   if (kIsWeb) {
     final encoded = base64Url.encode(utf8.encode(routePayload));
-    return base.replace(queryParameters: query, fragment: 'route=$encoded').toString();
+    url = base.replace(queryParameters: query, fragment: 'route=$encoded').toString();
+  } else {
+    url = base
+        .replace(
+          queryParameters: {
+            ...query,
+            'fplacesRoute': routePayload,
+          },
+        )
+        .toString();
   }
 
-  return base
-      .replace(
-        queryParameters: {
-          ...query,
-          'fplacesRoute': routePayload,
-        },
-      )
-      .toString();
+  ArSessionLogger.log(
+    'URL',
+    'Built AR launch URL',
+    detail: {
+      'base': AppConfig.eighthWallArUrl,
+      'platform': kIsWeb ? 'web-PWA' : 'native',
+      'urlChars': url.length,
+      'routePayloadChars': routePayload.length,
+      'transport': kIsWeb ? 'hash-base64' : 'query-fplacesRoute',
+      'arDebug': true,
+    },
+  );
+  return url;
 }
 
 class _ArChromeSafariBrowser extends ChromeSafariBrowser {
@@ -95,6 +112,7 @@ class ArInAppBrowser extends InAppBrowser {
 
   final ArBridgeService _bridgeService = const ArBridgeService();
   final Completer<void> _closedCompleter = Completer<void>();
+  Timer? _positionTimer;
 
   Future<void> waitUntilClosed() => _closedCompleter.future;
 
@@ -132,6 +150,7 @@ class ArInAppBrowser extends InAppBrowser {
 
   @override
   void onBrowserCreated() {
+    ArSessionLogger.log('WebView', 'InAppBrowser created — registering ArBridge handler');
     webViewController?.addJavaScriptHandler(
       handlerName: 'ArBridge',
       callback: (args) {
@@ -144,9 +163,42 @@ class ArInAppBrowser extends InAppBrowser {
   }
 
   @override
+  void onLoadStart(WebUri? url) {
+    ArSessionLogger.log('WebView', 'onLoadStart', detail: {'url': url?.toString()});
+    super.onLoadStart(url);
+  }
+
+  @override
   Future<void> onLoadStop(WebUri? url) async {
+    ArSessionLogger.log('WebView', 'onLoadStop — injecting route + starting position stream', detail: {
+      'url': url?.toString(),
+    });
     await _sendRouteUpdate();
     await _injectInstructionBar();
+    _startPositionStreaming();
+  }
+
+  @override
+  void onLoadError(Uri? url, int code, String message) {
+    ArSessionLogger.error(
+      'WebView',
+      'onLoadError',
+      detail: {'url': url?.toString(), 'code': code, 'message': message},
+    );
+    super.onLoadError(url, code, message);
+  }
+
+  @override
+  void onConsoleMessage(ConsoleMessage consoleMessage) {
+    final text = consoleMessage.message;
+    if (text.contains('[fplaces AR]') || text.contains('[fplaces]')) {
+      ArSessionLogger.log(
+        'WebView.console',
+        text,
+        detail: {'level': consoleMessage.messageLevel.toString()},
+      );
+    }
+    super.onConsoleMessage(consoleMessage);
   }
 
   @override
@@ -163,6 +215,7 @@ class ArInAppBrowser extends InAppBrowser {
 
   @override
   void onExit() {
+    _stopPositionStreaming();
     if (!_closedCompleter.isCompleted) {
       _closedCompleter.complete();
     }
@@ -186,15 +239,72 @@ class ArInAppBrowser extends InAppBrowser {
 
   Future<void> _sendRouteUpdate() async {
     final jsEscapedPayload = jsonEncode(routePayload);
-    await webViewController?.evaluateJavascript(source: '''
+    ArSessionLogger.log('WebView', 'Calling onFlutterRoute in WebView', detail: {
+      'payloadChars': routePayload.length,
+    });
+    final result = await webViewController?.evaluateJavascript(source: '''
       (function() {
         if (typeof window.onFlutterRoute !== 'function') {
-          return JSON.stringify({ ok: false });
+          return JSON.stringify({ ok: false, reason: 'onFlutterRoute missing' });
         }
         window.onFlutterRoute(JSON.parse($jsEscapedPayload));
         return JSON.stringify({ ok: true });
       })();
     ''');
+    ArSessionLogger.log('WebView', 'onFlutterRoute result', detail: {'result': result});
+  }
+
+  void _startPositionStreaming() {
+    _positionTimer?.cancel();
+    ArSessionLogger.log('WebView', 'Starting position stream (every 1s)');
+    _positionTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      unawaited(_pushCurrentPosition());
+    });
+    unawaited(_pushCurrentPosition());
+  }
+
+  void _stopPositionStreaming() {
+    if (_positionTimer != null) {
+      ArSessionLogger.log('WebView', 'Stopping position stream');
+    }
+    _positionTimer?.cancel();
+    _positionTimer = null;
+  }
+
+  Future<void> _pushCurrentPosition() async {
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+      final payload = _bridgeService.buildPositionPayload(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        heading: position.heading >= 0 ? position.heading : null,
+        accuracyMeters: position.accuracy,
+      );
+      ArSessionLogger.log(
+        'Position',
+        'Pushing onFlutterPosition',
+        detail: {
+          'lat': position.latitude,
+          'lng': position.longitude,
+          'heading': position.heading >= 0 ? position.heading : null,
+          'accuracy': position.accuracy,
+        },
+      );
+      final jsEscapedPayload = jsonEncode(payload);
+      await webViewController?.evaluateJavascript(source: '''
+        (function() {
+          if (typeof window.onFlutterPosition !== 'function') return;
+          window.onFlutterPosition(JSON.parse($jsEscapedPayload));
+        })();
+      ''');
+    } catch (error) {
+      ArSessionLogger.warn('Position', 'GPS push failed', detail: error);
+    }
   }
 
   Future<void> _stopSession() async {
@@ -213,12 +323,34 @@ class ArInAppBrowser extends InAppBrowser {
     try {
       final decoded = jsonDecode(message);
       if (decoded is Map<String, dynamic>) {
+        final eventName = decoded['event']?.toString() ?? 'unknown';
+        if (eventName == 'debug') {
+          final level = decoded['level']?.toString() ?? 'log';
+          final phase = decoded['phase']?.toString() ?? 'AR.page';
+          final msg = decoded['message']?.toString() ?? '';
+          final detail = decoded['detail'];
+          if (level == 'error') {
+            ArSessionLogger.error(phase, msg, detail: detail);
+          } else if (level == 'warn') {
+            ArSessionLogger.warn(phase, msg, detail: detail);
+          } else {
+            ArSessionLogger.log(phase, msg, detail: detail);
+          }
+        } else {
+          ArSessionLogger.log('Bridge', 'Event from AR page: $eventName', detail: decoded);
+        }
         onBridgeEvent(decoded);
       }
-    } catch (_) {}
+    } catch (error) {
+      ArSessionLogger.warn('Bridge', 'Failed to parse JS message', detail: {
+        'raw': message,
+        'error': error.toString(),
+      });
+    }
   }
 
   Future<void> closeSession() async {
+    _stopPositionStreaming();
     await _stopSession();
     await close();
   }
@@ -232,8 +364,11 @@ Future<void> openArInAppBrowser({
 }) async {
   final granted = await ensureArPermissions();
   if (!granted) {
+    ArSessionLogger.error('Permissions', 'Camera permission denied — aborting AR launch');
     throw StateError('Camera permission denied');
   }
+
+  ArSessionLogger.log('Launch', 'Permissions OK — building URL');
 
   final arUrl = buildArLaunchUrl(
     routePayload: routePayload,
@@ -248,9 +383,14 @@ Future<void> openArInAppBrowser({
       mode: url_launcher.LaunchMode.externalApplication,
     );
     if (!opened) {
+      ArSessionLogger.error('Launch', 'launchUrl returned false');
       throw StateError('Could not open AR in a new browser tab.');
     }
-    ArSessionLogger.log('Launch', 'PWA AR opened in new tab');
+    ArSessionLogger.log(
+      'Launch',
+      'PWA AR opened in new tab — logs appear in phone browser DevTools + on-screen panel',
+      detail: {'urlChars': arUrl.length},
+    );
   }
 
   if (kIsWeb) {

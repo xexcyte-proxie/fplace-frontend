@@ -5,7 +5,7 @@ body {
   overflow: hidden;
   background: #000;
   color: #fff;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Google Sans', Roboto, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 #camera {
@@ -30,42 +30,316 @@ body {
   inset: 0;
   z-index: 2;
   pointer-events: none;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 16px;
-  box-sizing: border-box;
 }
 
-.banner {
-  background: rgba(15, 23, 42, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+.hidden {
+  display: none !important;
+}
+
+/* ── Google Material Symbols (turn icons) ── */
+.material-symbols-rounded {
+  font-family: 'Material Symbols Rounded';
+  font-weight: normal;
+  font-style: normal;
+  font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 48;
+  line-height: 1;
+  user-select: none;
+}
+
+.turn-symbol-lg {
+  font-size: clamp(40px, 10vw, 52px);
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.55));
+}
+
+.turn-symbol {
+  font-size: 32px;
+}
+
+.turn-symbol-sm {
+  font-size: 22px;
+}
+
+/* ── Status pill (boot / errors only) ── */
+.status-pill {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 16px;
+  right: 16px;
+  background: rgba(0, 0, 0, 0.65);
   border-radius: 12px;
   padding: 10px 14px;
   font-size: 13px;
-  max-width: 100%;
+  z-index: 5;
 }
 
-.hud-bottom {
-  margin-top: auto;
+.status-pill.status-error {
+  background: rgba(127, 29, 29, 0.92);
 }
 
-.instruction {
-  background: rgba(0, 0, 0, 0.78);
-  border-radius: 14px;
-  padding: 14px 16px;
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.3;
+/* ── Top turn banner (Google Live View) ── */
+.live-nav {
+  position: absolute;
+  top: max(40px, calc(env(safe-area-inset-top) + 24px));
+  left: 0;
+  right: 0;
+  padding: 0 16px;
+  z-index: 4;
 }
 
-.meta {
-  margin-top: 6px;
+.turn-row {
+  position: relative;
+  min-height: 64px;
+}
+
+.then-chip {
+  position: absolute;
+  left: 12px;
+  top: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 8px;
+  padding: 6px 10px 8px;
+  color: #fff;
+  max-width: 96px;
+}
+
+.then-text {
+  font-size: 10px;
+  font-weight: 500;
+  text-align: center;
+  line-height: 1.2;
+  opacity: 0.95;
+  max-width: 88px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.then-label {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.primary-turn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 72px;
+}
+
+#turn-text {
+  font-size: clamp(32px, 8.5vw, 48px);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.85), 0 0 40px rgba(0, 0, 0, 0.45);
+}
+
+.distance-bar {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.85);
+}
+
+/* ── Dual ground chevron lanes (white = forward, red = route offset) ── */
+#fplaces-orientation-compass {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 28%;
+  bottom: 22%;
+  pointer-events: none;
+  z-index: 3;
+  overflow: hidden;
+  display: none;
+}
+
+.compass-ground {
+  position: absolute;
+  inset: 0;
+  perspective: 420px;
+  perspective-origin: 50% 62%;
+}
+
+.path-arrows-lane {
+  position: absolute;
+  left: 50%;
+  bottom: 12%;
+  width: min(78vw, 320px);
+  height: 220px;
+  transform-style: preserve-3d;
+  transform: translateX(-50%) rotateX(58deg) rotateZ(var(--lane-heading, 0deg));
+  transform-origin: 50% 85%;
+  will-change: transform;
+}
+
+.lane-target {
+  z-index: 1;
+}
+
+.lane-user {
+  z-index: 2;
+}
+
+.path-chevron {
+  position: absolute;
+  left: 50%;
+  width: calc(150px - var(--i) * 16px);
+  height: calc(78px - var(--i) * 9px);
+  margin-left: calc((150px - var(--i) * 16px) / -2);
+  transform: translateY(calc(var(--i) * -58px))
+    translateZ(calc(var(--i) * -32px))
+    scale(calc(1.05 - var(--i) * 0.09));
+  opacity: calc(1 - var(--i) * 0.14);
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.65));
+}
+
+.lane-target .path-chevron {
+  opacity: calc(0.92 - var(--i) * 0.12);
+  filter: drop-shadow(0 4px 14px rgba(234, 67, 53, 0.55));
+}
+
+/* ── Circular minimap ── */
+#fplaces-minimap {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: max(88px, calc(env(safe-area-inset-bottom) + 72px));
+  z-index: 4;
+  pointer-events: none;
+  display: none;
+  border-radius: 50%;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.45);
+}
+
+.minimap-bg {
+  fill: rgba(255, 255, 255, 0.94);
+  stroke: rgba(60, 64, 67, 0.3);
+  stroke-width: 1.5;
+}
+
+.minimap-route-traveled {
+  stroke: rgba(95, 99, 104, 0.55);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.minimap-route {
+  stroke: #1a73e8;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.minimap-heading-glow {
+  opacity: 0.88;
+  pointer-events: none;
+}
+
+.minimap-user-ring {
+  fill: rgba(26, 115, 232, 0.18);
+  stroke: none;
+}
+
+.minimap-user {
+  fill: #1a73e8;
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+/* ── Bottom trip strip (destination + distance left) ── */
+.trip-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 12px 16px max(16px, env(safe-area-inset-bottom));
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.5) 0%, transparent 100%);
+  z-index: 4;
+}
+
+.trip-stat {
+  flex: 0 0 auto;
+  min-width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  color: #202124;
+  border-radius: 16px;
+  padding: 10px 14px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.28);
+}
+
+.trip-stat span:first-child {
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.15;
+}
+
+.trip-stat small {
+  font-size: 11px;
+  font-weight: 500;
+  color: #5f6368;
+  margin-top: 1px;
+}
+
+.trip-dest {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: #fff;
+  color: #202124;
+  border-radius: 16px;
+  padding: 10px 14px;
+  min-width: 0;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.28);
+}
+
+.trip-dest-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #5f6368;
+}
+
+#trip-dest {
+  font-size: 15px;
+  font-weight: 500;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.warn-banner {
+  position: absolute;
+  bottom: max(88px, calc(env(safe-area-inset-bottom) + 72px));
+  left: 16px;
+  right: 148px;
+  background: rgba(60, 64, 67, 0.92);
+  border-radius: 12px;
+  padding: 10px 14px;
   font-size: 13px;
   font-weight: 500;
-  color: #94a3b8;
+  color: #fce8b2;
+  text-align: center;
+  z-index: 5;
 }
 
-.warn {
-  color: #fbbf24;
+/* Hide legacy compass element if present */
+#fplaces-compass-arrow {
+  display: none !important;
 }

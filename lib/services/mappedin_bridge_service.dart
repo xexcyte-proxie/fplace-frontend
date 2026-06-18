@@ -215,6 +215,9 @@ class MappedinBridgeService {
   Future<void> setRouteMarkerMode(String target) =>
       _invoke('setRouteMarkerMode', [target]);
 
+  Future<void> focusRoutePoint(String which) =>
+      _invoke('focusRoutePoint', [which]);
+
   Future<void> setRoutePlanningPaused(bool paused) =>
       _invoke('setRoutePlanningPaused', [paused]);
 

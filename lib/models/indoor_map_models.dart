@@ -108,6 +108,8 @@ class IndoorRouteStep {
     this.distanceMeters,
     this.legIndex,
     this.stepIndex,
+    this.pathIndex,
+    this.headingDegrees,
   });
 
   final String instruction;
@@ -116,6 +118,8 @@ class IndoorRouteStep {
   final double? distanceMeters;
   final int? legIndex;
   final int? stepIndex;
+  final int? pathIndex;
+  final double? headingDegrees;
 
   factory IndoorRouteStep.fromJson(Map<String, dynamic> json) {
     return IndoorRouteStep(
@@ -125,6 +129,8 @@ class IndoorRouteStep {
       distanceMeters: (json['distanceMeters'] as num?)?.toDouble(),
       legIndex: (json['legIndex'] as num?)?.toInt(),
       stepIndex: (json['stepIndex'] as num?)?.toInt(),
+      pathIndex: (json['pathIndex'] as num?)?.toInt(),
+      headingDegrees: (json['headingDegrees'] as num?)?.toDouble(),
     );
   }
 
@@ -135,6 +141,8 @@ class IndoorRouteStep {
         if (distanceMeters != null) 'distanceMeters': distanceMeters,
         if (legIndex != null) 'legIndex': legIndex,
         if (stepIndex != null) 'stepIndex': stepIndex,
+        if (pathIndex != null) 'pathIndex': pathIndex,
+        if (headingDegrees != null) 'headingDegrees': headingDegrees,
       };
 }
 
@@ -254,6 +262,7 @@ class IndoorRoute {
   Map<String, dynamic> toArJson({
     required int currentLegIndex,
     required String instructions,
+    Map<String, dynamic>? userPosition,
   }) {
     return {
       'type': 'route_update',
@@ -266,6 +275,7 @@ class IndoorRoute {
       'mapId': mapId,
       'origin': origin?.toJson(),
       'destination': destination?.toJson(),
+      if (userPosition != null) 'userPosition': userPosition,
       'pathCoordinates': pathCoordinates.map((c) => c.toJson()).toList(),
       'maneuvers': maneuvers.map((m) => m.toJson()).toList(),
       'legs': legs
