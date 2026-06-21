@@ -297,50 +297,25 @@ class _MapContainerScreenState extends ConsumerState<MapContainerScreen> {
     });
 
     Map<String, dynamic>? userPosition;
-    final routeOrigin = route.origin;
-    if (routeOrigin != null) {
+    try {
+      ArSessionLogger.log('Location', 'Fetching device position for AR seed…');
+      final location =
+          await ref.read(deviceLocationServiceProvider).getCurrentPosition();
       userPosition = {
-        'latitude': routeOrigin.latitude,
-        'longitude': routeOrigin.longitude,
-        if (routeOrigin.floorId != null) 'floorId': routeOrigin.floorId,
-        'accuracy': 8,
-        'source': 'mapOrigin',
+        'latitude': location.latitude,
+        'longitude': location.longitude,
+        if (location.accuracyMeters != null)
+          'accuracy': location.accuracyMeters,
+        'source': 'flutter',
       };
-      ArSessionLogger.log('Location', 'Seeding AR from route map origin',
+      ArSessionLogger.log('Location', 'Got user position for AR',
           detail: userPosition);
-    } else if (mapState.routeOriginLatitude != null &&
-        mapState.routeOriginLongitude != null) {
-      userPosition = {
-        'latitude': mapState.routeOriginLatitude,
-        'longitude': mapState.routeOriginLongitude,
-        if (mapState.routeOriginFloorId != null)
-          'floorId': mapState.routeOriginFloorId,
-        'accuracy': 8,
-        'source': 'mapOrigin',
-      };
-      ArSessionLogger.log('Location', 'Seeding AR from tapped route origin',
-          detail: userPosition);
-    } else {
-      try {
-        ArSessionLogger.log('Location', 'Fetching device GPS for AR seed…');
-        final location =
-            await ref.read(deviceLocationServiceProvider).getCurrentPosition();
-        userPosition = {
-          'latitude': location.latitude,
-          'longitude': location.longitude,
-          if (location.accuracyMeters != null)
-            'accuracy': location.accuracyMeters,
-          'source': 'flutterGps',
-        };
-        ArSessionLogger.log('Location', 'Got GPS seed for AR',
-            detail: userPosition);
-      } catch (error) {
-        ArSessionLogger.warn(
-          'Location',
-          'Could not seed AR with device position',
-          detail: error,
-        );
-      }
+    } catch (error) {
+      ArSessionLogger.warn(
+        'Location',
+        'Could not seed AR with device position',
+        detail: error,
+      );
     }
 
     final routePayload = _arBridgeService.buildRoutePayload(

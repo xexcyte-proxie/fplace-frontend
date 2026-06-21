@@ -153,7 +153,29 @@
       const route = normalizeRoute(payload);
       if (!route) return null;
       window.fplacesActiveRoute = route;
-      DBG()?.log('Bridge', 'Route normalized & stored', DBG().routeSummary(route));
+      const summary = DBG().routeSummary(route);
+      if (route.userPosition && route.pathCoordinates?.length) {
+        const user = route.userPosition;
+        const start = route.pathCoordinates[0];
+        const geo = window.FplacesRouteGeometry;
+        if (geo?.haversineMeters && user.latitude != null && start?.latitude != null) {
+          const gapM = Math.round(
+            geo.haversineMeters(
+              { latitude: user.latitude, longitude: user.longitude },
+              { latitude: start.latitude, longitude: start.longitude },
+            ),
+          );
+          summary.userToPathStartMeters = gapM;
+          if (gapM > 1500) {
+            DBG()?.warn('Bridge', 'User position far from route start — GPS/map mismatch likely', {
+              gapMeters: gapM,
+              userPosition: route.userPosition,
+              pathStart: start,
+            });
+          }
+        }
+      }
+      DBG()?.log('Bridge', 'Route normalized & stored', summary);
       emitRoute(route);
       sendToFlutter({ event: 'sessionReady' });
       return route;

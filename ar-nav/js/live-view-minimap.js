@@ -1,5 +1,5 @@
 /**
- * Compact circular minimap — marker tracks live progress along route polyline.
+ * Compact circular minimap — Google Maps style: user fixed at center, map rotates.
  */
 (function () {
   const SIZE = 120;
@@ -62,74 +62,68 @@
     return rootEl;
   }
 
-  function pathCentroid(path) {
-    let lat = 0;
-    let lng = 0;
-    for (const p of path) {
-      lat += p.latitude;
-      lng += p.longitude;
-    }
-    return { latitude: lat / path.length, longitude: lng / path.length };
-  }
-
-  function markerOnPolyline(scaled, path, snap) {
+  function splitPathAtDistance(path, alongM) {
     const geo = window.FplacesRouteGeometry;
-    const alongM = snap.distanceAlongPathMeters ?? 0;
     let accumulated = 0;
+    const traveled = [];
+    const remaining = [];
 
     for (let i = 0; i < path.length - 1; i++) {
       const segLen = geo.haversineMeters(path[i], path[i + 1]);
-      if (accumulated + segLen >= alongM || i === path.length - 2) {
-        const t =
-          segLen > 0 ? Math.max(0, Math.min(1, (alongM - accumulated) / segLen)) : 0;
-        const a = scaled[i];
-        const b = scaled[i + 1] || a;
-        return {
-          x: a.x + t * (b.x - a.x),
-          y: a.y + t * (b.y - a.y),
-          segIndex: i,
-          t,
-        };
+      if (accumulated + segLen < alongM) {
+        traveled.push(path[i]);
+        accumulated += segLen;
+        continue;
       }
-      accumulated += segLen;
+
+      const t = segLen > 0 ? Math.max(0, Math.min(1, (alongM - accumulated) / segLen)) : 0;
+      const split = {
+        latitude: path[i].latitude + t * (path[i + 1].latitude - path[i].latitude),
+        longitude: path[i].longitude + t * (path[i + 1].longitude - path[i].longitude),
+      };
+      traveled.push(path[i], split);
+      remaining.push(split, path[i + 1]);
+      for (let j = i + 1; j < path.length; j++) {
+        remaining.push(path[j]);
+      }
+      return { traveled, remaining };
     }
 
-    return { x: scaled[scaled.length - 1].x, y: scaled[scaled.length - 1].y, segIndex: path.length - 2, t: 1 };
+    return { traveled: path.slice(), remaining: [path[path.length - 1]] };
   }
 
   function projectMinimap(path, snap, headingDeg) {
     const geo = window.FplacesRouteGeometry;
-    const center = pathCentroid(path);
-    const locals = path.map((p) => geo.toLocalMeters(center, p));
+    const anchor = {
+      latitude: snap.latitude,
+      longitude: snap.longitude,
+    };
+    const locals = path.map((p) => geo.toLocalMeters(anchor, p));
 
-    let maxAbs = 6;
+    let maxAbs = 8;
     for (const l of locals) {
       maxAbs = Math.max(maxAbs, Math.abs(l.x), Math.abs(l.y));
     }
     const scale = (VIEW_RADIUS - PAD) / maxAbs;
 
-    const scaled = locals.map((l) => ({
-      x: CENTER + l.x * scale,
-      y: CENTER + l.y * scale,
-    }));
+    const toSvg = (p) => {
+      const local = geo.toLocalMeters(anchor, p);
+      return {
+        x: CENTER + local.x * scale,
+        y: CENTER - local.y * scale,
+      };
+    };
 
-    const marker = markerOnPolyline(scaled, path, snap);
-    const splitIndex = marker.segIndex;
+    const alongM = snap.distanceAlongPathMeters ?? 0;
+    const split = splitPathAtDistance(path, alongM);
+    const traveled = split.traveled.map(toSvg);
+    const remaining = split.remaining.map(toSvg);
 
-    const traveled = [];
-    const remaining = [];
-    for (let i = 0; i < scaled.length; i++) {
-      if (i < splitIndex) traveled.push(scaled[i]);
-      else if (i === splitIndex) {
-        traveled.push(marker);
-        remaining.push(marker);
-      } else remaining.push(scaled[i]);
-    }
-    if (traveled.length < 2 && scaled.length >= 2) {
-      traveled.unshift(scaled[0]);
-    }
-
-    return { scaled, marker, traveled, remaining, headingDeg: headingDeg ?? 0 };
+    return {
+      traveled,
+      remaining,
+      headingDeg: headingDeg ?? 0,
+    };
   }
 
   function polylinePoints(pts) {
@@ -147,17 +141,21 @@
         ? `<polyline class="minimap-route" points="${polylinePoints(projected.remaining)}" fill="none"/>`
         : '');
 
-    const { x, y } = projected.marker;
+    rotatorEl.setAttribute(
+      'transform',
+      `rotate(${(-projected.headingDeg).toFixed(1)} ${CENTER} ${CENTER})`,
+    );
+
     if (markerEl) {
-      markerEl.setAttribute('cx', x.toFixed(2));
-      markerEl.setAttribute('cy', y.toFixed(2));
+      markerEl.setAttribute('cx', String(CENTER));
+      markerEl.setAttribute('cy', String(CENTER));
     }
     if (markerRingEl) {
-      markerRingEl.setAttribute('cx', x.toFixed(2));
-      markerRingEl.setAttribute('cy', y.toFixed(2));
+      markerRingEl.setAttribute('cx', String(CENTER));
+      markerRingEl.setAttribute('cy', String(CENTER));
     }
     if (wedgeEl) {
-      wedgeEl.setAttribute('transform', `translate(${x.toFixed(2)} ${y.toFixed(2)}) rotate(${projected.headingDeg.toFixed(1)})`);
+      wedgeEl.setAttribute('transform', `translate(${CENTER} ${CENTER}) rotate(${projected.headingDeg.toFixed(1)})`);
     }
   }
 
@@ -180,14 +178,9 @@
       }
 
       const snap =
+        navigator?.getMinimapSnap?.() ||
         navigator?.getDisplaySnap?.() ||
-        (navigator?.lastPosition
-          ? window.FplacesRouteGeometry?.snapToRoute?.(
-              path,
-              navigator.lastPosition.latitude,
-              navigator.lastPosition.longitude,
-            )
-          : window.FplacesRouteGeometry?.snapAtDistanceAlongPath?.(path, 0));
+        window.FplacesRouteGeometry?.snapAtDistanceAlongPath?.(path, 0);
 
       if (!snap) return;
 

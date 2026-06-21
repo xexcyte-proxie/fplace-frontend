@@ -79,10 +79,12 @@
 
       const tripDistEl = document.getElementById('trip-dist');
       if (tripDistEl) {
-        if (state.hasPosition && liveDist != null) {
-          tripDistEl.textContent = formatDistance(liveDist);
-        } else if (state.distanceRemainingMeters != null) {
-          tripDistEl.textContent = formatDistance(state.distanceRemainingMeters);
+        const remaining =
+          state.distanceRemainingMeters ??
+          state.distanceRemainingRawMeters ??
+          null;
+        if (remaining != null) {
+          tripDistEl.textContent = formatDistance(remaining);
         } else {
           tripDistEl.textContent = formatDistance(route.distanceMeters) || '—';
         }

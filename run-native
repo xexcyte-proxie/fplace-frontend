@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Run fplaces as a native iOS or Android app on a connected phone/tablet.
+# All [Fplaces/AR] and [Fplaces/Map] logs stream to this terminal (hot reload works).
+#
+# Default target: itel phone (override with FPLACES_DEVICE=name-or-id, or pass -d …)
+set -e
+cd "$(dirname "$0")"
+
+# Prefer this device when multiple phones are connected (name substring or exact id).
+FPLACES_DEVICE="${FPLACES_DEVICE:-itel}"
+
+pick_mobile_device() {
+  FPLACES_DEVICE="$FPLACES_DEVICE" flutter devices --machine 2>/dev/null | python3 -c "
+import json, os, sys
+try:
+    devices = json.load(sys.stdin)
+except json.JSONDecodeError:
+    sys.exit(1)
+
+prefer = (os.environ.get('FPLACES_DEVICE') or 'itel').lower()
+
+def is_mobile(d):
+    platform = (d.get('targetPlatform') or '').lower()
+    return platform.startswith('android') or platform.startswith('ios')
+
+physical = [d for d in devices if is_mobile(d) and not d.get('emulator')]
+pool = physical or [d for d in devices if is_mobile(d)]
+if not pool:
+    sys.exit(1)
+
+matched = [
+    d for d in pool
+    if prefer in (d.get('name') or '').lower() or prefer == (d.get('id') or '').lower()
+]
+chosen = matched[0] if matched else pool[0]
+name = chosen.get('name') or chosen['id']
+print(f\"{chosen['id']}\t{name}\")
+"
+}
+
+silence_android_log_spam() {
+  local device_id="$1"
+  if [ -z "$device_id" ] || ! command -v adb >/dev/null 2>&1; then
+    return
+  fi
+  for TAG in mali_gralloc SensorManager TranClassInfo TranStreamConfigurationMapExt cr_VideoCapture DMABUFHEAPS; do
+    adb -s "$device_id" logcat -P "${TAG}:S" 2>/dev/null || true
+  done
+  echo "→ Silenced Android log tags: mali_gralloc, SensorManager, …"
+}
+
+# Respect explicit -d from caller: ./run-native -d other-device
+for arg in "$@"; do
+  if [ "$arg" = "-d" ]; then
+    echo "→ Using device from -d flag"
+    NEXT_IS_D=1
+  elif [ "${NEXT_IS_D:-}" = "1" ]; then
+    silence_android_log_spam "$arg"
+    NEXT_IS_D=
+    flutter run "$@"
+    exit 0
+  fi
+done
+
+echo "══ fplaces native (iOS / Android) ══"
+echo ""
+echo "  Logs in this terminal:"
+echo "    [Fplaces/Map]  map load, route, WebView"
+echo "    [Fplaces/AR]   launch, GPS push, AR page debug mirror"
+echo ""
+echo "  Connect a device if none appears below:"
+echo "    iPhone  → USB cable, unlock, Trust, Developer Mode (Settings → Privacy)"
+echo "    Android → USB debugging on, accept RSA fingerprint"
+echo ""
+
+flutter devices
+
+PICK="$(pick_mobile_device || true)"
+IFS=$'\t' read -r DEVICE_ID DEVICE_NAME <<< "$PICK"
+if [ -z "$DEVICE_ID" ]; then
+  echo ""
+  echo "No iOS/Android device found. Plug in a phone and re-run ./run-native"
+  exit 1
+fi
+
+echo ""
+echo "→ Running on: $DEVICE_NAME ($DEVICE_ID)"
+echo "  (override: FPLACES_DEVICE=iphone ./run-native  or  ./run-native -d <id>)"
+echo ""
+
+# Silence noisy Android GPU/sensor spam so [Fplaces/AR] logs stay visible.
+silence_android_log_spam "$DEVICE_ID"
+echo ""
+
+flutter run -d "$DEVICE_ID" "$@"

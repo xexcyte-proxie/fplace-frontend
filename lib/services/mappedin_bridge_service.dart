@@ -8,7 +8,8 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../config/app_config.dart';
 import '../models/indoor_map_models.dart';
 import '../utils/map_diagnostic_logger.dart';
-import 'mappedin_bridge_web.dart';
+import 'mappedin_bridge_web_stub.dart'
+    if (dart.library.js_interop) 'mappedin_bridge_web.dart';
 
 typedef MappedinBridgeCallback = void Function(String event, Map<String, dynamic> data);
 

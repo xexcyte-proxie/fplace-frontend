@@ -17,10 +17,37 @@ chmod +x run run-phone
 
 ## Two ways to run
 
-| Script | Use when | Hot reload |
-|--------|----------|------------|
-| `./run` | Developing on your Mac | Yes (Chrome opened by Flutter) |
-| `./run-phone` | Testing on Android/iPhone Chrome (`--release`, faster on phone) | No — hard-refresh the phone browser |
+| Script | Use when | Hot reload | AR debug logs |
+|--------|----------|------------|---------------|
+| `./run` | Developing on your Mac (Chrome) | Yes | Browser DevTools + on-screen panel |
+| `./run-phone` | Testing PWA in phone Chrome | No — hard-refresh | Phone DevTools only (not Flutter terminal) |
+| `./run-native` | **Native iOS/Android app on device** | Yes | **Flutter terminal** `[Fplaces/AR]` + on-screen AR panel |
+
+### Native mobile (recommended for AR debugging)
+
+The native app uses an embedded WebView for AR so Flutter receives every debug event from `ar-nav`:
+
+```bash
+chmod +x run-native   # once
+./run-native
+```
+
+1. Connect iPhone (USB) or Android (USB debugging).
+2. Wait for the app to install and launch on the device.
+3. Draw a route → tap **AR Guidance**.
+4. Watch this terminal for lines like:
+
+```text
+[Fplaces/AR] STEP 12 (3401ms) [Navigator] State notify | {instruction: …, targetBearingDegrees: …}
+```
+
+AR JavaScript changes still load from Netlify (`fplaces-test.netlify.app`) unless you override:
+
+```bash
+./run-native --dart-define=EIGHTH_WALL_AR_URL=https://your-site.netlify.app/
+```
+
+After editing files under `ar-nav/`, deploy with `./deploy-ar` before testing on device.
 
 ## Why you see "No client connected"
 

@@ -148,7 +148,8 @@
       smoothedDelta = delta;
     } else {
       const change = normalizeDelta(delta - smoothedDelta);
-      smoothedDelta += change * 0.42;
+      const alpha = lastNavigator?._gpsPlausible === false ? 0.18 : 0.42;
+      smoothedDelta += change * alpha;
     }
 
     applyRelativeRotation(smoothedDelta);
