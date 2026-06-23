@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Run the Mappedin JS PWA (official Blue Dot stack — no Flutter bridge).
+set -e
+cd "$(dirname "$0")/mappedin-pwa"
+
+if [ ! -d node_modules ]; then
+  echo "→ Installing dependencies…"
+  npm install
+fi
+
+echo "══ Mappedin PWA ══"
+echo ""
+echo "  Desktop:  http://localhost:5173"
+echo "  Phone:    same URL on your LAN (vite --host)"
+echo ""
+echo "  Default mode: tap-to-route indoor navigation (PRD)"
+echo "  AR host:      set VITE_AR_URL in mappedin-pwa/.env"
+echo ""
+
+npm run dev

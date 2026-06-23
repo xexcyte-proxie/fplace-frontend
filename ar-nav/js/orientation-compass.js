@@ -8,6 +8,7 @@
   let targetLaneEl = null;
   let headingBound = false;
   let rafId = null;
+  let animFrame = 0;
   let lastNavigator = null;
   let smoothedDelta = null;
 
@@ -114,28 +115,36 @@
 
   function tick() {
     rafId = requestAnimationFrame(tick);
+    animFrame += 1;
     if (!lastNavigator) return;
 
-    if (lastNavigator.lastPosition) {
-      lastNavigator.ensureSnap?.();
-    }
+    lastNavigator.beginFrame?.(animFrame, performance.now());
 
     const state = lastNavigator.getState?.() || {};
+    laneHeading()?.resolveDeviceHeading?.(state);
+    const headingForMinimap =
+      laneHeading()?.getInstantHeading?.() ??
+      state.deviceHeadingDegrees ??
+      lastNavigator.externalHeadingDegrees ??
+      null;
+    window.FplacesMinimap?.update?.(lastNavigator, headingForMinimap);
+
     if (state.arrived) {
       if (rootEl) rootEl.style.display = 'none';
+      window.FplacesLiveViewHud?.update?.(state, lastNavigator);
       return;
     }
 
     const targetRaw = lastNavigator.getTargetBearingDegrees?.();
     if (targetRaw == null) {
       if (rootEl) rootEl.style.display = 'none';
+      window.FplacesLiveViewHud?.update?.(state, lastNavigator);
       return;
     }
 
     ensure();
     rootEl.style.display = 'block';
 
-    laneHeading()?.resolveDeviceHeading?.(state);
     const userDeg = laneHeading()?.getInstantHeading?.();
     const targetDeg = laneHeading()?.smoothTargetBearing?.(targetRaw) ?? targetRaw;
 
@@ -153,9 +162,6 @@
     }
 
     applyRelativeRotation(smoothedDelta);
-
-    const headingForMinimap = userDeg ?? 0;
-    window.FplacesMinimap?.update?.(lastNavigator, headingForMinimap);
     window.FplacesLiveViewHud?.update?.(state, lastNavigator);
   }
 

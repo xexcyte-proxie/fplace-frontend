@@ -141,8 +141,12 @@
       this._lastRemainingRaw = null;
       this._prevPositionSample = null;
       this._moveSpeedMps = 0;
+      this._displaySpeedMps = 0;
       this._displayAlongPathM = null;
       this._lastAlongTickAt = null;
+      this._lastGpsAlongM = null;
+      this._lastFrameId = null;
+      this._minimapSnapCache = null;
       this._gpsPlausible = true;
       this._gpsSnap = null;
       this._lastPositionForProgress = null;
@@ -183,8 +187,10 @@
       if (!path.length) return;
       if (this._gpsPlausible && this._gpsSnap) {
         this._displayAlongPathM = this._gpsSnap.distanceAlongPathMeters ?? 0;
+        this._lastGpsAlongM = this._displayAlongPathM;
       } else {
         this._displayAlongPathM = 0;
+        this._lastGpsAlongM = 0;
       }
       this._lastAlongTickAt = performance.now();
     }
@@ -224,9 +230,13 @@
       this._lastRemainingRaw = null;
       this._prevPositionSample = null;
       this._moveSpeedMps = 0;
+      this._displaySpeedMps = 0;
       this._lastRemainingFrame = null;
       this._displayAlongPathM = null;
       this._lastAlongTickAt = null;
+      this._lastGpsAlongM = null;
+      this._lastFrameId = null;
+      this._minimapSnapCache = null;
       this._gpsPlausible = true;
       this._gpsSnap = null;
       this._lastPositionForProgress = null;
@@ -295,11 +305,11 @@
       }
 
       this.updateSnap();
-      if (prevProgressSample) {
+      if (this._gpsPlausible) {
+        this.syncDisplayProgressFromGps();
+      } else if (prevProgressSample) {
         const deltaM = haversineMeters(prevProgressSample, this.lastPosition);
-        if (!this._gpsPlausible) {
-          this.applyProgressDeltaMeters(deltaM);
-        }
+        this.applyProgressDeltaMeters(deltaM);
       } else if (this._displayAlongPathM == null) {
         this.seedDisplayProgress();
       }
@@ -330,19 +340,45 @@
         if (dt > 0.15 && dt < 45) {
           const d = haversineMeters(this._prevPositionSample, { latitude: lat, longitude: lng });
           this._moveSpeedMps = d / dt;
+          const sample = this._moveSpeedMps;
+          this._displaySpeedMps =
+            this._displaySpeedMps == null
+              ? sample
+              : this._displaySpeedMps * 0.8 + sample * 0.2;
         }
       }
       this._prevPositionSample = { latitude: lat, longitude: lng, at: now };
     }
 
-    /** Live progress along route polyline — blends GPS snap + walking extrapolation. */
-    getDisplayAlongPathMeters(gpsAlongMeters) {
+    syncDisplayProgressFromGps() {
+      if (!this._gpsPlausible || !this._gpsSnap) return;
+
       const path = this.route?.pathCoordinates || [];
       const total = path.length
         ? window.FplacesRouteGeometry.totalPathLengthMeters(path)
         : 0;
-      const gpsAlong = gpsAlongMeters ?? 0;
-      const now = performance.now();
+      const gpsAlong = this._gpsSnap.distanceAlongPathMeters ?? 0;
+      this._lastGpsAlongM = gpsAlong;
+
+      if (this._displayAlongPathM == null) {
+        this._displayAlongPathM = gpsAlong;
+      } else if (Math.abs(gpsAlong - this._displayAlongPathM) > 6) {
+        this._displayAlongPathM = gpsAlong;
+      } else {
+        this._displayAlongPathM += (gpsAlong - this._displayAlongPathM) * 0.35;
+      }
+
+      this._displayAlongPathM = Math.max(0, Math.min(total, this._displayAlongPathM));
+      this._lastAlongTickAt = performance.now();
+    }
+
+    /** Live progress along route polyline — speed extrapolation between GPS fixes. */
+    advanceDisplayProgress(now = performance.now()) {
+      const path = this.route?.pathCoordinates || [];
+      const total = path.length
+        ? window.FplacesRouteGeometry.totalPathLengthMeters(path)
+        : 0;
+      const speed = this._displaySpeedMps ?? this._moveSpeedMps ?? 0;
 
       if (!this._gpsPlausible) {
         if (this._displayAlongPathM == null || this._lastAlongTickAt == null) {
@@ -352,14 +388,17 @@
         }
         const dt = Math.min(1, (now - this._lastAlongTickAt) / 1000);
         this._lastAlongTickAt = now;
-        if (this._moveSpeedMps > 0.12 && dt > 0) {
-          this._displayAlongPathM += this._moveSpeedMps * dt;
+        if (speed > 0.08 && dt > 0) {
+          this._displayAlongPathM += speed * dt;
         }
-        return Math.max(0, Math.min(total, this._displayAlongPathM));
+        this._displayAlongPathM = Math.max(0, Math.min(total, this._displayAlongPathM));
+        return this._displayAlongPathM;
       }
 
+      const gpsRef = this._lastGpsAlongM ?? this._gpsSnap?.distanceAlongPathMeters ?? 0;
+
       if (this._displayAlongPathM == null || this._lastAlongTickAt == null) {
-        this._displayAlongPathM = gpsAlong;
+        this._displayAlongPathM = gpsRef;
         this._lastAlongTickAt = now;
         return this._displayAlongPathM;
       }
@@ -367,16 +406,49 @@
       const dt = Math.min(1, (now - this._lastAlongTickAt) / 1000);
       this._lastAlongTickAt = now;
 
-      if (Math.abs(gpsAlong - this._displayAlongPathM) > 4) {
-        this._displayAlongPathM = gpsAlong;
-      } else {
-        this._displayAlongPathM += (gpsAlong - this._displayAlongPathM) * Math.min(1, dt * 8);
-        if (this._moveSpeedMps > 0.05 && dt > 0) {
-          this._displayAlongPathM += this._moveSpeedMps * dt;
-        }
+      if (speed > 0.03 && dt > 0) {
+        this._displayAlongPathM += speed * dt;
       }
 
-      return Math.max(0, Math.min(total, this._displayAlongPathM));
+      const maxAhead = Math.max(4, speed * 1.8);
+      if (this._displayAlongPathM > gpsRef + maxAhead) {
+        this._displayAlongPathM = gpsRef + maxAhead;
+      }
+      if (this._displayAlongPathM < gpsRef - 2) {
+        this._displayAlongPathM = gpsRef;
+      }
+
+      this._displayAlongPathM = Math.max(0, Math.min(total, this._displayAlongPathM));
+      return this._displayAlongPathM;
+    }
+
+    /**
+     * Advance live route progress once per animation frame (Google Maps–style glide).
+     * @param {number} frameId rAF counter.
+     */
+    beginFrame(frameId, now = performance.now()) {
+      if (frameId != null && this._lastFrameId === frameId) return;
+      if (frameId != null) this._lastFrameId = frameId;
+
+      if (this.lastPosition) this.ensureSnap();
+      this.advanceDisplayProgress(now);
+      this._refreshMinimapSnapCache();
+    }
+
+    _refreshMinimapSnapCache() {
+      const path = this.route?.pathCoordinates || [];
+      if (!path.length || this._displayAlongPathM == null) {
+        this._minimapSnapCache = this.snappedOnPath;
+        return;
+      }
+
+      this._minimapSnapCache =
+        window.FplacesRouteGeometry.snapAtDistanceAlongPath(path, this._displayAlongPathM) ||
+        this.snappedOnPath;
+    }
+
+    getLiveAlongPathMeters() {
+      return this._displayAlongPathM ?? 0;
     }
 
     /** Snap point used for display (minimap + distances). */
@@ -385,10 +457,7 @@
       const path = this.route?.pathCoordinates || [];
       if (!path.length) return this.snappedOnPath;
 
-      const gpsAlong = this._gpsPlausible
-        ? (this.snappedOnPath?.distanceAlongPathMeters ?? 0)
-        : (this._displayAlongPathM ?? 0);
-      const along = this.getDisplayAlongPathMeters(gpsAlong);
+      const along = this._displayAlongPathM ?? 0;
       return (
         window.FplacesRouteGeometry.snapAtDistanceAlongPath(path, along) ||
         this.snappedOnPath
@@ -396,6 +465,7 @@
     }
 
     getMinimapSnap() {
+      if (this._minimapSnapCache) return this._minimapSnapCache;
       return this.getDisplaySnap();
     }
 
@@ -798,7 +868,8 @@
       const offThreshold = Math.max(25, accuracy * 2);
       const wasOffPath = !!this.offPathMessage;
       if (!this._gpsPlausible) {
-        this.offPathMessage = 'GPS does not match map — using route progress';
+        // Indoor / demo: phone GPS ≠ Mappedin path coords — route progress still works.
+        this.offPathMessage = '';
       } else {
         const displayOff = Math.min(offRoute, OFF_ROUTE_MESSAGE_CAP_M);
         this.offPathMessage =
@@ -862,16 +933,10 @@
     }
 
     notify() {
-      if (this.lastPosition) this.ensureSnap();
-
       if (typeof this.onUpdate === 'function') {
         this.onUpdate(this.getState());
       }
       window.FplacesOrientationCompass?.attachNavigator?.(this);
-      window.FplacesMinimap?.update?.(
-        this,
-        window.FplacesOrientationCompass?.getDeviceHeading?.() ?? null,
-      );
       window.FplacesLiveViewHud?.update?.(this.getState(), this);
       window.FplacesArDebug?.logNavStateThrottled(
         'Navigator',

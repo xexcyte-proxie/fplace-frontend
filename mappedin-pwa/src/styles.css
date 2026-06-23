@@ -1,0 +1,408 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+#app {
+  position: relative;
+}
+
+#mappedin-map {
+  position: absolute;
+  inset: 0;
+}
+
+.ui-root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.ui-root > * {
+  pointer-events: auto;
+}
+
+#ar-frame {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #000;
+}
+
+#ar-frame[hidden] {
+  display: none;
+}
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.92);
+  text-align: center;
+}
+
+.loading-overlay--error .loading-text {
+  color: #fca5a5;
+}
+
+.spinner,
+.mini-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid #334155;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.mini-spinner {
+  width: 22px;
+  height: 22px;
+  border-width: 2px;
+  flex-shrink: 0;
+}
+
+.loading-text {
+  margin-top: 16px;
+  font-size: 15px;
+  line-height: 1.4;
+  white-space: pre-line;
+}
+
+.loading-sub {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.search-bar {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  left: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 12px;
+  background: #1e293b;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.search-icon {
+  color: #94a3b8;
+  font-size: 18px;
+}
+
+.search-bar input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: #f8fafc;
+  font-size: 14px;
+  padding: 12px 0;
+  outline: none;
+}
+
+.search-results {
+  position: absolute;
+  top: calc(max(16px, env(safe-area-inset-top)) + 56px);
+  left: 16px;
+  right: 16px;
+  max-height: 40vh;
+  overflow: auto;
+  background: #1e293b;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.search-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 1px solid #334155;
+  background: transparent;
+  color: #f8fafc;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-result:last-child {
+  border-bottom: 0;
+}
+
+.search-result-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.search-result-floor {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.fabs {
+  position: absolute;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.floor-fab,
+.fab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 14px;
+  background: #1e293b;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.floor-fab {
+  padding: 0 10px;
+  gap: 6px;
+}
+
+.floor-fab select {
+  border: 0;
+  background: transparent;
+  color: #f8fafc;
+  font-size: 13px;
+  max-width: 120px;
+}
+
+.fab,
+.icon-btn,
+.ghost-btn,
+.primary-btn {
+  border: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.fab {
+  font-size: 22px;
+  color: #60a5fa;
+}
+
+.route-hint,
+.route-sheet {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  background: #1e293b;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.route-hint {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.route-steps {
+  display: flex;
+  align-items: center;
+}
+
+.step-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #64748b;
+  background: transparent;
+}
+
+.step-dot.is-active {
+  border-color: currentColor;
+}
+
+.step-dot.is-done {
+  background: currentColor;
+}
+
+.step-dot--start {
+  color: #22c55e;
+}
+
+.step-dot--end {
+  color: #ef4444;
+}
+
+.step-line {
+  width: 20px;
+  height: 2px;
+  margin: 0 4px;
+  background: #475569;
+}
+
+.step-line.is-done {
+  background: #22c55e;
+}
+
+.route-hint-copy {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.route-hint-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-sheet {
+  padding: 12px 12px max(20px, env(safe-area-inset-bottom));
+}
+
+.route-sheet-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.route-sheet-instruction {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.leg-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 8px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.route-sheet-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ghost-btn,
+.primary-btn {
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ghost-btn {
+  background: transparent;
+  border: 1px solid #475569;
+  color: #e2e8f0;
+}
+
+.ghost-btn:disabled,
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.primary-btn {
+  background: #0d9488;
+  color: white;
+  grid-column: span 2;
+}
+
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 22px;
+}
+
+.toast {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 88px);
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.96);
+  border: 1px solid #334155;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.ar-chrome {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: 12px;
+  right: 12px;
+  z-index: 60;
+  pointer-events: auto;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (min-width: 768px) {
+  .search-bar {
+    left: 24px;
+    right: auto;
+    width: min(420px, calc(100% - 48px));
+  }
+
+  .search-results {
+    left: 24px;
+    right: auto;
+    width: min(420px, calc(100% - 48px));
+  }
+}

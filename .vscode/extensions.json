@@ -1,0 +1,19 @@
+{
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "mikestead.dotenv",
+    "christian-kohler.npm-intellisense",
+    "usernamehw.errorlens",
+    "yoavbls.pretty-ts-errors",
+    "christian-kohler.path-intellisense",
+    "ecmel.vscode-html-css",
+    "eamodio.gitlens",
+    "ms-edgedevtools.vscode-edge-devtools",
+    "ms-vscode.live-server",
+    "gruntfuggly.todo-tree",
+    "redhat.vscode-yaml",
+    "yzhang.markdown-all-in-one",
+    "editorconfig.editorconfig"
+  ]
+}

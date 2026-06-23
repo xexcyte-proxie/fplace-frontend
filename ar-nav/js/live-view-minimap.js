@@ -6,12 +6,16 @@
   const CENTER = SIZE / 2;
   const VIEW_RADIUS = 46;
   const PAD = 10;
+  /** Fixed zoom — avoids scale recalc jitter as the anchor moves. */
+  const VIEW_METERS = 38;
+  const HEADING_SMOOTH = 0.14;
 
   let rootEl = null;
   let rotatorEl = null;
   let markerEl = null;
   let markerRingEl = null;
   let wedgeEl = null;
+  let mapHeading = null;
 
   function normalizePoint(p) {
     if (!p) return null;
@@ -19,6 +23,24 @@
     const lng = p.longitude ?? p.lng;
     if (lat == null || lng == null) return null;
     return { latitude: Number(lat), longitude: Number(lng), floorId: p.floorId };
+  }
+
+  function smoothMapHeading(raw) {
+    if (raw == null || Number.isNaN(raw)) return mapHeading ?? 0;
+    const next = ((Number(raw) % 360) + 360) % 360;
+    if (mapHeading == null) {
+      mapHeading = next;
+      return mapHeading;
+    }
+    let delta = next - mapHeading;
+    while (delta > 180) delta -= 360;
+    while (delta < -180) delta += 360;
+    mapHeading = (mapHeading + delta * HEADING_SMOOTH + 360) % 360;
+    return mapHeading;
+  }
+
+  function resetRouteState() {
+    mapHeading = null;
   }
 
   function normalizePath(path) {
@@ -92,19 +114,13 @@
     return { traveled: path.slice(), remaining: [path[path.length - 1]] };
   }
 
-  function projectMinimap(path, snap, headingDeg) {
+  function projectMinimap(path, alongM, headingDeg) {
     const geo = window.FplacesRouteGeometry;
-    const anchor = {
-      latitude: snap.latitude,
-      longitude: snap.longitude,
-    };
-    const locals = path.map((p) => geo.toLocalMeters(anchor, p));
+    const snap = geo.snapAtDistanceAlongPath(path, alongM);
+    if (!snap) return null;
 
-    let maxAbs = 8;
-    for (const l of locals) {
-      maxAbs = Math.max(maxAbs, Math.abs(l.x), Math.abs(l.y));
-    }
-    const scale = (VIEW_RADIUS - PAD) / maxAbs;
+    const anchor = { latitude: snap.latitude, longitude: snap.longitude };
+    const scale = (VIEW_RADIUS - PAD) / VIEW_METERS;
 
     const toSvg = (p) => {
       const local = geo.toLocalMeters(anchor, p);
@@ -114,7 +130,6 @@
       };
     };
 
-    const alongM = snap.distanceAlongPathMeters ?? 0;
     const split = splitPathAtDistance(path, alongM);
     const traveled = split.traveled.map(toSvg);
     const remaining = split.remaining.map(toSvg);
@@ -122,7 +137,7 @@
     return {
       traveled,
       remaining,
-      headingDeg: headingDeg ?? 0,
+      headingDeg: smoothMapHeading(headingDeg),
     };
   }
 
@@ -160,7 +175,9 @@
   }
 
   window.FplacesMinimap = {
-    setRoute() {},
+    setRoute() {
+      resetRouteState();
+    },
 
     update(navigator, headingDeg) {
       const path = normalizePath(navigator?.route?.pathCoordinates);
@@ -172,19 +189,8 @@
       ensure();
       rootEl.style.display = 'block';
 
-      let heading = headingDeg;
-      if (heading == null) {
-        heading = window.FplacesOrientationCompass?.getDeviceHeading?.() ?? 0;
-      }
-
-      const snap =
-        navigator?.getMinimapSnap?.() ||
-        navigator?.getDisplaySnap?.() ||
-        window.FplacesRouteGeometry?.snapAtDistanceAlongPath?.(path, 0);
-
-      if (!snap) return;
-
-      const projected = projectMinimap(path, snap, heading);
+      const alongM = navigator?.getLiveAlongPathMeters?.() ?? 0;
+      const projected = projectMinimap(path, alongM, headingDeg);
       if (projected) render(projected);
     },
   };
