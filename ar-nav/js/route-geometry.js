@@ -16,6 +16,12 @@
   }
 
   function toLocalMeters(ref, p) {
+    const engine = window.FplacesAnchorEngine;
+    if (engine?.isCalibrated) {
+      const local = engine.convertToSLAMSpace(p);
+      return { x: local.x, y: -local.z };
+    }
+
     const cosLat = Math.cos((ref.latitude * Math.PI) / 180);
     const mLat = 111320;
     const mLng = 111320 * Math.max(Math.abs(cosLat), 0.01);
@@ -49,7 +55,18 @@
     };
   }
 
-  function snapToRoute(path, lat, lng) {
+  function segmentOnFloor(a, b, floorId) {
+    if (!floorId) return true;
+    const aFloor = a.floorId || null;
+    const bFloor = b.floorId || null;
+    if (!aFloor && !bFloor) return true;
+    return aFloor === floorId || bFloor === floorId;
+  }
+
+  function snapToRoute(path, lat, lng, options) {
+    const floorId = options?.floorId || null;
+    const preferVenue = !!options?.preferVenue;
+    const floorMismatchPenalty = preferVenue ? 40 : 80;
     const normalized = path
       .map((p) => {
         const latP = p.latitude ?? p.lat;
@@ -82,14 +99,20 @@
         path[i + 1],
       );
 
-      if (!best || proj.distToSegment < best.offRouteMeters) {
+      let adjustedDist = proj.distToSegment;
+      if (floorId && !segmentOnFloor(path[i], path[i + 1], floorId)) {
+        adjustedDist += floorMismatchPenalty;
+      }
+
+      if (!best || adjustedDist < best.offRouteMeters) {
         best = {
           latitude: proj.latitude,
           longitude: proj.longitude,
           segmentIndex: i,
           t: proj.t,
           distanceAlongPathMeters: cumulative + proj.t * segLen,
-          offRouteMeters: proj.distToSegment,
+          offRouteMeters: adjustedDist,
+          floorId: path[i].floorId || path[i + 1].floorId || null,
         };
       }
       cumulative += segLen;

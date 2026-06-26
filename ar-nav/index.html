@@ -47,15 +47,44 @@
       </div>
 
       <div id="offPath" class="warn-banner hidden"></div>
+
+      <div id="floor-banner" class="floor-banner hidden">
+        <span class="material-symbols-rounded" aria-hidden="true">layers</span>
+        <span id="floor-banner-text"></span>
+      </div>
+
+      <div id="align-banner" class="align-banner hidden">
+        <span class="material-symbols-rounded" aria-hidden="true">screen_rotation</span>
+        <span id="align-text">Point your phone toward the path</span>
+      </div>
+
+      <div id="hero-distance" class="hero-distance hidden">
+        <span id="hero-distance-value">—</span>
+        <span id="hero-distance-unit">m</span>
+      </div>
+
+      <div id="arrival-card" class="arrival-card hidden">
+        <span class="material-symbols-rounded arrival-icon" aria-hidden="true">check_circle</span>
+        <div class="arrival-copy">
+          <div class="arrival-title">You've arrived</div>
+          <div id="arrival-dest" class="arrival-dest"></div>
+        </div>
+      </div>
     </div>
 
     <script src="./config.js"></script>
     <script src="./js/ar-debug.js"></script>
     <script src="./js/route-bridge.js"></script>
+    <script src="./js/anchorEngine.js"></script>
     <script src="./js/route-geometry.js"></script>
+    <script src="./js/indoor-position.js"></script>
+    <script src="./js/pathGeometry.js"></script>
+    <script src="./js/world-route-scene.js"></script>
+    <script src="./js/demo-sim-walk.js"></script>
     <script src="./js/route-navigator.js"></script>
     <script src="./js/route-lane-heading.js"></script>
     <script src="./js/live-view-hud.js"></script>
+    <script src="./js/live-view-arrows-3d.js"></script>
     <script src="./js/orientation-compass.js"></script>
     <script src="./js/live-view-minimap.js"></script>
     <script src="./js/fallback-nav.js"></script>

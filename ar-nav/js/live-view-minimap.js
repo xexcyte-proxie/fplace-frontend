@@ -1,21 +1,17 @@
 /**
- * Compact circular minimap — Google Maps style: user fixed at center, map rotates.
+ * Compact circular minimap — marker tracks live progress along route polyline.
  */
 (function () {
   const SIZE = 120;
   const CENTER = SIZE / 2;
   const VIEW_RADIUS = 46;
   const PAD = 10;
-  /** Fixed zoom — avoids scale recalc jitter as the anchor moves. */
-  const VIEW_METERS = 38;
-  const HEADING_SMOOTH = 0.14;
 
   let rootEl = null;
   let rotatorEl = null;
   let markerEl = null;
   let markerRingEl = null;
   let wedgeEl = null;
-  let mapHeading = null;
 
   function normalizePoint(p) {
     if (!p) return null;
@@ -23,24 +19,6 @@
     const lng = p.longitude ?? p.lng;
     if (lat == null || lng == null) return null;
     return { latitude: Number(lat), longitude: Number(lng), floorId: p.floorId };
-  }
-
-  function smoothMapHeading(raw) {
-    if (raw == null || Number.isNaN(raw)) return mapHeading ?? 0;
-    const next = ((Number(raw) % 360) + 360) % 360;
-    if (mapHeading == null) {
-      mapHeading = next;
-      return mapHeading;
-    }
-    let delta = next - mapHeading;
-    while (delta > 180) delta -= 360;
-    while (delta < -180) delta += 360;
-    mapHeading = (mapHeading + delta * HEADING_SMOOTH + 360) % 360;
-    return mapHeading;
-  }
-
-  function resetRouteState() {
-    mapHeading = null;
   }
 
   function normalizePath(path) {
@@ -84,81 +62,99 @@
     return rootEl;
   }
 
-  function splitPathAtDistance(path, alongM) {
+  function pathCentroid(path) {
+    let lat = 0;
+    let lng = 0;
+    for (const p of path) {
+      lat += p.latitude;
+      lng += p.longitude;
+    }
+    return { latitude: lat / path.length, longitude: lng / path.length };
+  }
+
+  function markerOnPolyline(scaled, path, snap) {
     const geo = window.FplacesRouteGeometry;
+    const alongM = snap.distanceAlongPathMeters ?? 0;
     let accumulated = 0;
-    const traveled = [];
-    const remaining = [];
 
     for (let i = 0; i < path.length - 1; i++) {
       const segLen = geo.haversineMeters(path[i], path[i + 1]);
-      if (accumulated + segLen < alongM) {
-        traveled.push(path[i]);
-        accumulated += segLen;
-        continue;
+      if (accumulated + segLen >= alongM || i === path.length - 2) {
+        const t =
+          segLen > 0 ? Math.max(0, Math.min(1, (alongM - accumulated) / segLen)) : 0;
+        const a = scaled[i];
+        const b = scaled[i + 1] || a;
+        return {
+          x: a.x + t * (b.x - a.x),
+          y: a.y + t * (b.y - a.y),
+          segIndex: i,
+          t,
+        };
       }
-
-      const t = segLen > 0 ? Math.max(0, Math.min(1, (alongM - accumulated) / segLen)) : 0;
-      const split = {
-        latitude: path[i].latitude + t * (path[i + 1].latitude - path[i].latitude),
-        longitude: path[i].longitude + t * (path[i + 1].longitude - path[i].longitude),
-      };
-      traveled.push(path[i], split);
-      remaining.push(split, path[i + 1]);
-      for (let j = i + 1; j < path.length; j++) {
-        remaining.push(path[j]);
-      }
-      return { traveled, remaining };
+      accumulated += segLen;
     }
 
-    return { traveled: path.slice(), remaining: [path[path.length - 1]] };
+    return { x: scaled[scaled.length - 1].x, y: scaled[scaled.length - 1].y, segIndex: path.length - 2, t: 1 };
   }
 
-  function projectMinimap(path, alongM, headingDeg) {
+  function projectMinimap(path, snap, headingDeg) {
     const geo = window.FplacesRouteGeometry;
-    const snap = geo.snapAtDistanceAlongPath(path, alongM);
-    if (!snap) return null;
+    const center = pathCentroid(path);
+    const locals = path.map((p) => geo.toLocalMeters(center, p));
 
-    const anchor = { latitude: snap.latitude, longitude: snap.longitude };
-    const scale = (VIEW_RADIUS - PAD) / VIEW_METERS;
+    let maxAbs = 6;
+    for (const l of locals) {
+      maxAbs = Math.max(maxAbs, Math.abs(l.x), Math.abs(l.y));
+    }
+    const scale = (VIEW_RADIUS - PAD) / maxAbs;
 
-    const toSvg = (p) => {
-      const local = geo.toLocalMeters(anchor, p);
-      return {
-        x: CENTER + local.x * scale,
-        y: CENTER - local.y * scale,
-      };
-    };
+    const scaled = locals.map((l) => ({
+      x: CENTER + l.x * scale,
+      y: CENTER + l.y * scale,
+    }));
 
-    const split = splitPathAtDistance(path, alongM);
-    const traveled = split.traveled.map(toSvg);
-    const remaining = split.remaining.map(toSvg);
+    const marker = markerOnPolyline(scaled, path, snap);
+    const splitIndex = marker.segIndex;
 
-    return {
-      traveled,
-      remaining,
-      headingDeg: smoothMapHeading(headingDeg),
-    };
+    const traveled = [];
+    const remaining = [];
+    for (let i = 0; i < scaled.length; i++) {
+      if (i < splitIndex) traveled.push(scaled[i]);
+      else if (i === splitIndex) {
+        traveled.push(marker);
+        remaining.push(marker);
+      } else remaining.push(scaled[i]);
+    }
+    if (traveled.length < 2 && scaled.length >= 2) {
+      traveled.unshift(scaled[0]);
+    }
+
+    return { scaled, marker, traveled, remaining, headingDeg: headingDeg ?? 0 };
   }
 
-  function polylinePoints(pts) {
-    return pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  function polylinePoints(pts, dx = 0, dy = 0) {
+    return pts.map((p) => `${(p.x + dx).toFixed(1)},${(p.y + dy).toFixed(1)}`).join(' ');
   }
 
   function render(projected) {
     if (!rotatorEl || !projected) return;
 
+    const heading = projected.headingDeg ?? 0;
+    const rot = -heading;
+    const dx = CENTER - projected.marker.x;
+    const dy = CENTER - projected.marker.y;
+
     rotatorEl.innerHTML =
       (projected.traveled.length >= 2
-        ? `<polyline class="minimap-route-traveled" points="${polylinePoints(projected.traveled)}" fill="none"/>`
+        ? `<polyline class="minimap-route-traveled" points="${polylinePoints(projected.traveled, dx, dy)}" fill="none"/>`
         : '') +
       (projected.remaining.length >= 2
-        ? `<polyline class="minimap-route" points="${polylinePoints(projected.remaining)}" fill="none"/>`
+        ? `<polyline class="minimap-route" points="${polylinePoints(projected.remaining, dx, dy)}" fill="none"/>`
         : '');
 
     rotatorEl.setAttribute(
       'transform',
-      `rotate(${(-projected.headingDeg).toFixed(1)} ${CENTER} ${CENTER})`,
+      `translate(${dx.toFixed(2)} ${dy.toFixed(2)}) rotate(${rot.toFixed(1)} ${CENTER} ${CENTER})`,
     );
 
     if (markerEl) {
@@ -170,16 +166,23 @@
       markerRingEl.setAttribute('cy', String(CENTER));
     }
     if (wedgeEl) {
-      wedgeEl.setAttribute('transform', `translate(${CENTER} ${CENTER}) rotate(${projected.headingDeg.toFixed(1)})`);
+      wedgeEl.setAttribute(
+        'transform',
+        `translate(${CENTER} ${CENTER}) rotate(${heading.toFixed(1)})`,
+      );
     }
   }
 
   window.FplacesMinimap = {
-    setRoute() {
-      resetRouteState();
-    },
+    setRoute() {},
 
     update(navigator, headingDeg) {
+      const state = navigator?.getState?.() || {};
+      if (state.arrived) {
+        if (rootEl) rootEl.style.display = 'none';
+        return;
+      }
+
       const path = normalizePath(navigator?.route?.pathCoordinates);
       if (!path.length) {
         if (rootEl) rootEl.style.display = 'none';
@@ -189,8 +192,24 @@
       ensure();
       rootEl.style.display = 'block';
 
-      const alongM = navigator?.getLiveAlongPathMeters?.() ?? 0;
-      const projected = projectMinimap(path, alongM, headingDeg);
+      let heading = headingDeg;
+      if (heading == null) {
+        heading = window.FplacesOrientationCompass?.getDeviceHeading?.() ?? 0;
+      }
+
+      const snap =
+        navigator?.getDisplaySnap?.() ||
+        (navigator?.lastPosition
+          ? window.FplacesRouteGeometry?.snapToRoute?.(
+              path,
+              navigator.lastPosition.latitude,
+              navigator.lastPosition.longitude,
+            )
+          : window.FplacesRouteGeometry?.snapAtDistanceAlongPath?.(path, 0));
+
+      if (!snap) return;
+
+      const projected = projectMinimap(path, snap, heading);
       if (projected) render(projected);
     },
   };

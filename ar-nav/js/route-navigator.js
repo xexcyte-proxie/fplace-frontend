@@ -4,9 +4,6 @@
  */
 (function () {
   const R = 6371000;
-  /** Beyond this, phone GPS likely does not match the Mappedin venue geolocation. */
-  const GPS_ROUTE_MAX_OFFSET_M = 1500;
-  const OFF_ROUTE_MESSAGE_CAP_M = 9999;
 
   function haversineMeters(a, b) {
     const dLat = ((b.latitude - a.latitude) * Math.PI) / 180;
@@ -51,29 +48,53 @@
     return bearingDegrees(path[fromIdx], path[toIdx]);
   }
 
+  function pathIndexForAlongMeters(path, metersAlong) {
+    const snap = window.FplacesRouteGeometry?.snapAtDistanceAlongPath?.(path, metersAlong);
+    return snap?.segmentIndex ?? 0;
+  }
+
+  function normalizeDeltaDegrees(a, b) {
+    let delta = a - b;
+    while (delta > 180) delta -= 360;
+    while (delta < -180) delta += 360;
+    return delta;
+  }
+
+  /** Map each maneuver to its along-path position using Mappedin step distances. */
   function enrichManeuvers(route) {
     const path = route.pathCoordinates || [];
     const maneuvers = route.maneuvers || [];
     if (!maneuvers.length) return [];
     if (!path.length) {
-      return maneuvers.map((m, i) => ({ ...m, pathIndex: i }));
+      return maneuvers.map((m, i) => ({ ...m, pathIndex: i, alongPathMeters: 0 }));
     }
 
+    let cumulative = 0;
     return maneuvers.map((m, i) => {
-      if (typeof m.pathIndex === 'number' && typeof m.headingDegrees === 'number') {
-        return { ...m };
+      const alongPathMeters = cumulative;
+      const stepDist =
+        m.distanceMeters != null && Number(m.distanceMeters) > 0
+          ? Number(m.distanceMeters)
+          : 0;
+
+      let pathIndex = typeof m.pathIndex === 'number' ? m.pathIndex : null;
+      let headingDegrees =
+        typeof m.headingDegrees === 'number' ? m.headingDegrees : null;
+
+      if (pathIndex == null) {
+        pathIndex = pathIndexForAlongMeters(path, alongPathMeters);
       }
-      const pathIndex = Math.min(
-        path.length - 1,
-        Math.max(
-          0,
-          Math.floor(((i + 1) * path.length) / maneuvers.length) - 1,
-        ),
-      );
+      if (headingDegrees == null) {
+        headingDegrees = segmentBearingAt(path, pathIndex, 2);
+      }
+
+      if (stepDist > 0) cumulative += stepDist;
+
       return {
         ...m,
+        alongPathMeters,
         pathIndex,
-        headingDegrees: segmentBearingAt(path, pathIndex, 2),
+        headingDegrees,
       };
     });
   }
@@ -141,68 +162,17 @@
       this._lastRemainingRaw = null;
       this._prevPositionSample = null;
       this._moveSpeedMps = 0;
-      this._displaySpeedMps = 0;
       this._displayAlongPathM = null;
       this._lastAlongTickAt = null;
-      this._lastGpsAlongM = null;
-      this._lastFrameId = null;
-      this._minimapSnapCache = null;
-      this._gpsPlausible = true;
-      this._gpsSnap = null;
-      this._lastPositionForProgress = null;
+      this._gpsOffRouteMeters = Infinity;
       this.arrived = false;
       this.offPathMessage = '';
       this._warnedShortPath = false;
-      this._warnedGpsMismatch = false;
-    }
-
-    maxAllowedGpsOffsetM() {
-      const accuracy = this.lastPosition?.accuracy || 0;
-      return Math.max(GPS_ROUTE_MAX_OFFSET_M, accuracy * 8, 25);
-    }
-
-    evaluateGpsPlausibility() {
-      const snap = this._gpsSnap;
-      if (!snap || !this.lastPosition) {
-        this._gpsPlausible = !this.lastPosition;
-        return this._gpsPlausible;
-      }
-      const off = snap.offRouteMeters ?? Infinity;
-      this._gpsPlausible = off <= this.maxAllowedGpsOffsetM();
-      if (!this._gpsPlausible && !this._warnedGpsMismatch) {
-        this._warnedGpsMismatch = true;
-        window.FplacesArDebug?.warn('Navigator', 'GPS does not match route map', {
-          offRouteMeters: Math.round(off),
-          maxAllowedMeters: Math.round(this.maxAllowedGpsOffsetM()),
-          userLat: this.lastPosition.latitude,
-          userLng: this.lastPosition.longitude,
-          pathStart: this.route?.pathCoordinates?.[0] || null,
-        });
-      }
-      return this._gpsPlausible;
-    }
-
-    seedDisplayProgress() {
-      const path = this.route?.pathCoordinates || [];
-      if (!path.length) return;
-      if (this._gpsPlausible && this._gpsSnap) {
-        this._displayAlongPathM = this._gpsSnap.distanceAlongPathMeters ?? 0;
-        this._lastGpsAlongM = this._displayAlongPathM;
-      } else {
-        this._displayAlongPathM = 0;
-        this._lastGpsAlongM = 0;
-      }
-      this._lastAlongTickAt = performance.now();
-    }
-
-    applyProgressDeltaMeters(deltaM) {
-      if (!deltaM || deltaM < 1.2 || deltaM > 45) return;
-      const path = this.route?.pathCoordinates || [];
-      const total = path.length
-        ? window.FplacesRouteGeometry.totalPathLengthMeters(path)
-        : 0;
-      const current = this._displayAlongPathM ?? 0;
-      this._displayAlongPathM = Math.max(0, Math.min(total, current + deltaM));
+      this._lastExternalAt = null;
+      this._trackedFloorId = null;
+      this.floorChangeMessage = '';
+      this._floorChangeUntil = 0;
+      this._floorNames = {};
     }
 
     setRoute(route) {
@@ -230,17 +200,20 @@
       this._lastRemainingRaw = null;
       this._prevPositionSample = null;
       this._moveSpeedMps = 0;
-      this._displaySpeedMps = 0;
       this._lastRemainingFrame = null;
       this._displayAlongPathM = null;
       this._lastAlongTickAt = null;
-      this._lastGpsAlongM = null;
-      this._lastFrameId = null;
-      this._minimapSnapCache = null;
-      this._gpsPlausible = true;
-      this._gpsSnap = null;
-      this._lastPositionForProgress = null;
-      this._warnedGpsMismatch = false;
+      this._gpsOffRouteMeters = Infinity;
+      this._lastExternalAt = null;
+      this._trackedFloorId = null;
+      this.floorChangeMessage = '';
+      this._floorChangeUntil = 0;
+      this._floorNames = {};
+      if (route?.floors) {
+        for (const floor of route.floors) {
+          if (floor?.id) this._floorNames[floor.id] = floor.name || floor.id;
+        }
+      }
       this.maneuvers = route ? enrichManeuvers(route) : [];
       this.maneuverIndex = Math.min(
         route?.currentLegIndex ?? 0,
@@ -248,28 +221,104 @@
       );
       window.FplacesMinimap?.setRoute?.(route?.pathCoordinates || null);
 
-      if (route?.userPosition?.latitude != null && route?.userPosition?.longitude != null) {
-        window.FplacesArDebug?.log('Navigator', 'Applying userPosition from route payload', route.userPosition);
-        this.applyPosition({
-          latitude: route.userPosition.latitude,
-          longitude: route.userPosition.longitude,
-          heading: route.userPosition.heading,
-          accuracy: route.userPosition.accuracy,
-          floorId: route.userPosition.floorId,
-          source: 'route',
-        });
+      const seedPosition =
+        route?.userPosition?.latitude != null && route?.userPosition?.longitude != null
+          ? route.userPosition
+          : route?.origin?.latitude != null && route?.origin?.longitude != null
+            ? { ...route.origin, source: 'routeOrigin', accuracy: 8 }
+            : null;
+
+      if (seedPosition) {
+        window.FplacesArDebug?.log('Navigator', 'Applying seed position from route payload', seedPosition);
+        this.applyPosition(
+          {
+            latitude: seedPosition.latitude,
+            longitude: seedPosition.longitude,
+            heading: seedPosition.heading,
+            accuracy: seedPosition.accuracy,
+            floorId: seedPosition.floorId,
+            source: seedPosition.source || 'route',
+          },
+          { skipAdvance: true, silent: true },
+        );
+        this.syncManeuverIndexFromAlong(this._displayAlongPathM ?? 0);
+        this.notify();
       } else {
-        window.FplacesArDebug?.log('Navigator', 'No userPosition in route — waiting for GPS/external feed');
+        window.FplacesArDebug?.log('Navigator', 'No seed position in route — waiting for GPS/external feed');
         this._displayAlongPathM = 0;
         this.notify();
       }
+    }
+
+    resetProgressAtSnap(snap) {
+      if (!snap || snap.latitude == null || snap.longitude == null) return;
+
+      const path = this.route?.pathCoordinates || [];
+      let alongM = snap.distanceAlongPathMeters;
+      if (alongM == null && path.length) {
+        const routeSnap = window.FplacesRouteGeometry?.snapToRoute?.(
+          path,
+          snap.latitude,
+          snap.longitude,
+          { floorId: snap.floorId || null },
+        );
+        alongM = routeSnap?.distanceAlongPathMeters ?? 0;
+      }
+
+      this.arrived = false;
+      this._displayAlongPathM = alongM ?? 0;
+      this._lastAlongTickAt = performance.now();
+      this._smoothDistRemaining = null;
+      this._smoothDistToTarget = null;
+      this._lastRemainingFrame = null;
+      this._lastTargetFrame = null;
+      this._lastTargetTickAt = null;
+      this._lastRemainingTickAt = null;
+      this._prevPositionSample = null;
+      this._moveSpeedMps = 0;
+      this.syncManeuverIndexFromAlong(alongM ?? 0);
+
+      this.applyPosition(
+        {
+          latitude: snap.latitude,
+          longitude: snap.longitude,
+          accuracy: 4,
+          floorId: snap.floorId,
+          source: 'calibrate',
+        },
+        { skipAdvance: true, silent: true },
+      );
+      this.notify();
+    }
+
+    /** Set maneuver index from along-path progress without threshold skipping. */
+    syncManeuverIndexFromAlong(alongMeters) {
+      if (!this.maneuvers.length) {
+        this.maneuverIndex = 0;
+        return;
+      }
+      const along = Math.max(0, alongMeters ?? 0);
+      if (along <= 0.05) {
+        this.maneuverIndex = 0;
+        return;
+      }
+      let idx = 0;
+      for (let i = 0; i < this.maneuvers.length; i++) {
+        const mAlong = this.maneuvers[i].alongPathMeters;
+        if (typeof mAlong === 'number' && mAlong <= along) {
+          idx = i;
+        } else {
+          break;
+        }
+      }
+      this.maneuverIndex = idx;
     }
 
     /**
      * External position feed (Flutter map, Mappedin blue dot, etc.)
      * @param {{ latitude: number, longitude: number, heading?: number, accuracy?: number, floorId?: string, source?: string }} pos
      */
-    applyPosition(pos) {
+    applyPosition(pos, options = {}) {
       if (!pos || pos.latitude == null || pos.longitude == null) {
         window.FplacesArDebug?.warn('Navigator', 'applyPosition ignored — invalid coords', pos);
         return;
@@ -283,12 +332,6 @@
         floorId: pos.floorId,
       });
 
-      const prevProgressSample = this._lastPositionForProgress;
-      this._lastPositionForProgress = {
-        latitude: Number(pos.latitude),
-        longitude: Number(pos.longitude),
-      };
-
       this.lastPosition = {
         latitude: Number(pos.latitude),
         longitude: Number(pos.longitude),
@@ -297,6 +340,12 @@
         floorId: pos.floorId || null,
       };
       this.positionSource = pos.source || 'external';
+
+      if (window.FplacesIndoorPosition?.isVenueSource?.(this.positionSource)) {
+        this._lastExternalAt = performance.now();
+      }
+
+      this.updateFloorTracking(this.lastPosition.floorId);
       this.updateMovementSpeed(this.lastPosition.latitude, this.lastPosition.longitude);
 
       if (this.lastPosition.heading != null && !Number.isNaN(this.lastPosition.heading)) {
@@ -304,18 +353,18 @@
           ((this.lastPosition.heading % 360) + 360) % 360;
       }
 
-      this.updateSnap();
-      if (this._gpsPlausible) {
-        this.syncDisplayProgressFromGps();
-      } else if (prevProgressSample) {
-        const deltaM = haversineMeters(prevProgressSample, this.lastPosition);
-        this.applyProgressDeltaMeters(deltaM);
-      } else if (this._displayAlongPathM == null) {
-        this.seedDisplayProgress();
+      if (options.skipAdvance) {
+        this.ensureSnap();
+        const gpsAlong = this.snappedOnPath?.distanceAlongPathMeters ?? 0;
+        this._displayAlongPathM = gpsAlong;
+        this._lastAlongTickAt = performance.now();
+      } else {
+        this.advanceAlongPath();
       }
-
-      this.advanceAlongPath();
-      this.notify();
+      this.managePositionSources();
+      if (!options.silent) {
+        this.notify();
+      }
     }
 
     currentManeuver() {
@@ -340,65 +389,101 @@
         if (dt > 0.15 && dt < 45) {
           const d = haversineMeters(this._prevPositionSample, { latitude: lat, longitude: lng });
           this._moveSpeedMps = d / dt;
-          const sample = this._moveSpeedMps;
-          this._displaySpeedMps =
-            this._displaySpeedMps == null
-              ? sample
-              : this._displaySpeedMps * 0.8 + sample * 0.2;
         }
       }
       this._prevPositionSample = { latitude: lat, longitude: lng, at: now };
     }
 
-    syncDisplayProgressFromGps() {
-      if (!this._gpsPlausible || !this._gpsSnap) return;
-
-      const path = this.route?.pathCoordinates || [];
-      const total = path.length
-        ? window.FplacesRouteGeometry.totalPathLengthMeters(path)
-        : 0;
-      const gpsAlong = this._gpsSnap.distanceAlongPathMeters ?? 0;
-      this._lastGpsAlongM = gpsAlong;
-
-      if (this._displayAlongPathM == null) {
-        this._displayAlongPathM = gpsAlong;
-      } else if (Math.abs(gpsAlong - this._displayAlongPathM) > 6) {
-        this._displayAlongPathM = gpsAlong;
-      } else {
-        this._displayAlongPathM += (gpsAlong - this._displayAlongPathM) * 0.35;
-      }
-
-      this._displayAlongPathM = Math.max(0, Math.min(total, this._displayAlongPathM));
-      this._lastAlongTickAt = performance.now();
+    isVenuePositionActive() {
+      const cfg = window.FPLACES_AR_CONFIG || {};
+      return window.FplacesIndoorPosition?.isVenueFeed?.(
+        cfg,
+        this.positionSource,
+        this._lastExternalAt,
+      );
     }
 
-    /** Live progress along route polyline — speed extrapolation between GPS fixes. */
-    advanceDisplayProgress(now = performance.now()) {
+    isVenueSnapTrustworthy() {
+      return (
+        this.isVenuePositionActive() &&
+        window.FplacesIndoorPosition?.isTrustworthy?.(this.lastPosition, this.positionSource)
+      );
+    }
+
+    offRouteThresholdMeters() {
+      return window.FplacesIndoorPosition?.offRouteThresholdMeters?.(
+        this.lastPosition,
+        this.positionSource,
+      ) ?? (() => {
+        const accuracy = this.lastPosition?.accuracy || 15;
+        return Math.max(25, accuracy * 2);
+      })();
+    }
+
+    isGpsSnapTrustworthy() {
+      if (this.isVenueSnapTrustworthy()) return true;
+      return (this._gpsOffRouteMeters ?? Infinity) <= this.offRouteThresholdMeters();
+    }
+
+    managePositionSources() {
+      const cfg = window.FPLACES_AR_CONFIG || {};
+      if (this.isVenuePositionActive()) {
+        this.stopGps();
+        return;
+      }
+      if (cfg.useGpsProgress !== false && this.watchId == null && this.route?.pathCoordinates?.length) {
+        this.startGps();
+      }
+    }
+
+    floorLabel(floorId) {
+      if (!floorId) return '';
+      return this._floorNames[floorId] || `Floor ${floorId}`;
+    }
+
+    updateFloorTracking(floorId) {
+      if (!floorId) return;
+      if (this._trackedFloorId && this._trackedFloorId !== floorId) {
+        this.floorChangeMessage = `Now on ${this.floorLabel(floorId)}`;
+        this._floorChangeUntil = performance.now() + 4500;
+        window.FplacesArDebug?.log('Navigator', 'Floor changed', {
+          from: this._trackedFloorId,
+          to: floorId,
+        });
+      }
+      this._trackedFloorId = floorId;
+    }
+
+    /** When indoor GPS is off the venue polyline, infer slow walk if facing the route. */
+    effectiveMoveSpeedMps() {
+      if (this._moveSpeedMps > 0.03) return this._moveSpeedMps;
+      if (this.positionSource === 'route' || this.positionSource === 'none' || this.positionSource === 'calibrate') {
+        return this._moveSpeedMps;
+      }
+      if (this.isGpsSnapTrustworthy()) return this._moveSpeedMps;
+
+      const heading =
+        window.FplacesOrientationCompass?.getDeviceHeading?.() ??
+        this.externalHeadingDegrees;
+      const target = this.getTargetBearingDegrees();
+      if (heading == null || target == null) return 0;
+
+      const delta = Math.abs(normalizeDeltaDegrees(heading, target));
+      if (delta > 40) return 0;
+      return 0.55;
+    }
+
+    /** Live progress along route polyline — blends GPS snap + walking extrapolation. */
+    getDisplayAlongPathMeters(gpsAlongMeters) {
       const path = this.route?.pathCoordinates || [];
       const total = path.length
         ? window.FplacesRouteGeometry.totalPathLengthMeters(path)
         : 0;
-      const speed = this._displaySpeedMps ?? this._moveSpeedMps ?? 0;
-
-      if (!this._gpsPlausible) {
-        if (this._displayAlongPathM == null || this._lastAlongTickAt == null) {
-          this._displayAlongPathM = 0;
-          this._lastAlongTickAt = now;
-          return this._displayAlongPathM;
-        }
-        const dt = Math.min(1, (now - this._lastAlongTickAt) / 1000);
-        this._lastAlongTickAt = now;
-        if (speed > 0.08 && dt > 0) {
-          this._displayAlongPathM += speed * dt;
-        }
-        this._displayAlongPathM = Math.max(0, Math.min(total, this._displayAlongPathM));
-        return this._displayAlongPathM;
-      }
-
-      const gpsRef = this._lastGpsAlongM ?? this._gpsSnap?.distanceAlongPathMeters ?? 0;
+      const gpsAlong = gpsAlongMeters ?? 0;
+      const now = performance.now();
 
       if (this._displayAlongPathM == null || this._lastAlongTickAt == null) {
-        this._displayAlongPathM = gpsRef;
+        this._displayAlongPathM = gpsAlong;
         this._lastAlongTickAt = now;
         return this._displayAlongPathM;
       }
@@ -406,49 +491,20 @@
       const dt = Math.min(1, (now - this._lastAlongTickAt) / 1000);
       this._lastAlongTickAt = now;
 
-      if (speed > 0.03 && dt > 0) {
+      const speed = this.effectiveMoveSpeedMps();
+      const trustGps = this.isGpsSnapTrustworthy();
+
+      if (trustGps && Math.abs(gpsAlong - this._displayAlongPathM) > (this.isVenueSnapTrustworthy() ? 2 : 4)) {
+        this._displayAlongPathM = gpsAlong;
+      } else if (trustGps) {
+        const blend = this.isVenueSnapTrustworthy() ? 14 : 8;
+        this._displayAlongPathM += (gpsAlong - this._displayAlongPathM) * Math.min(1, dt * blend);
+      }
+      if (speed > 0.03 && dt > 0 && !this.isVenueSnapTrustworthy()) {
         this._displayAlongPathM += speed * dt;
       }
 
-      const maxAhead = Math.max(4, speed * 1.8);
-      if (this._displayAlongPathM > gpsRef + maxAhead) {
-        this._displayAlongPathM = gpsRef + maxAhead;
-      }
-      if (this._displayAlongPathM < gpsRef - 2) {
-        this._displayAlongPathM = gpsRef;
-      }
-
-      this._displayAlongPathM = Math.max(0, Math.min(total, this._displayAlongPathM));
-      return this._displayAlongPathM;
-    }
-
-    /**
-     * Advance live route progress once per animation frame (Google Maps–style glide).
-     * @param {number} frameId rAF counter.
-     */
-    beginFrame(frameId, now = performance.now()) {
-      if (frameId != null && this._lastFrameId === frameId) return;
-      if (frameId != null) this._lastFrameId = frameId;
-
-      if (this.lastPosition) this.ensureSnap();
-      this.advanceDisplayProgress(now);
-      this._refreshMinimapSnapCache();
-    }
-
-    _refreshMinimapSnapCache() {
-      const path = this.route?.pathCoordinates || [];
-      if (!path.length || this._displayAlongPathM == null) {
-        this._minimapSnapCache = this.snappedOnPath;
-        return;
-      }
-
-      this._minimapSnapCache =
-        window.FplacesRouteGeometry.snapAtDistanceAlongPath(path, this._displayAlongPathM) ||
-        this.snappedOnPath;
-    }
-
-    getLiveAlongPathMeters() {
-      return this._displayAlongPathM ?? 0;
+      return Math.max(0, Math.min(total, this._displayAlongPathM));
     }
 
     /** Snap point used for display (minimap + distances). */
@@ -457,39 +513,46 @@
       const path = this.route?.pathCoordinates || [];
       if (!path.length) return this.snappedOnPath;
 
-      const along = this._displayAlongPathM ?? 0;
+      const gpsAlong = this.snappedOnPath?.distanceAlongPathMeters ?? 0;
+      const along = this.getDisplayAlongPathMeters(gpsAlong);
       return (
         window.FplacesRouteGeometry.snapAtDistanceAlongPath(path, along) ||
         this.snappedOnPath
       );
     }
 
-    getMinimapSnap() {
-      if (this._minimapSnapCache) return this._minimapSnapCache;
-      return this.getDisplaySnap();
-    }
-
     ensureSnap() {
       const path = this.route?.pathCoordinates || [];
-      if (!path.length) return;
+      if (!path.length || !this.lastPosition) return;
 
-      if (this.lastPosition) {
-        this._gpsSnap = window.FplacesRouteGeometry?.snapToRoute?.(
-          path,
-          this.lastPosition.latitude,
-          this.lastPosition.longitude,
-        );
-        this.evaluateGpsPlausibility();
-      }
+      const snapOpts = window.FplacesIndoorPosition?.snapOptions?.(
+        this.lastPosition,
+        this.positionSource,
+      ) || { floorId: this.lastPosition.floorId };
 
-      if (this._gpsPlausible && this._gpsSnap) {
-        this.snappedOnPath = this._gpsSnap;
+      const gpsSnap = window.FplacesRouteGeometry?.snapToRoute?.(
+        path,
+        this.lastPosition.latitude,
+        this.lastPosition.longitude,
+        snapOpts,
+      );
+      this._gpsOffRouteMeters = gpsSnap?.offRouteMeters ?? Infinity;
+
+      if (gpsSnap && gpsSnap.offRouteMeters <= this.offRouteThresholdMeters()) {
+        this.snappedOnPath = gpsSnap;
+        if (
+          this._displayAlongPathM == null ||
+          Math.abs(gpsSnap.distanceAlongPathMeters - this._displayAlongPathM) > 2
+        ) {
+          this._displayAlongPathM = gpsSnap.distanceAlongPathMeters;
+        }
       } else if (this._displayAlongPathM != null) {
         this.snappedOnPath =
           window.FplacesRouteGeometry.snapAtDistanceAlongPath(path, this._displayAlongPathM) ||
-          this._gpsSnap;
+          gpsSnap;
       } else {
-        this.snappedOnPath = this._gpsSnap;
+        this.snappedOnPath = gpsSnap;
+        if (gpsSnap) this._displayAlongPathM = gpsSnap.distanceAlongPathMeters;
       }
 
       if (this.snappedOnPath) {
@@ -519,10 +582,19 @@
     distanceToCurrentTargetMeters() {
       this.ensureSnap();
       const path = this.route?.pathCoordinates || [];
-      const snap = this.getDisplaySnap();
-      if (!path.length || !snap) return null;
+      if (!path.length) return null;
 
+      const gpsAlong = this.snappedOnPath?.distanceAlongPathMeters ?? 0;
+      const along = this.getDisplayAlongPathMeters(gpsAlong);
       const next = this.maneuvers[this.maneuverIndex + 1];
+
+      if (next && typeof next.alongPathMeters === 'number') {
+        return Math.max(0, next.alongPathMeters - along);
+      }
+
+      const snap = this.getDisplaySnap();
+      if (!snap) return null;
+
       if (next && typeof next.pathIndex === 'number') {
         return window.FplacesRouteGeometry.distanceAlongPathBetween(
           path,
@@ -531,7 +603,8 @@
         );
       }
 
-      return window.FplacesRouteGeometry.distanceAlongPathToEnd(path, snap);
+      const total = window.FplacesRouteGeometry.totalPathLengthMeters(path);
+      return Math.max(0, total - along);
     }
 
     /** Live distance to next maneuver — updates every frame with 0.1 m precision. */
@@ -550,10 +623,11 @@
       this._lastTargetTickAt = now;
 
       this._smoothDistToTarget += (raw - this._smoothDistToTarget) * Math.min(1, dt * 14);
-      if (this._moveSpeedMps > 0.04 && dt > 0) {
+      const speed = this.effectiveMoveSpeedMps();
+      if (speed > 0.03 && dt > 0) {
         this._smoothDistToTarget = Math.max(
           0,
-          this._smoothDistToTarget - this._moveSpeedMps * dt,
+          this._smoothDistToTarget - speed * dt,
         );
       }
       if (this._smoothDistToTarget < raw - 1.5) this._smoothDistToTarget = raw;
@@ -569,9 +643,8 @@
     distanceRemainingToDestinationMeters() {
       this.ensureSnap();
       const path = this.route?.pathCoordinates || [];
-      const snap = this.getDisplaySnap();
-      if (!path.length || !snap) return null;
-      return window.FplacesRouteGeometry.distanceAlongPathToEnd(path, snap);
+      if (!path.length || !this.snappedOnPath) return null;
+      return window.FplacesRouteGeometry.distanceAlongPathToEnd(path, this.snappedOnPath);
     }
 
     /**
@@ -579,6 +652,7 @@
      * Counts down between GPS fixes while walking; jumps up if you move away.
      */
     getDisplayDistanceRemainingMeters() {
+      if (this.arrived) return 0;
       const raw = this.distanceRemainingToDestinationMeters();
       if (raw == null) return this._smoothDistRemaining;
 
@@ -638,15 +712,20 @@
         }
       }
 
-      const displaySnap = this.getDisplaySnap();
-      if (displaySnap) {
+      if (this.lastPosition) {
         const target = window.FplacesRouteGeometry?.pointAtDistanceAlongPath?.(
           path,
-          displaySnap,
+          this.snappedOnPath || {
+            segmentIndex: index,
+            t: 0,
+            latitude: this.lastPosition.latitude,
+            longitude: this.lastPosition.longitude,
+          },
           lookaheadM,
         );
         if (target) {
-          return bearingDegrees(displaySnap, target);
+          const from = this.snappedOnPath || this.lastPosition;
+          return bearingDegrees(from, target);
         }
       }
 
@@ -704,12 +783,21 @@
 
     distanceToManeuverMeters(m) {
       const path = this.route?.pathCoordinates || [];
-      if (!path.length || !this.snappedOnPath || !m || typeof m.pathIndex !== 'number') {
-        return null;
+      if (!path.length || !m) return null;
+
+      const gpsAlong = this.snappedOnPath?.distanceAlongPathMeters ?? 0;
+      const along = this.getDisplayAlongPathMeters(gpsAlong);
+
+      if (typeof m.alongPathMeters === 'number') {
+        return Math.max(0, m.alongPathMeters - along);
       }
+
+      const snap = this.getDisplaySnap();
+      if (!snap || typeof m.pathIndex !== 'number') return null;
+
       return window.FplacesRouteGeometry.distanceAlongPathBetween(
         path,
-        this.snappedOnPath,
+        snap,
         m.pathIndex,
       );
     }
@@ -747,7 +835,7 @@
       let primary;
       let distanceLabel = '';
 
-      if (delta != null && !aligned && this._gpsPlausible) {
+      if (delta != null && !aligned) {
         if (Math.abs(delta) >= 135) {
           primary = { label: 'Turn around', symbol: 'u_turn_right' };
         } else if (delta > 0) {
@@ -755,7 +843,7 @@
         } else {
           primary = { label: 'Turn left', symbol: 'turn_left' };
         }
-        distanceLabel = dist != null ? `${dist.toFixed(1)} m` : 'Face the red arrow';
+        distanceLabel = dist != null ? `${Math.round(dist)} m` : 'Face the path';
       } else if (next && dist != null) {
         const nextTurn = this.turnFromManeuver(next);
         const turnWord = this.shortTurnWord(next);
@@ -770,17 +858,19 @@
             const afterDist = Math.max(0, upcomingDist);
             const afterWord = upcoming ? this.shortTurnWord(upcoming) : '';
             distanceLabel = afterWord
-              ? `${afterDist.toFixed(1)} m ${afterWord}`
-              : `${afterDist.toFixed(1)} m`;
+              ? `Then in ${Math.round(afterDist)} m`
+              : 'Now';
           } else {
             distanceLabel = 'Now';
           }
         } else {
           primary = current ? this.turnFromManeuver(current) : { label: 'Go straight', symbol: 'straight' };
-          if (turnWord && turnWord !== 'straight') {
-            distanceLabel = `${dist.toFixed(1)} m ${turnWord}`;
+          if (turnWord && turnWord !== 'straight' && dist > 8) {
+            distanceLabel = `In ${Math.round(dist)} m`;
+          } else if (turnWord && turnWord !== 'straight') {
+            distanceLabel = `${Math.round(dist)} m`;
           } else {
-            distanceLabel = `${dist.toFixed(1)} m`;
+            distanceLabel = dist >= 10 ? `In ${Math.round(dist)} m` : `${Math.round(dist)} m`;
           }
         }
       } else if (current) {
@@ -860,47 +950,56 @@
     advanceAlongPath() {
       const path = this.route?.pathCoordinates || [];
       if (!path.length || !this.lastPosition) return;
+      if (this.arrived) return;
 
       this.updateSnap();
 
-      const offRoute = this._gpsSnap?.offRouteMeters ?? Infinity;
+      const offRoute = this._gpsOffRouteMeters ?? Infinity;
       const accuracy = this.lastPosition.accuracy || 0;
-      const offThreshold = Math.max(25, accuracy * 2);
+      const offThreshold = this.offRouteThresholdMeters();
       const wasOffPath = !!this.offPathMessage;
-      if (!this._gpsPlausible) {
-        // Indoor / demo: phone GPS ≠ Mappedin path coords — route progress still works.
-        this.offPathMessage = '';
-      } else {
-        const displayOff = Math.min(offRoute, OFF_ROUTE_MESSAGE_CAP_M);
-        this.offPathMessage =
-          offRoute > offThreshold
-            ? `Off route ~${Math.round(displayOff)} m (±${Math.round(accuracy)} m)`
-            : '';
-      }
+      this.offPathMessage =
+        offRoute > offThreshold
+          ? this.isVenuePositionActive()
+            ? `Off the mapped path (~${Math.round(offRoute)} m)`
+            : `GPS off route ~${Math.round(offRoute)} m. Using map progress.`
+          : '';
       if (this.offPathMessage && !wasOffPath) {
         window.FplacesArDebug?.warn('Navigator', 'User off route', {
           distanceMeters: Math.round(offRoute),
           accuracy: Math.round(accuracy),
           pathIndex: this.pathSegmentIndex,
-          gpsPlausible: this._gpsPlausible,
         });
       }
 
-      const progressSnap = this.getDisplaySnap();
-      const advanceThresholdM = 7;
-      while (this.maneuverIndex < this.maneuvers.length - 1) {
-        const nextM = this.maneuvers[this.maneuverIndex + 1];
-        if (typeof nextM.pathIndex !== 'number' || !progressSnap) break;
+      const advanceThresholdM = this.isVenuePositionActive() ? 3 : 7;
+      const gpsAlong = this.snappedOnPath?.distanceAlongPathMeters ?? 0;
+      const along = this.getDisplayAlongPathMeters(gpsAlong);
+      let advancedThisTick = 0;
 
-        const distToNext = window.FplacesRouteGeometry.distanceAlongPathBetween(
-          path,
-          progressSnap,
-          nextM.pathIndex,
-        );
+      while (this.maneuverIndex < this.maneuvers.length - 1) {
+        if (this.isVenuePositionActive() && advancedThisTick >= 1) break;
+
+        const nextM = this.maneuvers[this.maneuverIndex + 1];
+        if (!this.snappedOnPath) break;
+
+        let distToNext;
+        if (typeof nextM.alongPathMeters === 'number') {
+          distToNext = Math.max(0, nextM.alongPathMeters - along);
+        } else if (typeof nextM.pathIndex === 'number') {
+          distToNext = window.FplacesRouteGeometry.distanceAlongPathBetween(
+            path,
+            this.getDisplaySnap(),
+            nextM.pathIndex,
+          );
+        } else {
+          break;
+        }
 
         if (distToNext > advanceThresholdM) break;
 
         this.maneuverIndex++;
+        advancedThisTick++;
         this._smoothDistToTarget = null;
         this._lastTargetFrame = null;
         const m = this.maneuvers[this.maneuverIndex];
@@ -918,25 +1017,34 @@
         });
       }
 
-      const destDist = progressSnap
-        ? window.FplacesRouteGeometry.distanceAlongPathToEnd(path, progressSnap)
-        : haversineMeters(this.lastPosition, path[path.length - 1]);
+      const total = window.FplacesRouteGeometry.totalPathLengthMeters(path);
+      const remainingAlong = Math.max(0, total - along);
+      const onFinalManeuver = this.maneuverIndex >= this.maneuvers.length - 1;
+      const arrivalThresholdM = this.isVenuePositionActive() ? 5 : 10;
 
-      const canArrive =
-        this._gpsPlausible || (this._moveSpeedMps ?? 0) > 0.08 || (this._displayAlongPathM ?? 0) > 8;
-      if (destDist != null && destDist < 10 && canArrive) {
+      if (onFinalManeuver && remainingAlong < arrivalThresholdM) {
         if (!this.arrived) {
-          window.FplacesArDebug?.log('Navigator', 'Arrived at destination');
+          window.FplacesArDebug?.log('Navigator', 'Arrived at destination', {
+            remainingAlongMeters: remainingAlong,
+            maneuverIndex: this.maneuverIndex,
+          });
+          this._smoothDistRemaining = Math.max(0, remainingAlong);
         }
         this.arrived = true;
       }
     }
 
     notify() {
+      if (this.lastPosition) this.ensureSnap();
+
       if (typeof this.onUpdate === 'function') {
         this.onUpdate(this.getState());
       }
       window.FplacesOrientationCompass?.attachNavigator?.(this);
+      window.FplacesMinimap?.update?.(
+        this,
+        window.FplacesOrientationCompass?.getDeviceHeading?.() ?? null,
+      );
       window.FplacesLiveViewHud?.update?.(this.getState(), this);
       window.FplacesArDebug?.logNavStateThrottled(
         'Navigator',
@@ -970,7 +1078,13 @@
         pathSegmentIndex: index,
         snappedOnPath: this.snappedOnPath,
         offPathMessage: this.offPathMessage || '',
-        gpsPlausible: this._gpsPlausible,
+        floorId: this.lastPosition?.floorId || null,
+        floorLabel: this.floorLabel(this.lastPosition?.floorId),
+        floorChangeMessage:
+          this._floorChangeUntil && performance.now() < this._floorChangeUntil
+            ? this.floorChangeMessage
+            : '',
+        venuePositionActive: this.isVenuePositionActive(),
         targetBearingDegrees: this.getTargetBearingDegrees(),
         navigationBearing: this.getTargetBearingDegrees(),
         externalHeadingDegrees: this.externalHeadingDegrees,

@@ -19,6 +19,7 @@
       const hasKey = !!(cfg.eighthWallAppKey || '').trim();
       return hasKey ? 'platform' : 'binary';
     }
+    if (mode === 'auto' && !window.isSecureContext) return 'fallback';
     return 'binary';
   }
 
@@ -63,6 +64,7 @@
 
   function startFallback(reason) {
     if (activeMode === 'fallback') return;
+    window.__fplacesFallbackTriggered = true;
     if (activeMode === 'xr') {
       DBG()?.warn('Bootstrap', 'XR already running — attempting fallback after error', {
         reason,
@@ -78,6 +80,11 @@
       clearTimeout(xrWaitTimer);
       xrWaitTimer = null;
     }
+    try {
+      window.XR8?.stop?.();
+    } catch (_) {}
+    document.getElementById('camerafeed')?.remove();
+    window.FplacesArCalibrationUi?.inject?.();
     window.FplacesLiveViewHud?.setStatus(
       reason || 'Camera guidance active (use HTTPS for full SLAM).',
     );
@@ -103,8 +110,9 @@
       return;
     }
 
-    navigatorInstance.setRoute(route);
-    window.FplacesOrientationCompass?.start?.();
+      navigatorInstance.setRoute(route);
+      window.FplacesRouteBridge?.flushPendingPositions?.();
+      window.FplacesOrientationCompass?.start?.();
     window.FplacesOrientationCompass?.attachNavigator?.(navigatorInstance);
 
     const mode = resolveXrMode();
@@ -133,7 +141,7 @@
           polls: xrPollCount,
           timeoutMs: xrTimeoutMs,
         });
-        startFallback('AR engine slow to load — compass arrow active.');
+        startFallback('AR engine slow to load. Compass arrow active.');
       }
     }, xrTimeoutMs);
 
@@ -179,14 +187,36 @@
     });
     if (route) {
       navigatorInstance.setRoute(route);
+      window.FplacesRouteBridge?.flushPendingPositions?.();
       if (!started) startExperience();
     }
   });
+
+  if (cfg.demoSimWalk) {
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowUp') window.FplacesDemoSim?.nudge?.(2);
+      if (event.key === 'ArrowDown') window.FplacesDemoSim?.nudge?.(-2);
+    });
+  }
 
   if (window.fplacesActiveRoute) {
     DBG()?.log('Bootstrap', 'Route already present at boot — starting immediately');
     startExperience();
   } else {
     DBG()?.log('Bootstrap', 'No route at boot — waiting for bridge');
+    window.setTimeout(() => {
+      if (!window.fplacesActiveRoute && !started) {
+        window.FplacesLiveViewHud?.setStatus(
+          'Route not received. Close AR, regenerate the route, and tap AR Guidance again.',
+          true,
+        );
+      }
+    }, 2500);
   }
+
+  window.setInterval(() => {
+    const nav = window.__fplacesNavigator;
+    if (!nav || typeof nav.managePositionSources !== 'function') return;
+    nav.managePositionSources();
+  }, 1500);
 })();

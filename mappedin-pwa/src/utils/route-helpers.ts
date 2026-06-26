@@ -1,6 +1,6 @@
 import type { Directions } from '@mappedin/mappedin-js';
 
-import type { RouteCoordinate, RouteLeg, RoutePayload, RouteStep } from '../types';
+import type { FloorInfo, RouteCoordinate, RouteLeg, RoutePayload, RouteStep } from '../types';
 
 export function haversineMeters(
   a: { latitude: number; longitude: number },
@@ -121,7 +121,10 @@ export function buildRoutePayload(
     pathCoordinates,
     maneuvers,
     distanceMeters: directions.distance ?? null,
-    durationSeconds: null,
+    durationSeconds:
+      directions.distance != null && Number.isFinite(directions.distance)
+        ? directions.distance / 1.4
+        : null,
     origin: serializeCoordinate(origin) ?? pathCoordinates[0] ?? null,
     destination:
       serializeCoordinate(destination) ??
@@ -141,6 +144,7 @@ export function toArPayload(
   currentLegIndex: number,
   instructions: string,
   userPosition?: RouteCoordinate | null,
+  floors?: FloorInfo[],
 ): Record<string, unknown> {
   return {
     type: 'route_update',
@@ -156,12 +160,32 @@ export function toArPayload(
     pathCoordinates: route.pathCoordinates,
     maneuvers: route.maneuvers,
     legs: route.legs,
+    positioningMode: 'mappedin',
+    floors: floors ?? [],
     ...(userPosition ? { userPosition } : {}),
   };
 }
 
+function base64UrlEncode(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 export function encodeRouteForAr(payload: Record<string, unknown>): string {
   const json = JSON.stringify(payload);
-  const b64 = btoa(json).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return `#route=${b64}`;
+  return `#route=${base64UrlEncode(json)}`;
+}
+
+export function buildArRoutePayload(
+  route: RoutePayload,
+  currentLegIndex: number,
+  instructions: string,
+  userPosition?: RouteCoordinate | null,
+  floors?: FloorInfo[],
+): Record<string, unknown> {
+  return toArPayload(route, currentLegIndex, instructions, userPosition, floors);
 }

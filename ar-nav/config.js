@@ -1,39 +1,25 @@
 /**
  * 8th Wall + fplaces AR configuration.
- *
- * As of Feb 2026, 8th Wall is open source at https://8thwall.org — no account or App Key.
- * SLAM uses @8thwall/engine-binary from npm/CDN. Deploy ar-nav/ to Netlify (HTTPS).
  */
 (function () {
   const params = new URLSearchParams(window.location.search);
 
   window.FPLACES_AR_CONFIG = {
-    /** @deprecated Hosted platform retired; only used if xrMode is "platform" */
     eighthWallAppKey: '',
-
-    /**
-     * auto     — @8thwall/engine-binary (no key; default)
-     * binary   — same as auto
-     * platform — legacy apps.8thwall.com/xrweb (retired; needs old app key)
-     * fallback — camera HUD only, no XR8 / SLAM
-     */
     xrMode: 'auto',
-
-    /** Meters in front of the user for the direction arrow mesh */
     arrowDistanceM: 2.5,
-
-    /** Show ground path in SLAM space (disabled — GPS path ≠ SLAM origin) */
-    showPathInWorld: false,
-
-    /** Enable GPS progress along pathCoordinates (outdoor / window only) */
+    showPathInWorld: true,
+    useWorldRoute: true,
     useGpsProgress: true,
-
-    /** Ms to wait for XR8/THREE before falling back to camera + path arrows */
+    useWebGlArrows: true,
+    preferVenuePositioning: false,
+    demoSimWalk: false,
+    externalPositionTimeoutMs: 3500,
     xrLoadTimeoutMs: 12000,
-
-    /** Verbose AR debug logs + on-screen panel (override with ?arDebug=0) */
     arDebug: true,
     arDebugPanel: true,
+    /** Production PWA origin allowed to postMessage into this AR frame (e.g. https://your-pwa.app). */
+    pwaOrigin: '',
   };
 
   const urlKey = params.get('appKey');
@@ -44,5 +30,41 @@
   const urlMode = params.get('xrMode');
   if (urlMode) {
     window.FPLACES_AR_CONFIG.xrMode = urlMode;
+  }
+
+  const gps = params.get('useGpsProgress');
+  if (gps === '0' || gps === 'false') {
+    window.FPLACES_AR_CONFIG.useGpsProgress = false;
+  }
+
+  const positioning = params.get('positioning');
+  if (positioning === 'mappedin' || positioning === 'venue') {
+    window.FPLACES_AR_CONFIG.preferVenuePositioning = true;
+    window.FPLACES_AR_CONFIG.useGpsProgress = false;
+    window.FPLACES_AR_CONFIG.useWorldRoute = true;
+  }
+
+  const demoSim = params.get('demoSim');
+  if (demoSim === '1' || demoSim === 'true') {
+    window.FPLACES_AR_CONFIG.demoSimWalk = true;
+  }
+
+  const worldRoute = params.get('worldRoute');
+  if (worldRoute === '0' || worldRoute === 'false') {
+    window.FPLACES_AR_CONFIG.useWorldRoute = false;
+  }
+
+  const pwaOrigin = params.get('pwaOrigin');
+  if (pwaOrigin) {
+    window.FPLACES_AR_CONFIG.pwaOrigin = pwaOrigin;
+  }
+
+  // 8th Wall WebGL SLAM needs HTTPS + a real device; skip on local HTTP dev.
+  if (!params.get('xrMode')) {
+    const host = window.location.hostname;
+    const isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+    if (isLocalHost || !window.isSecureContext) {
+      window.FPLACES_AR_CONFIG.xrMode = 'fallback';
+    }
   }
 })();

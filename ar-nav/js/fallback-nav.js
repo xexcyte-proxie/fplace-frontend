@@ -30,14 +30,14 @@
           .catch((err) => {
             window.FplacesArDebug?.warn('Fallback', 'Camera blocked', { error: String(err) });
             window.FplacesLiveViewHud?.setStatus(
-              'Camera blocked — allow camera for Live View',
+              'Camera blocked. Allow camera for Live View.',
               true,
             );
           });
       }
 
       const cfg = window.FPLACES_AR_CONFIG || {};
-      if (cfg.useGpsProgress !== false) {
+      if (cfg.useGpsProgress !== false && !cfg.preferVenuePositioning) {
         navigator.startGps();
       }
       navigator.notify();

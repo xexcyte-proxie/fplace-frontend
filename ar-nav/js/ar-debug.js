@@ -111,6 +111,34 @@
     if (debugEnabled) {
       mirrorToFlutter(level, phase, message, detail);
     }
+    if (window.parent !== window) {
+      try {
+        const targetOrigin = (() => {
+          const cfgOrigin = window.FPLACES_AR_CONFIG?.pwaOrigin;
+          if (cfgOrigin) {
+            try {
+              return new URL(cfgOrigin).origin;
+            } catch (_) {
+              return cfgOrigin;
+            }
+          }
+          if (document.referrer) {
+            try {
+              return new URL(document.referrer).origin;
+            } catch (_) {
+              /* fall through */
+            }
+          }
+          return '*';
+        })();
+        window.parent.postMessage(
+          { type: 'fplaces_ar_debug', level, phase, message, detail, line },
+          targetOrigin,
+        );
+      } catch (_) {
+        /* ignore */
+      }
+    }
   }
 
   function routeSummary(route) {
@@ -209,6 +237,10 @@
 
   function captureRuntimeError(source, error, extra) {
     const message = formatUnknownError(error);
+    const isXrSource = String(source || '').startsWith('XR');
+    if (window.__fplacesFallbackTriggered && isXrSource) {
+      return;
+    }
     const stack =
       error && typeof error === 'object' && error.stack
         ? String(error.stack).slice(0, 1200)
@@ -232,7 +264,7 @@
       typeof window.__fplacesStartFallback === 'function'
     ) {
       window.__fplacesFallbackTriggered = true;
-      window.__fplacesStartFallback(`XR failed — compass mode. ${message}`);
+      window.__fplacesStartFallback(`XR failed. Compass mode. ${message}`);
     }
   }
 
@@ -315,7 +347,7 @@
     showFatalBanner,
 
     complete(outcome) {
-      emit('log', 'Done', `══════ AR PAGE SESSION END — ${outcome} ══════');
+      emit('log', 'Done', `══════ AR PAGE SESSION END — ${outcome} ══════`);
     },
   };
 

@@ -7,6 +7,7 @@ import {
   haversineMeters,
   serializeCoordinate,
 } from '../utils/route-helpers';
+import { inferAreaHint, normalizeLevelName } from '../ui/route-summary';
 
 type MarkerHandle = { remove?: () => void } | null;
 
@@ -29,6 +30,8 @@ export class RoutePlanner {
   private originCoord: unknown = null;
   private destinationCoord: unknown = null;
   private destinationLabel = 'End point';
+  private destinationFloorName?: string;
+  private destinationAreaHint?: string;
 
   constructor(
     private readonly mapView: MapView,
@@ -56,11 +59,15 @@ export class RoutePlanner {
     origin?: RouteCoordinate | null;
     destination?: RouteCoordinate | null;
     destinationLabel?: string;
+    destinationFloorName?: string;
+    destinationAreaHint?: string;
   } {
     return {
       origin: serializeCoordinate(this.originCoord),
       destination: serializeCoordinate(this.destinationCoord),
       destinationLabel: this.destinationLabel,
+      destinationFloorName: this.destinationFloorName,
+      destinationAreaHint: this.destinationAreaHint,
     };
   }
 
@@ -136,6 +143,7 @@ export class RoutePlanner {
     coordinate: unknown,
     source = 'map tap',
     label = 'End point',
+    meta?: { floorName?: string; areaHint?: string },
   ): void {
     const canonical = this.canonicalCoordinate(coordinate);
     if (!canonical) return;
@@ -154,6 +162,15 @@ export class RoutePlanner {
 
     this.destinationCoord = canonical;
     this.destinationLabel = label;
+    const resolvedFloor = this.resolveFloor(
+      (canonical as { floor?: { id?: string } | string }).floor,
+    );
+    this.destinationFloorName =
+      meta?.floorName ??
+      (resolvedFloor?.name ? normalizeLevelName(resolvedFloor.name) : undefined);
+    this.destinationAreaHint =
+      meta?.areaHint ??
+      (label !== 'End point' ? inferAreaHint(label) : 'On this level');
     this.placeMarker('destination', canonical, END_MARKER);
     appLog('Route', `Destination set (${source}): ${label}`);
   }
@@ -161,11 +178,12 @@ export class RoutePlanner {
   async setDestinationFromLocation(
     target: unknown,
     label: string,
+    meta?: { floorName?: string; areaHint?: string },
   ): Promise<void> {
     const coord = this.canonicalCoordinate(target) ?? target;
     if (!coord) return;
     await this.focusLocation(coord);
-    this.setDestination(coord, 'search', label);
+    this.setDestination(coord, 'search', label, meta);
   }
 
   focusRoutePoint(which: 'start' | 'end'): void {
@@ -227,6 +245,8 @@ export class RoutePlanner {
     this.originCoord = null;
     this.destinationCoord = null;
     this.destinationLabel = 'End point';
+    this.destinationFloorName = undefined;
+    this.destinationAreaHint = undefined;
     this.markerMode = 'start';
     this.removeMarker('origin');
     this.removeMarker('destination');
@@ -236,6 +256,39 @@ export class RoutePlanner {
     this.mapView.Navigation?.stopTracking?.();
     this.mapView.Navigation?.clear?.();
     this.mapView.Paths?.removeAll?.();
+  }
+
+  /** Grey out the portion of the active navigation path already walked. */
+  updateTravelledPath(position: RouteCoordinate): void {
+    const navigation = this.mapView.Navigation as
+      | {
+          trackCoordinate?: (
+            coordinate: unknown,
+            options: { mode: 'travelled'; color?: string },
+          ) => unknown;
+        }
+      | undefined;
+    if (!navigation?.trackCoordinate) return;
+
+    const floor = position.floorId
+      ? this.mapData.getById('floor', position.floorId)
+      : this.mapView.currentFloor;
+
+    const coordinate = this.mapView.createCoordinate?.(
+      position.latitude,
+      position.longitude,
+      floor ?? undefined,
+    );
+    if (!coordinate) return;
+
+    navigation.trackCoordinate(coordinate, {
+      mode: 'travelled',
+      color: '#9ca3af',
+    });
+  }
+
+  clearTravelledPathTracking(): void {
+    this.mapView.Navigation?.stopTracking?.();
   }
 
   resetAll(): void {
@@ -329,7 +382,9 @@ export class RoutePlanner {
         nearest?: (...args: unknown[]) => Promise<unknown[]>;
       };
       if (query?.nearest) {
-        const nearest = await query.nearest(normalized, ['space'], { limit: 5 });
+        const nearest = await query.nearest(normalized, ['space'], {
+          limit: 'same-floor',
+        });
         if (Array.isArray(nearest)) {
           for (const entry of nearest) {
             const feature = (entry as { feature?: unknown }).feature ?? entry;

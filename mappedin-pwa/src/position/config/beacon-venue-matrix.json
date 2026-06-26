@@ -1,0 +1,32 @@
+{
+  "venueMapId": "65c0ff7430b94e3fabd5bb8c",
+  "beacons": [
+    {
+      "uuid": "FDA50693-A4E2-4FB1-AFCF-C6EB07647825",
+      "major": 1,
+      "minor": 101,
+      "latitude": 43.46333341379424,
+      "longitude": -80.52313472503555,
+      "floorId": "m_1fc5f0f7fae65ba6",
+      "label": "Route node 1: Food Stall 102"
+    },
+    {
+      "uuid": "FDA50693-A4E2-4FB1-AFCF-C6EB07647825",
+      "major": 1,
+      "minor": 102,
+      "latitude": 43.46321420001472,
+      "longitude": -80.52375484909174,
+      "floorId": "m_1fc5f0f7fae65ba6",
+      "label": "Route node 2: Store 102"
+    },
+    {
+      "uuid": "FDA50693-A4E2-4FB1-AFCF-C6EB07647825",
+      "major": 1,
+      "minor": 103,
+      "latitude": 43.463402393515814,
+      "longitude": -80.5239739130389,
+      "floorId": "m_1fc5f0f7fae65ba6",
+      "label": "Route node 3: Grocery Store"
+    }
+  ]
+}

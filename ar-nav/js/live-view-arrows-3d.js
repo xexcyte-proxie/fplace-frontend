@@ -2,10 +2,14 @@
  * Three.js ground chevrons — Google Live View style 3D path arrows in camera space.
  */
 (function () {
+  const GOOGLE_BLUE = 0x4285f4;
+  const ALIGN_THRESHOLD_DEG = 18;
+
   let laneGroup = null;
   let cameraRef = null;
   let attached = false;
   let lastAppliedRad = null;
+  let lastAligned = true;
 
   window.FplacesPathArrows3d = {
     attach({ THREE, camera }) {
@@ -15,7 +19,7 @@
       laneGroup = createLane(THREE);
       camera.add(laneGroup);
       attached = true;
-      laneGroup.visible = true;
+      laneGroup.visible = false;
       lastAppliedRad = null;
       window.FplacesPathArrows?.setWebGlActive?.(true);
 
@@ -40,7 +44,7 @@
 
     update({ navigator }) {
       if (!attached || !laneGroup || !navigator) return;
-      if (!window.FplacesRouteLaneHeading?.shouldUpdateLane?.()) return;
+      if (!window.FplacesPathArrows?.shouldUpdateLane?.()) return;
 
       const state = navigator.getState?.() || {};
       if (state.arrived) {
@@ -54,26 +58,31 @@
         return;
       }
 
-      laneGroup.visible = true;
-
       const deltaDeg = window.FplacesPathArrows?.computeLaneDelta?.(target, state);
       if (deltaDeg == null) {
         laneGroup.visible = false;
         return;
       }
 
+      const aligned = Math.abs(deltaDeg) < ALIGN_THRESHOLD_DEG;
+      lastAligned = aligned;
+      laneGroup.visible = aligned;
+
+      if (!aligned) {
+        return;
+      }
+
       const deltaRad = (deltaDeg * Math.PI) / 180;
-      if (lastAppliedRad == null || Math.abs(deltaRad - lastAppliedRad) > 0.008) {
+      if (lastAppliedRad == null || Math.abs(deltaRad - lastAppliedRad) > 0.006) {
         laneGroup.rotation.y = deltaRad;
         lastAppliedRad = deltaRad;
       }
 
       window.FplacesArDebug?.logNavStateThrottled(
         'PathArrows3d',
-        'WebGL lane rotated',
+        'WebGL lane',
         {
           targetBearingDegrees: target,
-          deviceHeadingDegrees: window.FplacesPathArrows?.getDeviceHeading?.(),
           laneRotationDeg: deltaDeg,
           distToNextTurnM: state.distanceToNextManeuverMeters,
           visible: laneGroup.visible,
@@ -81,28 +90,32 @@
         1200,
       );
     },
+
+    isAligned() {
+      return lastAligned;
+    },
   };
 
   function buildChevronShape(THREE) {
     const shape = new THREE.Shape();
-    shape.moveTo(-1.6, 0);
-    shape.lineTo(0, 3.2);
-    shape.lineTo(1.6, 0);
-    shape.lineTo(1.0, 0);
-    shape.lineTo(0, 2.1);
-    shape.lineTo(-1.0, 0);
+    shape.moveTo(-1.7, 0);
+    shape.lineTo(0, 3.4);
+    shape.lineTo(1.7, 0);
+    shape.lineTo(1.05, 0);
+    shape.lineTo(0, 2.25);
+    shape.lineTo(-1.05, 0);
     shape.closePath();
     return shape;
   }
 
-  function createChevronMesh(THREE, opacity) {
+  function createChevronMesh(THREE, opacity, color) {
     const geom = new THREE.ExtrudeGeometry(buildChevronShape(THREE), {
-      depth: 0.12,
+      depth: 0.14,
       bevelEnabled: false,
     });
     geom.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
+      color: color ?? GOOGLE_BLUE,
       transparent: true,
       opacity: opacity ?? 0.95,
       depthTest: false,
@@ -115,21 +128,23 @@
   }
 
   function createLane(THREE) {
+    const cfg = window.FPLACES_AR_CONFIG || {};
     const lane = new THREE.Group();
     lane.name = 'fplaces-ground-lane';
     lane.renderOrder = 1000;
 
-    const count = 7;
+    const count = 8;
+    const spacing = 1.65;
     for (let i = 0; i < count; i++) {
-      const chevron = createChevronMesh(THREE, 0.98 - i * 0.08);
-      const scale = 0.55 - i * 0.055;
+      const chevron = createChevronMesh(THREE, 0.98 - i * 0.07, GOOGLE_BLUE);
+      const scale = 0.58 - i * 0.05;
       chevron.scale.set(scale, scale, scale);
-      chevron.position.set(0, 0, -i * 1.85 - 1.4);
+      chevron.position.set(0, 0, -i * spacing - 1.2);
       lane.add(chevron);
     }
 
-    lane.rotation.x = 0.72;
-    lane.position.set(0, -1.15, -0.6);
+    lane.rotation.x = 0.74;
+    lane.position.set(0, -1.05, -(cfg.arrowDistanceM ?? 2.5));
     return lane;
   }
 })();

@@ -1,24 +1,29 @@
 /**
- * Dual ground chevrons: white = forward (device), red = route offset (Google-style).
+ * Ground chevrons: Google Live View style.
+ * Aligned → single blue path lane. Misaligned → red offset lane + align HUD.
+ * Hidden when WebGL lane is active (XR mode).
  */
 (function () {
-  const CHEVRON_COUNT = 6;
+  const CHEVRON_COUNT = 7;
+  const ALIGN_THRESHOLD_DEG = 18;
   let rootEl = null;
   let userLaneEl = null;
   let targetLaneEl = null;
+  let pathLaneEl = null;
   let headingBound = false;
   let rafId = null;
-  let animFrame = 0;
   let lastNavigator = null;
   let smoothedDelta = null;
+  let webGlActive = false;
+  let lastAligned = true;
 
   const laneHeading = () => window.FplacesRouteLaneHeading;
 
-  const CHEVRON_SVG_WHITE =
+  const CHEVRON_SVG_BLUE =
     '<svg viewBox="0 0 160 80" width="100%" height="100%" aria-hidden="true">' +
-    '<path d="M6 72 L80 6 L154 72" fill="none" stroke="#ffffff" stroke-width="18" ' +
+    '<path d="M6 72 L80 6 L154 72" fill="none" stroke="#4285f4" stroke-width="20" ' +
     'stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<path d="M30 72 L80 32 L130 72" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="10" ' +
+    '<path d="M28 72 L80 28 L132 72" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="11" ' +
     'stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   const CHEVRON_SVG_RED =
@@ -53,9 +58,11 @@
     const ground = document.createElement('div');
     ground.className = 'compass-ground';
 
+    pathLaneEl = buildLane('lane-path', CHEVRON_SVG_BLUE);
     targetLaneEl = buildLane('lane-target', CHEVRON_SVG_RED);
-    userLaneEl = buildLane('lane-user', CHEVRON_SVG_WHITE);
+    userLaneEl = buildLane('lane-user hidden-lane', CHEVRON_SVG_BLUE);
 
+    ground.appendChild(pathLaneEl);
     ground.appendChild(targetLaneEl);
     ground.appendChild(userLaneEl);
     rootEl.appendChild(ground);
@@ -103,41 +110,59 @@
     return delta;
   }
 
-  /** White lane = forward (0°). Red lane = route offset relative to device heading. */
-  function applyRelativeRotation(deltaDeg) {
+  function applyLaneVisuals(deltaDeg, aligned) {
+    if (pathLaneEl) {
+      pathLaneEl.style.setProperty('--lane-heading', '0deg');
+      pathLaneEl.classList.toggle('hidden-lane', !aligned);
+    }
+    if (targetLaneEl) {
+      targetLaneEl.classList.toggle('hidden-lane', aligned);
+      if (!aligned && deltaDeg != null) {
+        targetLaneEl.style.setProperty('--lane-heading', `${deltaDeg.toFixed(1)}deg`);
+      }
+    }
     if (userLaneEl) {
-      userLaneEl.style.setProperty('--lane-heading', '0deg');
+      userLaneEl.classList.add('hidden-lane');
     }
-    if (targetLaneEl && deltaDeg != null) {
-      targetLaneEl.style.setProperty('--lane-heading', `${deltaDeg.toFixed(1)}deg`);
+    if (rootEl) {
+      rootEl.classList.toggle('compass-aligned', aligned);
+      rootEl.classList.toggle('compass-misaligned', !aligned);
     }
+  }
+
+  function computeLaneDelta(targetRaw, state) {
+    laneHeading()?.resolveDeviceHeading?.(state);
+    const userDeg = laneHeading()?.getInstantHeading?.();
+    const targetDeg = laneHeading()?.smoothTargetBearing?.(targetRaw) ?? targetRaw;
+    if (userDeg == null || targetDeg == null) return null;
+    return normalizeDelta(targetDeg - userDeg);
   }
 
   function tick() {
     rafId = requestAnimationFrame(tick);
-    animFrame += 1;
     if (!lastNavigator) return;
 
-    lastNavigator.beginFrame?.(animFrame, performance.now());
+    if (lastNavigator.lastPosition) {
+      lastNavigator.ensureSnap?.();
+    }
 
     const state = lastNavigator.getState?.() || {};
-    laneHeading()?.resolveDeviceHeading?.(state);
-    const headingForMinimap =
-      laneHeading()?.getInstantHeading?.() ??
-      state.deviceHeadingDegrees ??
-      lastNavigator.externalHeadingDegrees ??
-      null;
-    window.FplacesMinimap?.update?.(lastNavigator, headingForMinimap);
-
     if (state.arrived) {
       if (rootEl) rootEl.style.display = 'none';
-      window.FplacesLiveViewHud?.update?.(state, lastNavigator);
       return;
     }
 
     const targetRaw = lastNavigator.getTargetBearingDegrees?.();
     if (targetRaw == null) {
       if (rootEl) rootEl.style.display = 'none';
+      return;
+    }
+
+    if (webGlActive) {
+      if (rootEl) rootEl.style.display = 'none';
+      window.FplacesPathArrows3d?.update?.({ navigator: lastNavigator });
+      const headingForMinimap = laneHeading()?.getInstantHeading?.() ?? 0;
+      window.FplacesMinimap?.update?.(lastNavigator, headingForMinimap);
       window.FplacesLiveViewHud?.update?.(state, lastNavigator);
       return;
     }
@@ -145,23 +170,22 @@
     ensure();
     rootEl.style.display = 'block';
 
-    const userDeg = laneHeading()?.getInstantHeading?.();
-    const targetDeg = laneHeading()?.smoothTargetBearing?.(targetRaw) ?? targetRaw;
-
-    let delta = 0;
-    if (userDeg != null && targetDeg != null) {
-      delta = normalizeDelta(targetDeg - userDeg);
-    }
+    const delta = computeLaneDelta(targetRaw, state) ?? 0;
+    const aligned = Math.abs(delta) < ALIGN_THRESHOLD_DEG;
 
     if (smoothedDelta == null) {
       smoothedDelta = delta;
     } else {
       const change = normalizeDelta(delta - smoothedDelta);
-      const alpha = lastNavigator?._gpsPlausible === false ? 0.18 : 0.42;
+      const alpha = aligned ? 0.28 : 0.42;
       smoothedDelta += change * alpha;
     }
 
-    applyRelativeRotation(smoothedDelta);
+    applyLaneVisuals(smoothedDelta, aligned);
+    lastAligned = aligned;
+
+    const headingForMinimap = laneHeading()?.getInstantHeading?.() ?? 0;
+    window.FplacesMinimap?.update?.(lastNavigator, headingForMinimap);
     window.FplacesLiveViewHud?.update?.(state, lastNavigator);
   }
 
@@ -170,7 +194,7 @@
       ensure();
       laneHeading()?.reset?.();
       smoothedDelta = null;
-      window.FplacesArDebug?.log('OrientationCompass', 'Starting relative chevron lanes');
+      window.FplacesArDebug?.log('OrientationCompass', 'Starting Live View chevron lanes');
       requestHeadingPermission().then((granted) => {
         if (granted) bindHeading();
       });
@@ -193,14 +217,12 @@
       return laneHeading()?.getInstantHeading?.() ?? null;
     },
 
+    isAligned() {
+      return lastAligned;
+    },
+
     getAlignmentDelta(state, targetBearing) {
-      if (laneHeading()?.getInstantHeading?.() == null) {
-        laneHeading()?.resolveDeviceHeading?.(state);
-      }
-      return laneHeading()?.computeAlignmentDelta?.(
-        targetBearing,
-        laneHeading()?.getInstantHeading?.(),
-      );
+      return computeLaneDelta(targetBearing ?? lastNavigator?.getTargetBearingDegrees?.(), state);
     },
   };
 
@@ -208,13 +230,28 @@
     start() {
       window.FplacesOrientationCompass.start();
     },
-    setWebGlActive() {},
+
+    setWebGlActive(active) {
+      webGlActive = !!active;
+      if (webGlActive && rootEl) rootEl.style.display = 'none';
+    },
+
     getDeviceHeading() {
       return window.FplacesOrientationCompass.getDeviceHeading();
     },
+
+    computeLaneDelta(target, state) {
+      return computeLaneDelta(target, state ?? lastNavigator?.getState?.());
+    },
+
+    shouldUpdateLane() {
+      return !webGlActive || window.FplacesPathArrows3d?.isAttached?.();
+    },
+
     updateFromNavigator(navigator) {
       window.FplacesOrientationCompass.attachNavigator(navigator);
     },
+
     updateFromState() {},
   };
   window.FplacesCompassArrow = window.FplacesPathArrows;

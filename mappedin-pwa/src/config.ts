@@ -8,6 +8,15 @@ export const appConfig = {
     mapId: import.meta.env.VITE_MAPPEDIN_MAP_ID ?? '65c0ff7430b94e3fabd5bb8c',
     venueName: 'Demo Mall',
   },
-  arUrl: import.meta.env.VITE_AR_URL ?? 'https://fplaces-test.netlify.app/',
+  arUrl: import.meta.env.VITE_AR_URL ?? (import.meta.env.DEV ? '/ar/' : 'https://fplaces-test.netlify.app/'),
   mapInitTimeoutMs: 45_000,
+  positioning: {
+    bleRssiThresholdDbm: -70,
+    bleScanIntervalMs: Number(import.meta.env.VITE_BLE_SCAN_INTERVAL_MS) || 500,
+    indoorAtlasFloorCertaintyMin: 0.5,
+  },
+  debug: {
+    positionHud:
+      import.meta.env.DEV || import.meta.env.VITE_DEBUG_POSITION_HUD === '1',
+  },
 };

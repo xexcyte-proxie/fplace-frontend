@@ -13,7 +13,10 @@
     if (!hash.startsWith('route=')) return null;
     try {
       const b64 = hash.slice('route='.length);
-      const json = atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
+      const padded = b64.replace(/-/g, '+').replace(/_/g, '/');
+      const binary = atob(padded);
+      const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+      const json = new TextDecoder().decode(bytes);
       const parsed = JSON.parse(json);
       DBG()?.log('Bridge', 'Route decoded from URL hash', {
         hashChars: hash.length,
@@ -24,6 +27,23 @@
       DBG()?.error('Bridge', 'Hash route parse failed', {
         error: String(error),
         hashPrefix: hash.slice(0, 32),
+      });
+      return null;
+    }
+  }
+
+  function decodeRouteFromSessionStorage() {
+    try {
+      const raw = sessionStorage.getItem('fplaces.handoff.route');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      DBG()?.log('Bridge', 'Route decoded from sessionStorage handoff', {
+        rawChars: raw.length,
+      });
+      return parsed;
+    } catch (error) {
+      DBG()?.error('Bridge', 'SessionStorage route parse failed', {
+        error: String(error),
       });
       return null;
     }
@@ -45,6 +65,22 @@
       });
       return null;
     }
+  }
+
+  function routeFingerprint(route) {
+    if (!route) return '';
+    const path = route.pathCoordinates || [];
+    const first = path[0];
+    const last = path[path.length - 1];
+    return [
+      path.length,
+      route.destinationName || '',
+      first?.latitude ?? '',
+      first?.longitude ?? '',
+      last?.latitude ?? '',
+      last?.longitude ?? '',
+      route.maneuvers?.length ?? 0,
+    ].join('|');
   }
 
   function normalizeRoute(payload) {
@@ -72,6 +108,8 @@
         : [],
       maneuvers: Array.isArray(payload.maneuvers) ? payload.maneuvers : [],
       legs: Array.isArray(payload.legs) ? payload.legs : [],
+      floors: Array.isArray(payload.floors) ? payload.floors : [],
+      positioningMode: payload.positioningMode || null,
     };
   }
 
@@ -97,7 +135,62 @@
             : undefined,
       floorId: payload.floorId || null,
       source: payload.source || 'flutter',
+      timestamp: payload.timestamp != null ? Number(payload.timestamp) : Date.now(),
     };
+  }
+
+  const pendingPositions = [];
+
+  const LOCAL_DEV_ORIGIN =
+    /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+
+  const LAN_DEV_ORIGIN =
+    /^https?:\/\/(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$/i;
+
+  let capturedParentOrigin = null;
+
+  function normalizeOriginEntry(entry) {
+    if (!entry || typeof entry !== 'string') return null;
+    try {
+      return entry.includes('://') ? new URL(entry).origin : new URL(`https://${entry}`).origin;
+    } catch {
+      return entry;
+    }
+  }
+
+  function resolveProductionPwaOrigins() {
+    const cfg = window.FPLACES_AR_CONFIG || {};
+    return [cfg.pwaOrigin, cfg.pwaHost]
+      .map(normalizeOriginEntry)
+      .filter(Boolean);
+  }
+
+  function isStructurallyAllowedOrigin(origin) {
+    if (!origin || typeof origin !== 'string') return false;
+    if (origin === window.location.origin) return true;
+    if (LOCAL_DEV_ORIGIN.test(origin)) return true;
+    if (LAN_DEV_ORIGIN.test(origin)) return true;
+    if (resolveProductionPwaOrigins().includes(origin)) return true;
+    return false;
+  }
+
+  function isAllowedMessageOrigin(origin) {
+    if (!isStructurallyAllowedOrigin(origin)) return false;
+    if (capturedParentOrigin == null) {
+      capturedParentOrigin = origin;
+      DBG()?.log('Bridge', 'Captured trusted parent origin', { origin });
+      return true;
+    }
+    return origin === capturedParentOrigin;
+  }
+
+  function flushPendingPositions() {
+    const nav = window.__fplacesNavigator;
+    if (!nav || typeof nav.applyPosition !== 'function') return;
+    while (pendingPositions.length) {
+      const item = pendingPositions.shift();
+      nav.applyPosition(item.position);
+    }
   }
 
   function emitRoute(route) {
@@ -136,6 +229,7 @@
   }
 
   window.FplacesRouteBridge = {
+    flushPendingPositions,
     onRoute(callback) {
       listeners.add(callback);
       DBG()?.log('Bridge', 'onRoute listener registered', {
@@ -152,30 +246,32 @@
       });
       const route = normalizeRoute(payload);
       if (!route) return null;
-      window.fplacesActiveRoute = route;
-      const summary = DBG().routeSummary(route);
-      if (route.userPosition && route.pathCoordinates?.length) {
-        const user = route.userPosition;
-        const start = route.pathCoordinates[0];
-        const geo = window.FplacesRouteGeometry;
-        if (geo?.haversineMeters && user.latitude != null && start?.latitude != null) {
-          const gapM = Math.round(
-            geo.haversineMeters(
-              { latitude: user.latitude, longitude: user.longitude },
-              { latitude: start.latitude, longitude: start.longitude },
-            ),
-          );
-          summary.userToPathStartMeters = gapM;
-          if (gapM > 1500) {
-            DBG()?.warn('Bridge', 'User position far from route start — GPS/map mismatch likely', {
-              gapMeters: gapM,
-              userPosition: route.userPosition,
-              pathStart: start,
-            });
-          }
-        }
+
+      const fp = routeFingerprint(route);
+      const nav = window.__fplacesNavigator;
+      const duplicateRoute =
+        fp && fp === window.__fplacesActiveRouteFp && window.fplacesActiveRoute;
+      const navigationUnderway =
+        nav &&
+        (nav.positionSource === 'simulator' ||
+          nav.positionSource === 'calibrate' ||
+          nav.lastPosition?.source === 'simulator' ||
+          (nav.maneuverIndex ?? 0) > 0 ||
+          nav.arrived);
+
+      if (duplicateRoute && navigationUnderway) {
+        DBG()?.log('Bridge', 'applyRoute skipped — duplicate route, preserving progress', {
+          source,
+          maneuverIndex: nav?.maneuverIndex,
+          positionSource: nav?.positionSource,
+        });
+        window.fplacesActiveRoute = route;
+        return route;
       }
-      DBG()?.log('Bridge', 'Route normalized & stored', summary);
+
+      window.__fplacesActiveRouteFp = fp;
+      window.fplacesActiveRoute = route;
+      DBG()?.log('Bridge', 'Route normalized & stored', DBG().routeSummary(route));
       emitRoute(route);
       sendToFlutter({ event: 'sessionReady' });
       return route;
@@ -184,12 +280,27 @@
     applyPosition(payload, source) {
       const position = normalizePosition(payload);
       if (!position) return false;
+
+      const dedupeKey = [
+        position.timestamp ?? '',
+        position.latitude,
+        position.longitude,
+        position.heading ?? '',
+      ].join('|');
+      if (window.__fplacesLastAppliedPositionKey === dedupeKey) {
+        return true;
+      }
+      window.__fplacesLastAppliedPositionKey = dedupeKey;
+
+      window.__fplacesLastPositionFrame = position;
       const nav = window.__fplacesNavigator;
       DBG()?.log('Bridge', `applyPosition from ${source || 'unknown'}`, position);
       if (nav && typeof nav.applyPosition === 'function') {
         nav.applyPosition(position);
         return true;
       }
+      pendingPositions.push({ position, source });
+      if (pendingPositions.length > 60) pendingPositions.shift();
       DBG()?.warn('Bridge', 'applyPosition — navigator not ready yet', {
         hasNavigator: !!nav,
       });
@@ -201,8 +312,48 @@
       if (fromHash) return fromHash;
       const fromQuery = decodeRouteFromQuery();
       if (fromQuery) return fromQuery;
-      DBG()?.warn('Bridge', 'No initial route in URL hash or query');
+      const fromSession = decodeRouteFromSessionStorage();
+      if (fromSession) return fromSession;
+      DBG()?.warn('Bridge', 'No initial route in URL hash, query, or sessionStorage');
       return null;
+    },
+
+    requestParentMovement(options = {}) {
+      const alongPathMeters =
+        typeof options.alongPathMeters === 'number' ? options.alongPathMeters : undefined;
+
+      try {
+        const parent = window.parent;
+        if (parent && parent !== window && parent.__fplacesMapApp?.startRouteMovement) {
+          parent.__fplacesMapApp.startRouteMovement({ alongPathMeters });
+          DBG()?.log('Bridge', 'Requested parent route movement (direct)', { alongPathMeters });
+          return true;
+        }
+      } catch (error) {
+        DBG()?.warn('Bridge', 'Direct parent movement request failed', {
+          error: String(error),
+        });
+      }
+
+      try {
+        const cfg = window.FPLACES_AR_CONFIG || {};
+        const target = cfg.pwaOrigin || window.location.origin;
+        window.parent?.postMessage?.(
+          { type: 'fplaces_start_movement', alongPathMeters },
+          target,
+        );
+        DBG()?.log('Bridge', 'Requested parent route movement (postMessage fallback)', {
+          target,
+          alongPathMeters,
+        });
+        return true;
+      } catch (error) {
+        DBG()?.warn('Bridge', 'postMessage parent movement request failed', {
+          error: String(error),
+        });
+      }
+
+      return false;
     },
 
     sendToFlutter,
@@ -219,6 +370,7 @@
   window.onFlutterStop = function () {
     DBG()?.log('Bridge', 'onFlutterStop — clearing active route');
     window.fplacesActiveRoute = null;
+    window.__fplacesActiveRouteFp = null;
     emitRoute(null);
     sendToFlutter({ event: 'trackingLost' });
     DBG()?.complete('stopped by Flutter');
@@ -229,6 +381,34 @@
     hasQueryRoute: !!new URLSearchParams(window.location.search).get('fplacesRoute'),
     hasOnFlutterRoute: typeof window.onFlutterRoute === 'function',
     hasOnFlutterPosition: typeof window.onFlutterPosition === 'function',
+  });
+
+  window.addEventListener('message', (event) => {
+    if (!isAllowedMessageOrigin(event.origin)) {
+      DBG()?.warn('Bridge', 'Rejected postMessage from untrusted origin', {
+        origin: event.origin,
+        capturedParentOrigin,
+      });
+      return;
+    }
+    const data = event.data;
+    if (!data || typeof data !== 'object') return;
+    if (data.type === 'fplaces_route' && data.route) {
+      DBG()?.log('Bridge', 'Route received via postMessage from parent PWA');
+      window.FplacesRouteBridge.applyRoute(data.route, 'postMessage-route');
+      return;
+    }
+    if (data.type === 'fplaces_position' && data.position) {
+      window.FplacesRouteBridge.applyPosition(data.position, 'postMessage');
+      return;
+    }
+    if (data.type === 'FPLACES_POSITION_UPDATE' && data.data) {
+      window.FplacesRouteBridge.applyPosition(data.data, 'postMessage-v2');
+      return;
+    }
+    if (data.type === 'fplaces_simulator_started') {
+      DBG()?.log('Bridge', 'Parent simulator armed', data);
+    }
   });
 
   const initial = window.FplacesRouteBridge.loadInitialRoute();
