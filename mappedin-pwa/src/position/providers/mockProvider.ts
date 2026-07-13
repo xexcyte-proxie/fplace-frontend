@@ -16,7 +16,8 @@ import {
 import { appLog } from '../../utils/logger';
 
 const TICK_MS = 100;
-const STEP_METERS_PER_TICK = 0.85;
+/** ~1.3 m/s walk at 10 Hz — matches realistic indoor pace on the 2D map. */
+const STEP_METERS_PER_TICK = 0.13;
 
 interface BeaconMatrixEntry {
   latitude: number;
@@ -36,7 +37,7 @@ function buildMockFieldTraversalPath(): RouteCoordinate[] {
   return matrix.beacons.slice(0, 3).map((beacon) => ({
     latitude: beacon.latitude,
     longitude: beacon.longitude,
-    floorId: beacon.floorId,
+    floorId: beacon.floorId ?? 'unknown',
   }));
 }
 
@@ -204,8 +205,8 @@ export class HighFrequencyMockProvider extends PositionProvider {
     this.emitFrame();
   }
 
-  private emitFrame(): void {
-    if (!this.path.length) return;
+  buildCurrentFrame(): FplacesPositionFrame | null {
+    if (!this.path.length) return null;
 
     const point =
       this.path.length === 1
@@ -223,12 +224,20 @@ export class HighFrequencyMockProvider extends PositionProvider {
 
     const heading = bearingDegrees(point, target);
 
-    this.emit({
+    return {
       latitude: point.latitude,
       longitude: point.longitude,
       heading,
       accuracy: 4,
       floorId: point.floorId,
-    });
+      alongPathMeters: this.getMetersAlongPath(),
+      source: this.source,
+      timestamp: Date.now(),
+    };
+  }
+
+  private emitFrame(): void {
+    const frame = this.buildCurrentFrame();
+    if (frame) this.emit(frame);
   }
 }

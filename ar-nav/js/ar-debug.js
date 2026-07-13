@@ -17,7 +17,7 @@
     debugEnabled &&
     (params.get('arPanel') === '0'
       ? false
-      : params.get('arPanel') === '1' || cfg.arDebugPanel !== false);
+      : params.get('arPanel') === '1' || cfg.arDebugPanel === true);
 
   let step = 0;
   const t0 = performance.now();
@@ -26,6 +26,7 @@
   let panelEl = null;
   let lastNavLogKey = '';
   let lastNavLogAt = 0;
+  const throttledLogAt = new Map();
 
   function elapsedMs() {
     return Math.round(performance.now() - t0);
@@ -108,10 +109,10 @@
       console.log(`[fplaces AR] ${line}`);
     }
     appendPanel(line, level);
-    if (debugEnabled) {
+    if (debugEnabled && (panelEnabled || level !== 'log')) {
       mirrorToFlutter(level, phase, message, detail);
     }
-    if (window.parent !== window) {
+    if (window.parent !== window && panelEnabled) {
       try {
         const targetOrigin = (() => {
           const cfgOrigin = window.FPLACES_AR_CONFIG?.pwaOrigin;
@@ -192,6 +193,50 @@
     };
   }
 
+  function quatToYawDegrees(q) {
+    if (!q) return null;
+    const siny = 2 * (q.w * q.y + q.x * q.z);
+    const cosy = 1 - 2 * (q.y * q.y + q.z * q.z);
+    return Math.round(((Math.atan2(siny, cosy) * 180) / Math.PI) * 10) / 10;
+  }
+
+  function quatTuple(q) {
+    if (!q) return null;
+    return [
+      Math.round(q.x * 1000) / 1000,
+      Math.round(q.y * 1000) / 1000,
+      Math.round(q.z * 1000) / 1000,
+      Math.round(q.w * 1000) / 1000,
+    ];
+  }
+
+  /** Structured payload for Google AR directional alignment debug. */
+  function alignmentState(detail) {
+    if (!detail) return null;
+    const out = { ...detail };
+    if (detail.currentQuat) {
+      out.currentYawDeg = quatToYawDegrees(detail.currentQuat);
+      out.currentQuat = quatTuple(detail.currentQuat);
+    }
+    if (detail.targetQuat) {
+      out.targetYawDeg = quatToYawDegrees(detail.targetQuat);
+      out.targetQuat = quatTuple(detail.targetQuat);
+    }
+    return out;
+  }
+
+  function logThrottled(phase, message, detail, minIntervalMs, keyOverride) {
+    if (!debugEnabled) return;
+    const key =
+      keyOverride ?? `${phase}:${message}:${safeStringify(detail, 160)}`;
+    const now = performance.now();
+    const min = minIntervalMs ?? 500;
+    const lastAt = throttledLogAt.get(key) ?? 0;
+    if (now - lastAt < min) return;
+    throttledLogAt.set(key, now);
+    emit('log', phase, message, detail);
+  }
+
   function logNavStateThrottled(phase, message, state, minIntervalMs) {
     if (!debugEnabled) return;
     const key = safeStringify(navState(state));
@@ -235,8 +280,25 @@
     }
   }
 
+  function previewCameraActive() {
+    const video = document.getElementById('camera');
+    return !!(video?.srcObject && video.style.display !== 'none');
+  }
+
   function captureRuntimeError(source, error, extra) {
     const message = formatUnknownError(error);
+    // Benign race when THREE/XR scripts load twice — ignored after inject guard.
+    if (
+      /unconfigurable property/i.test(message) ||
+      /Attempting to change the getter/i.test(message)
+    ) {
+      emit('warn', source, message, {
+        ...(extra || {}),
+        ignored: true,
+        hint: 'Duplicate THREE/XR script inject — should be blocked by __fplacesXrScriptsInjected',
+      });
+      return;
+    }
     const isXrSource = String(source || '').startsWith('XR');
     if (window.__fplacesFallbackTriggered && isXrSource) {
       return;
@@ -250,6 +312,13 @@
       stack,
       errorType: error?.name,
     });
+    if (previewCameraActive()) {
+      window.FplacesSlamDiagnostics?.log?.('xrError', 'XR error — keeping preview camera', {
+        source,
+        message,
+      });
+      return;
+    }
     showFatalBanner(`AR error: ${message}`);
     try {
       window.FplacesRouteBridge?.sendToFlutter?.({
@@ -263,7 +332,17 @@
       !window.__fplacesFallbackTriggered &&
       typeof window.__fplacesStartFallback === 'function'
     ) {
-      window.__fplacesFallbackTriggered = true;
+      const xrEngaged =
+        window.__fplacesXrRunCalled ||
+        window.__fplacesXrSessionActive ||
+        window.__fplacesXrAwaitingOnStart;
+      if (!xrEngaged) {
+        window.FplacesSlamDiagnostics?.log?.('preXrError', 'Error before XR start — not falling back', {
+          source,
+          message,
+        });
+        return;
+      }
       window.__fplacesStartFallback(`XR failed. Compass mode. ${message}`);
     }
   }
@@ -314,6 +393,7 @@
       panelLines.length = 0;
       lastNavLogKey = '';
       lastNavLogAt = 0;
+      throttledLogAt.clear();
       emit('log', 'Boot', '══════ AR PAGE SESSION START ══════', {
         href: window.location.href,
         userAgent: navigator.userAgent,
@@ -341,7 +421,11 @@
     routeSummary,
     navState,
     arrowState,
+    alignmentState,
+    quatToYawDegrees,
+    quatTuple,
     logNavStateThrottled,
+    logThrottled,
 
     captureRuntimeError,
     showFatalBanner,

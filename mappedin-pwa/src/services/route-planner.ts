@@ -21,6 +21,9 @@ const END_MARKER =
   '<div style="width:26px;height:17px;background:#ef4444;border:2px solid #fff;border-radius:2px 3px 3px 0;margin-bottom:4px;"></div>' +
   '</div></div>';
 
+export const ROUTE_NOT_FOUND_MESSAGE =
+  'No route found between the selected points.';
+
 export class RoutePlanner {
   private originMarker: MarkerHandle = null;
   private destinationMarker: MarkerHandle = null;
@@ -41,6 +44,10 @@ export class RoutePlanner {
 
   setRoutePlanningPaused(paused: boolean): void {
     this.routePlanningPaused = paused;
+  }
+
+  get isRoutePlanningPaused(): boolean {
+    return this.routePlanningPaused;
   }
 
   get hasOrigin(): boolean {
@@ -186,6 +193,16 @@ export class RoutePlanner {
     this.setDestination(coord, 'search', label, meta);
   }
 
+  async setOriginFromLocation(
+    target: unknown,
+    label?: string,
+  ): Promise<void> {
+    const coord = this.canonicalCoordinate(target) ?? target;
+    if (!coord) return;
+    await this.focusLocation(coord);
+    this.setOrigin(coord, label ? `location: ${label}` : 'location');
+  }
+
   focusRoutePoint(which: 'start' | 'end'): void {
     const coord = which === 'end' ? this.destinationCoord : this.originCoord;
     if (!coord) return;
@@ -216,7 +233,7 @@ export class RoutePlanner {
       to as TNavigationTarget | TNavigationTarget[],
     );
     if (!directions) {
-      throw new Error('No route found between the selected points.');
+      throw new Error(ROUTE_NOT_FOUND_MESSAGE);
     }
 
     this.mapView.Navigation.draw(directions, {
@@ -228,13 +245,17 @@ export class RoutePlanner {
 
     this.syncMarkers();
 
-    return buildRoutePayload(
-      directions,
-      this.destinationLabel,
-      this.mapId,
-      this.originCoord,
-      this.destinationCoord,
-    );
+    return {
+      ...buildRoutePayload(
+        directions,
+        this.destinationLabel,
+        this.mapId,
+        this.originCoord,
+        this.destinationCoord,
+      ),
+      destinationFloorName: this.destinationFloorName,
+      destinationAreaHint: this.destinationAreaHint,
+    };
   }
 
   selectLeg(_legIndex: number): void {
@@ -248,6 +269,7 @@ export class RoutePlanner {
     this.destinationFloorName = undefined;
     this.destinationAreaHint = undefined;
     this.markerMode = 'start';
+    this.routePlanningPaused = false;
     this.removeMarker('origin');
     this.removeMarker('destination');
   }

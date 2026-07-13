@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "npm run copy:ar:public",
     "build": "tsc && vite build",
+    "copy:ar:public": "rm -rf public/ar && mkdir -p public/ar && rsync -a --exclude .netlify ../ar-nav/ public/ar/",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -13,6 +15,7 @@
     "@mappedin/mappedin-js": "6.20.0"
   },
   "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
     "vite-plugin-pwa": "^1.0.0"

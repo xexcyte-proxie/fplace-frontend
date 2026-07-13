@@ -70,17 +70,49 @@
   function routeFingerprint(route) {
     if (!route) return '';
     const path = route.pathCoordinates || [];
-    const first = path[0];
-    const last = path[path.length - 1];
+    const geoHash =
+      route.geometryHash ||
+      route.pathHash ||
+      window.FplacesRouteServices?.computeGeometryHash?.({
+        pathCoordinates: path,
+        legs: route.legs,
+        maneuvers: route.maneuvers,
+        routeVersion: route.routeVersion,
+        generatedAt: route.generatedAt,
+      }) ||
+      window.FplacesGeoMath?.pathGeometryHash?.(path) ||
+      '';
     return [
-      path.length,
-      route.destinationName || '',
-      first?.latitude ?? '',
-      first?.longitude ?? '',
-      last?.latitude ?? '',
-      last?.longitude ?? '',
-      route.maneuvers?.length ?? 0,
+      route.routeId || '',
+      route.routeVersion ?? 1,
+      route.generatedAt ?? '',
+      geoHash,
     ].join('|');
+  }
+
+  function routesAreEquivalent(a, b) {
+    if (!a || !b) return false;
+    if (a.routeId && b.routeId && a.routeId === b.routeId) {
+      if ((a.routeVersion ?? 1) !== (b.routeVersion ?? 1)) return false;
+      const hashA = a.geometryHash || a.pathHash || '';
+      const hashB = b.geometryHash || b.pathHash || '';
+      return hashA && hashB && hashA === hashB;
+    }
+    return routeFingerprint(a) === routeFingerprint(b);
+  }
+
+  function ensureRouteFloors(route) {
+    if (!route?.pathCoordinates?.length) return route;
+    const ensure = window.FplacesFloorTransitions?.ensurePathFloors;
+    if (ensure) {
+      route.pathCoordinates = ensure(route.pathCoordinates);
+    } else {
+      route.pathCoordinates = route.pathCoordinates.map((p) => ({
+        ...p,
+        floorId: p.floorId || 'unknown',
+      }));
+    }
+    return route;
   }
 
   function normalizeRoute(payload) {
@@ -91,12 +123,49 @@
       });
       return null;
     }
-    return {
+
+    const services = window.FplacesRouteServices;
+    const validation = services?.validateRoute?.(payload);
+    if (validation && !validation.valid) {
+      DBG()?.error('Bridge', 'Route validation failed', {
+        errors: validation.errors,
+        routeId: payload.routeId,
+      });
+      window.FplacesLiveViewHud?.setStatus?.(
+        `Route rejected: ${validation.errors[0] || 'validation failed'}`,
+        true,
+      );
+      services?.sendRouteAck?.(payload, false, validation.errors.join('; '));
+      return null;
+    }
+
+    const versionCheck = services?.shouldAcceptRoute?.(payload);
+    if (versionCheck && !versionCheck.accept) {
+      DBG()?.log('Bridge', 'Route rejected by version negotiation', versionCheck);
+      services?.sendRouteAck?.(payload, false, versionCheck.reason);
+      return null;
+    }
+
+    const geometryHash =
+      payload.geometryHash ||
+      payload.pathHash ||
+      services?.computeGeometryHash?.({
+        pathCoordinates: payload.pathCoordinates,
+        legs: payload.legs,
+        maneuvers: payload.maneuvers,
+        routeVersion: payload.routeVersion,
+        generatedAt: payload.generatedAt,
+      }) ||
+      '';
+
+    const normalized = {
       type: payload.type || 'route_update',
       legCount: payload.legCount ?? payload.legs?.length ?? 0,
       currentLegIndex: payload.currentLegIndex ?? 0,
       instructions: payload.instructions || '',
       destinationName: payload.destinationName || 'Destination',
+      destinationFloorName: payload.destinationFloorName || '',
+      destinationAreaHint: payload.destinationAreaHint || '',
       distanceMeters: payload.distanceMeters ?? null,
       durationSeconds: payload.durationSeconds ?? null,
       mapId: payload.mapId || payload.mappedinMapId || '',
@@ -109,7 +178,77 @@
       maneuvers: Array.isArray(payload.maneuvers) ? payload.maneuvers : [],
       legs: Array.isArray(payload.legs) ? payload.legs : [],
       floors: Array.isArray(payload.floors) ? payload.floors : [],
+      floorTransitions: Array.isArray(payload.floorTransitions)
+        ? payload.floorTransitions
+        : [],
+      routeId: payload.routeId || '',
+      routeVersion: payload.routeVersion ?? 1,
+      generatedAt: payload.generatedAt ?? null,
+      updatedAt: payload.updatedAt ?? payload.generatedAt ?? null,
+      geometryHash,
+      checksum: payload.checksum || '',
+      mapVersion: payload.mapVersion || payload.mapId || '',
+      venueId: payload.venueId || payload.mapId || '',
+      routingEngineVersion: payload.routingEngineVersion || services?.ROUTING_ENGINE_VERSION || '',
+      pathHash: geometryHash,
       positioningMode: payload.positioningMode || null,
+      navigationMode: payload.navigationMode || 'walk',
+      lifecycle: payload.lifecycle || null,
+      navigationProgress: payload.navigationProgress || null,
+      partialUpdate: !!payload.partialUpdate,
+      syncReason: payload.syncReason || null,
+    };
+    return ensureRouteFloors(normalized);
+  }
+
+  function applyNavigationSync(progress, source) {
+    if (!progress || typeof progress.alongPathMeters !== "number") return;
+    window.__fplacesNavigationProgress = progress;
+    if (
+      isParentEmbeddedNav() &&
+      (progress.navigationAuthority === "parent-simulator" ||
+        progress.source === "simulator" ||
+        progress.routeSimulating)
+    ) {
+      window.__fplacesParentSimulatorAuthority = true;
+    }
+    DBG()?.log('Bridge', `applyNavigationSync from ${source || 'unknown'}`, {
+      alongPathMeters: progress.alongPathMeters,
+      routeSimulating: progress.routeSimulating,
+      navigationAuthority: progress.navigationAuthority,
+    });
+    const nav = window.__fplacesNavigator;
+    if (nav?.applyNavigationSync) {
+      nav.applyNavigationSync(progress);
+      return;
+    }
+    window.__fplacesPendingNavigationSync = progress;
+  }
+
+  function isParentEmbeddedNav() {
+    const cfg = window.FPLACES_AR_CONFIG || {};
+    return cfg.useGpsProgress === false;
+  }
+
+  function buildSimulatorProgressFromPosition(position) {
+    const path = window.fplacesActiveRoute?.pathCoordinates || [];
+    const total = path.length
+      ? window.FplacesRouteGeometry.totalPathLengthMeters(path)
+      : 0;
+    const along = position.alongPathMeters;
+    return {
+      ...(window.__fplacesNavigationProgress || {}),
+      alongPathMeters: along,
+      routeTraveledMeters: along,
+      routeRemainingMeters: Math.max(0, total - along),
+      routeSimulating: true,
+      routeSimulationComplete: false,
+      source: "simulator",
+      navigationAuthority: isParentEmbeddedNav() ? "parent-simulator" : "local",
+      latitude: position.latitude,
+      longitude: position.longitude,
+      heading: position.heading,
+      floorId: position.floorId,
     };
   }
 
@@ -136,6 +275,8 @@
       floorId: payload.floorId || null,
       source: payload.source || 'flutter',
       timestamp: payload.timestamp != null ? Number(payload.timestamp) : Date.now(),
+      alongPathMeters:
+        payload.alongPathMeters != null ? Number(payload.alongPathMeters) : undefined,
     };
   }
 
@@ -242,7 +383,8 @@
       DBG()?.log('Bridge', `applyRoute from ${source || 'unknown'}`, {
         payloadType: payload?.type,
         rawPathPoints: payload?.pathCoordinates?.length,
-        rawManeuvers: payload?.maneuvers?.length,
+        routeId: payload?.routeId,
+        routeVersion: payload?.routeVersion,
       });
       const route = normalizeRoute(payload);
       if (!route) return null;
@@ -250,7 +392,10 @@
       const fp = routeFingerprint(route);
       const nav = window.__fplacesNavigator;
       const duplicateRoute =
-        fp && fp === window.__fplacesActiveRouteFp && window.fplacesActiveRoute;
+        fp &&
+        fp === window.__fplacesActiveRouteFp &&
+        window.fplacesActiveRoute &&
+        routesAreEquivalent(route, window.fplacesActiveRoute);
       const navigationUnderway =
         nav &&
         (nav.positionSource === 'simulator' ||
@@ -259,22 +404,45 @@
           (nav.maneuverIndex ?? 0) > 0 ||
           nav.arrived);
 
-      if (duplicateRoute && navigationUnderway) {
-        DBG()?.log('Bridge', 'applyRoute skipped — duplicate route, preserving progress', {
+      const isLegOrStateSync =
+        route.partialUpdate ||
+        route.syncReason === 'leg_change' ||
+        route.syncReason === 'floor_change';
+
+      if (duplicateRoute && navigationUnderway && !isLegOrStateSync) {
+        DBG()?.log('Bridge', 'applyRoute skipped — identical geometry, preserving progress', {
           source,
           maneuverIndex: nav?.maneuverIndex,
-          positionSource: nav?.positionSource,
         });
-        window.fplacesActiveRoute = route;
+        window.fplacesActiveRoute = { ...window.fplacesActiveRoute, ...route };
+        if (route.navigationProgress) {
+          applyNavigationSync(
+            route.navigationProgress,
+            `${source || 'unknown'}-handoff-resync`,
+          );
+        }
+        window.FplacesRouteServices?.sendRouteAck?.(route, true, 'duplicate-preserved');
         return route;
       }
 
       window.__fplacesActiveRouteFp = fp;
       window.fplacesActiveRoute = route;
+      window.FplacesRouteServices?.recordAccepted?.(route);
+      if (route.navigationProgress) {
+        window.__fplacesNavigationProgress = route.navigationProgress;
+      }
       DBG()?.log('Bridge', 'Route normalized & stored', DBG().routeSummary(route));
       emitRoute(route);
+      if (route.navigationProgress) {
+        applyNavigationSync(route.navigationProgress, `${source || 'unknown'}-handoff`);
+      }
+      window.FplacesRouteServices?.sendRouteAck?.(route, true, 'accepted');
       sendToFlutter({ event: 'sessionReady' });
       return route;
+    },
+
+    applyNavigationSync(progress, source) {
+      applyNavigationSync(progress, source);
     },
 
     applyPosition(payload, source) {
@@ -286,6 +454,7 @@
         position.latitude,
         position.longitude,
         position.heading ?? '',
+        position.alongPathMeters ?? '',
       ].join('|');
       if (window.__fplacesLastAppliedPositionKey === dedupeKey) {
         return true;
@@ -294,9 +463,38 @@
 
       window.__fplacesLastPositionFrame = position;
       const nav = window.__fplacesNavigator;
+
+      if (
+        isParentEmbeddedNav() &&
+        position.source === 'simulator' &&
+        typeof position.alongPathMeters === 'number'
+      ) {
+        const progress = buildSimulatorProgressFromPosition(position);
+        window.__fplacesNavigationProgress = progress;
+        window.__fplacesParentSimulatorAuthority = true;
+        DBG()?.log('Bridge', `applyPosition → parent simulator sync from ${source || 'unknown'}`, {
+          alongPathMeters: position.alongPathMeters,
+        });
+        if (nav?.applyNavigationSync) {
+          nav.applyNavigationSync(progress);
+          return true;
+        }
+        window.__fplacesPendingNavigationSync = progress;
+        return false;
+      }
+
+      if (
+        position.source === 'simulator' &&
+        typeof position.alongPathMeters === 'number'
+      ) {
+        window.__fplacesNavigationProgress = buildSimulatorProgressFromPosition(position);
+      }
       DBG()?.log('Bridge', `applyPosition from ${source || 'unknown'}`, position);
       if (nav && typeof nav.applyPosition === 'function') {
         nav.applyPosition(position);
+        if (window.__fplacesXrScene && window.FplacesCameraStart?.isStarted?.()) {
+          window.__fplacesTryAutoCalibrate?.('position');
+        }
         return true;
       }
       pendingPositions.push({ position, source });
@@ -308,13 +506,15 @@
     },
 
     loadInitialRoute() {
+      // Bootstrap fallback: sessionStorage (parent handoff) → URL hash → query.
+      // Runtime delivery uses direct bridge → postMessage (higher priority).
+      const fromSession = decodeRouteFromSessionStorage();
+      if (fromSession) return fromSession;
       const fromHash = decodeRouteFromHash();
       if (fromHash) return fromHash;
       const fromQuery = decodeRouteFromQuery();
       if (fromQuery) return fromQuery;
-      const fromSession = decodeRouteFromSessionStorage();
-      if (fromSession) return fromSession;
-      DBG()?.warn('Bridge', 'No initial route in URL hash, query, or sessionStorage');
+      DBG()?.warn('Bridge', 'No initial route in sessionStorage, URL hash, or query');
       return null;
     },
 
@@ -408,6 +608,43 @@
     }
     if (data.type === 'fplaces_simulator_started') {
       DBG()?.log('Bridge', 'Parent simulator armed', data);
+      const nav = window.__fplacesNavigator;
+      if (nav) {
+        nav.arrived = false;
+        nav.offPathMessage = '';
+      }
+      if (typeof data.alongPathMeters === 'number') {
+        const progress = {
+          ...(window.__fplacesNavigationProgress || {}),
+          alongPathMeters: data.alongPathMeters,
+          routeTraveledMeters: data.alongPathMeters,
+          routeSimulating: true,
+          routeSimulationComplete: false,
+          source: 'simulator',
+          navigationAuthority: isParentEmbeddedNav() ? 'parent-simulator' : 'local',
+        };
+        applyNavigationSync(progress, 'simulator_started');
+      }
+      return;
+    }
+    if (data.type === 'fplaces_navigation_sync' && data.progress) {
+      DBG()?.log('Bridge', 'Navigation sync from parent PWA', data.progress);
+      applyNavigationSync(data.progress, 'postMessage-sync');
+      return;
+    }
+    if (data.type === 'fplaces_navigation_state' && data.route) {
+      DBG()?.log('Bridge', 'Navigation state update from parent', {
+        reason: data.reason,
+        currentLegIndex: data.currentLegIndex,
+      });
+      const merged = {
+        ...data.route,
+        currentLegIndex: data.currentLegIndex ?? data.route.currentLegIndex,
+        instructions: data.instructions ?? data.route.instructions,
+        partialUpdate: true,
+        syncReason: data.reason || 'state_sync',
+      };
+      window.FplacesRouteBridge.applyRoute(merged, 'postMessage-nav-state');
     }
   });
 

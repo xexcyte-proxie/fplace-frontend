@@ -2,94 +2,260 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta http-equiv="Permissions-Policy" content="camera=(self), geolocation=(self)" />
-    <title>Fplaces AR Navigation</title>
+    <meta
+      http-equiv="Permissions-Policy"
+      content="camera=(self), geolocation=(self), gyroscope=(self), accelerometer=(self), magnetometer=(self), xr-spatial-tracking=(self)"
+    />
+    <title>Live View</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,500,1,0&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,500,1,0&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./css/ar.css" />
+    <link rel="stylesheet" href="./css/ar.css?v=20260708-ui-v1" />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link
+      rel="preload"
+      href="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"
+      as="script"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
+      as="script"
+      crossorigin
+    />
   </head>
   <body>
     <video id="camera" autoplay playsinline muted></video>
+    <canvas id="camerafeed"></canvas>
+
+    <div
+      id="camera-start-layer"
+      class="camera-start-layer hidden"
+      aria-hidden="true"
+    >
+      <div class="camera-start-card">
+        <p id="camera-start-copy" class="camera-start-copy">
+          Camera access is needed for Live View
+        </p>
+        <button type="button" id="lv-start-btn" class="lv-start-btn">
+          Start Live View
+        </button>
+      </div>
+    </div>
+
+    <div id="lv-chrome" class="lv-chrome">
+      <button
+        type="button"
+        id="lv-back-btn"
+        class="lv-chrome-btn"
+        aria-label="Back to map"
+      >
+        <span class="material-symbols-rounded" aria-hidden="true"
+          >arrow_back</span
+        >
+      </button>
+      <div
+        id="tracking-mode-badge"
+        class="lv-mode-badge hidden"
+        aria-live="polite"
+      >
+        <span class="lv-mode-dot" aria-hidden="true"></span>
+        <span id="tracking-mode-label">AR mode active</span>
+      </div>
+      <button
+        type="button"
+        id="lv-map-btn"
+        class="lv-chrome-btn"
+        aria-label="Show map"
+      >
+        <span class="material-symbols-rounded" aria-hidden="true">map</span>
+      </button>
+    </div>
 
     <div id="hud">
-      <div class="status-pill" id="status">Open AR from the map after generating a route.</div>
-
-      <div id="live-nav" class="live-nav hidden">
-        <div class="turn-row">
-          <div id="then-chip" class="then-chip hidden">
-            <span class="then-label">Then</span>
-            <span id="then-icon"></span>
-            <span id="then-text" class="then-text"></span>
-          </div>
-          <div class="primary-turn">
-            <span id="turn-icon"></span>
-            <span id="turn-text">Follow route</span>
-          </div>
-        </div>
-        <div id="distance-bar" class="distance-bar"></div>
+      <div class="lv-status" id="status">
+        Open Live View from the map after generating a route.
       </div>
 
-      <div id="trip-footer" class="trip-footer hidden">
-        <div class="trip-dest">
-          <span class="trip-dest-label">Destination</span>
-          <span id="trip-dest">—</span>
+      <div id="scan-overlay" class="lv-scan hidden" aria-hidden="true">
+        <div class="lv-scan-frame" aria-hidden="true"></div>
+        <p id="scan-copy" class="lv-scan-text">Move your phone slowly</p>
+      </div>
+
+      <div id="live-nav" class="lv-instruction-card hidden">
+        <div
+          id="turn-icon"
+          class="lv-instruction-icon"
+          aria-hidden="true"
+        ></div>
+        <div class="lv-instruction-copy">
+          <div id="turn-text" class="lv-instruction-primary">
+            Continue straight
+          </div>
+          <div id="distance-bar" class="lv-instruction-secondary">
+            for 40 meters
+          </div>
         </div>
-        <div class="trip-stat">
-          <span id="trip-dist">—</span>
-          <small>left</small>
+        <div id="then-chip" class="lv-then hidden" aria-hidden="true">
+          <span class="lv-then-label">Then</span>
+          <span id="then-icon"></span>
         </div>
       </div>
 
-      <div id="offPath" class="warn-banner hidden"></div>
+      <div id="align-banner" class="lv-align hidden">
+        <span class="material-symbols-rounded" aria-hidden="true"
+          >screen_rotation</span
+        >
+        <span id="align-text">Point your phone at the path</span>
+      </div>
 
-      <div id="floor-banner" class="floor-banner hidden">
+      <div id="floor-banner" class="lv-floor hidden">
         <span class="material-symbols-rounded" aria-hidden="true">layers</span>
         <span id="floor-banner-text"></span>
       </div>
 
-      <div id="align-banner" class="align-banner hidden">
-        <span class="material-symbols-rounded" aria-hidden="true">screen_rotation</span>
-        <span id="align-text">Point your phone toward the path</span>
-      </div>
-
-      <div id="hero-distance" class="hero-distance hidden">
+      <div id="hero-distance" class="lv-hero hidden">
         <span id="hero-distance-value">—</span>
         <span id="hero-distance-unit">m</span>
       </div>
 
-      <div id="arrival-card" class="arrival-card hidden">
-        <span class="material-symbols-rounded arrival-icon" aria-hidden="true">check_circle</span>
-        <div class="arrival-copy">
-          <div class="arrival-title">You've arrived</div>
-          <div id="arrival-dest" class="arrival-dest"></div>
+      <div id="offPath" class="lv-warn hidden"></div>
+
+      <div id="arrival-card" class="lv-arrival hidden">
+        <span
+          class="material-symbols-rounded lv-arrival-icon"
+          aria-hidden="true"
+          >check_circle</span
+        >
+        <div>
+          <div class="lv-arrival-title">You've arrived</div>
+          <div id="arrival-dest" class="lv-arrival-dest"></div>
         </div>
       </div>
     </div>
 
-    <script src="./config.js"></script>
+    <div id="trip-footer" class="lv-bottom hidden">
+      <div class="lv-bottom-sheet">
+        <button
+          type="button"
+          id="lv-sheet-toggle"
+          class="lv-sheet-toggle"
+          aria-expanded="true"
+          aria-controls="lv-sheet-body"
+          aria-label="Collapse trip details"
+        >
+          <span class="lv-sheet-grabber" aria-hidden="true"></span>
+        </button>
+        <div class="lv-dest-row">
+          <div class="lv-dest-icon" aria-hidden="true">
+            <span class="material-symbols-rounded">location_on</span>
+          </div>
+          <div class="lv-dest-copy">
+            <div id="trip-dest" class="lv-dest-name">—</div>
+            <div id="trip-dest-meta" class="lv-dest-subtitle">—</div>
+          </div>
+          <span
+            id="lv-sheet-chevron"
+            class="lv-sheet-chevron material-symbols-rounded"
+            aria-hidden="true"
+          >
+            expand_more
+          </span>
+        </div>
+        <div id="lv-sheet-body" class="lv-sheet-body">
+          <div class="lv-stats-row">
+            <div class="lv-stat">
+              <span class="lv-stat-label">ETA</span>
+              <span id="trip-eta" class="lv-stat-value">—</span>
+            </div>
+            <div class="lv-stat">
+              <span class="lv-stat-label">Distance</span>
+              <span id="trip-dist" class="lv-stat-value">—</span>
+            </div>
+            <div class="lv-stat">
+              <span class="lv-stat-label">Arrive</span>
+              <span id="trip-arrive" class="lv-stat-value">—</span>
+            </div>
+          </div>
+          <button type="button" id="lv-end-nav-btn" class="lv-end-nav-btn">
+            <span class="material-symbols-rounded" aria-hidden="true"
+              >close</span
+            >
+            End navigation
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./config.js?v=20260707-camera-v18"></script>
+    <script src="./js/slam-diagnostics.js?v=20260707-camera-v18"></script>
+    <script>
+      (function () {
+        if (!window.isSecureContext) return;
+        const cfg = window.FPLACES_AR_CONFIG || {};
+        if (cfg.xrMode === "fallback") return;
+        // Mark before append — bootstrap must not inject a second THREE/XR8 copy.
+        // (#xr-bootstrap may not exist yet in DOM at this point in the document.)
+        window.__fplacesXrScriptsInjected = true;
+        const three = document.createElement("script");
+        three.src =
+          "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js";
+        three.crossOrigin = "anonymous";
+        three.dataset.fplacesXr = "three";
+        document.head.appendChild(three);
+        const extras = document.createElement("script");
+        extras.src =
+          "https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js";
+        extras.crossOrigin = "anonymous";
+        extras.dataset.fplacesXr = "xrextras";
+        document.head.appendChild(extras);
+        const xr = document.createElement("script");
+        xr.async = true;
+        xr.src =
+          "https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js";
+        xr.crossOrigin = "anonymous";
+        xr.dataset.preloadChunks = "slam";
+        xr.dataset.fplacesXr = "xr8";
+        document.head.appendChild(xr);
+      })();
+    </script>
     <script src="./js/ar-debug.js"></script>
+    <script src="./js/geo-math.js"></script>
+    <script src="./js/ar-quaternion-alignment.js?v=20260709-heading-fix-v1"></script>
+    <script src="./js/route-services.js"></script>
     <script src="./js/route-bridge.js"></script>
     <script src="./js/anchorEngine.js"></script>
     <script src="./js/route-geometry.js"></script>
+    <script src="./js/floor-transitions.js"></script>
     <script src="./js/indoor-position.js"></script>
-    <script src="./js/pathGeometry.js"></script>
+    <script src="./js/world-floor-arrows.js?v=20260709-heading-fix-v1"></script>
+    <script src="./js/incremental-ar-path.js?v=20260709-heading-fix-v1"></script>
+    <script src="./js/pathGeometry.js?v=20260709-heading-fix-v1"></script>
     <script src="./js/world-route-scene.js"></script>
     <script src="./js/demo-sim-walk.js"></script>
     <script src="./js/route-navigator.js"></script>
     <script src="./js/route-lane-heading.js"></script>
+    <script src="./js/slam-heading.js"></script>
+    <script src="./js/slam-pose-bridge.js"></script>
     <script src="./js/live-view-hud.js"></script>
-    <script src="./js/live-view-arrows-3d.js"></script>
+    <script src="./js/lv-chrome.js?v=20260708-ui-v1"></script>
+    <script src="./js/camera-start.js?v=20260707-camera-v18"></script>
+    <script src="./js/live-view-arrows-3d.js?v=20260708-align-debug-v1"></script>
     <script src="./js/orientation-compass.js"></script>
     <script src="./js/live-view-minimap.js"></script>
     <script src="./js/fallback-nav.js"></script>
+    <script src="./js/fplaces-xr-renderer-patch.js?v=20260707-camera-v18"></script>
     <script id="xr-bootstrap"></script>
-    <script src="./js/xr-nav-scene.js"></script>
+    <script src="./js/xr-nav-scene.js?v=20260707-camera-v18"></script>
     <script src="./js/bootstrap.js"></script>
   </body>
 </html>

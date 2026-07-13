@@ -1,0 +1,20 @@
+# Shell + service worker — always fetch fresh after deploy
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+/sw.js
+  Cache-Control: no-cache, must-revalidate
+
+/workbox-*.js
+  Cache-Control: no-cache, must-revalidate
+
+/manifest.webmanifest
+  Cache-Control: no-cache, must-revalidate
+
+# AR module uses unhashed filenames — do not long-cache at CDN/browser
+/ar/*
+  Cache-Control: no-cache, must-revalidate
+
+# Vite fingerprinted bundles — safe to cache immutably
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

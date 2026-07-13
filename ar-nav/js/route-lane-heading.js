@@ -38,7 +38,7 @@
       return null;
     }
 
-    const R = 6371000;
+    const R = window.FplacesGeoMath?.EARTH_RADIUS_M ?? 6371000;
     const dLat = ((lat - lastCourseSample.lat) * Math.PI) / 180;
     const dLng = ((lng - lastCourseSample.lng) * Math.PI) / 180;
     const lat1 = (lastCourseSample.lat * Math.PI) / 180;
@@ -66,6 +66,14 @@
   }
 
   function resolveDeviceHeading(state) {
+    if (window.FplacesSlamHeading?.isActive?.()) {
+      const slam = window.FplacesSlamHeading.getHeadingDegrees?.();
+      if (slam != null && !Number.isNaN(slam)) {
+        instantHeading = normalizeDegrees(slam);
+        return instantHeading;
+      }
+    }
+
     const ext = state?.externalHeadingDegrees;
     if (typeof ext === 'number' && !Number.isNaN(ext)) {
       instantHeading = normalizeDegrees(ext);

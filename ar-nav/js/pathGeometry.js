@@ -2,15 +2,18 @@
  * Procedural floor ribbon path for calibrated AR navigation.
  */
 (function () {
-  const RIBBON_NAME = 'ar_navigation_ribbon';
-  const TURN_GROUP_NAME = 'ar_navigation_turn_markers';
+  const RIBBON_NAME = "ar_navigation_ribbon";
+  const TURN_GROUP_NAME = "ar_navigation_turn_markers";
   const FLOOR_Y = 0.04;
   const TURN_MARKER_Y = 1.2;
   const RIBBON_COLOR = 0x00ffcc;
   const TURN_BEARING_THRESHOLD_DEG = 45;
   const TEXTURE_SCROLL_SPEED = 0.01;
-
   let ribbonTexture = null;
+  let lastTextureScrollAt = 0;
+  let cachedRouteInput = null;
+  let cachedAnchorEngine = null;
+  let cachedFloorId = null;
 
   function normalizeRouteInput(routeInput) {
     if (Array.isArray(routeInput)) {
@@ -67,6 +70,15 @@
     }
 
     ribbonTexture = null;
+    cachedRouteInput = null;
+    cachedAnchorEngine = null;
+    cachedFloorId = null;
+    lastArrowRefreshAlongM = -1;
+    lastArrowRefreshAt = 0;
+    lastArrowEmphasisTier = -1;
+
+    window.FplacesFloorArrows?.disposeFloorArrows?.(scene);
+    window.FplacesIncrementalPath?.dispose?.(scene);
 
     disposeTurnMarkers(scene);
   }
@@ -77,10 +89,10 @@
   }
 
   function createChevronFlowTexture(THREE) {
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = 128;
     canvas.height = 32;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -93,7 +105,7 @@
       const w = slotW * 0.42;
       const h = canvas.height * 0.55;
 
-      ctx.fillStyle = 'rgba(0, 255, 204, 0.95)';
+      ctx.fillStyle = "rgba(0, 255, 204, 0.95)";
       ctx.beginPath();
       ctx.moveTo(cx - w * 0.45, cy + h * 0.35);
       ctx.lineTo(cx, cy - h * 0.45);
@@ -114,7 +126,12 @@
   }
 
   function bearingRadXZ(from, to) {
-    return Math.atan2(to.x - from.x, to.z - from.z);
+    const dx = to.x - from.x;
+    const dz = to.z - from.z;
+    if (window.FplacesQuaternionAlignment?.pathHeadingYawRad) {
+      return window.FplacesQuaternionAlignment.pathHeadingYawRad(dx, dz);
+    }
+    return Math.atan2(dx, dz) + Math.PI;
   }
 
   function bearingDeltaDegrees(aRad, bRad) {
@@ -189,14 +206,302 @@
         const lat = coord.latitude ?? coord.lat;
         const lng = coord.longitude ?? coord.lng;
         if (lat == null || lng == null) return null;
-        const local = engine.convertToSLAMSpace({ latitude: lat, longitude: lng });
+        const local = engine.convertToSLAMSpace({
+          latitude: lat,
+          longitude: lng,
+        });
         return new window.THREE.Vector3(local.x, FLOOR_Y, local.z);
       })
       .filter(Boolean);
   }
 
+  function resolveFloorPath(routeInput, floorId) {
+    const route = normalizeRouteInput(routeInput);
+    const path = route.pathCoordinates;
+    if (!floorId || !window.FplacesFloorTransitions) return path;
+    return window.FplacesFloorTransitions.filterPathForFloor(path, floorId);
+  }
+
+  let lastArrowRefreshAlongM = -1;
+  let lastArrowRefreshAt = 0;
+  let lastArrowEmphasisTier = -1;
+
+  function turnEmphasisTier(distAheadM) {
+    if (distAheadM == null || !Number.isFinite(distAheadM)) return 0;
+    if (distAheadM <= 2) return 2;
+    if (distAheadM <= 5) return 1;
+    return 0;
+  }
+
+  function resolveStartAlongM(points, camera) {
+    const nav = window.__fplacesNavigator;
+    // Prefer snapshot fields — do NOT call getDisplayAlongPathMeters (it can tick sim).
+    let along =
+      (typeof nav?._displayAlongPathM === "number" &&
+        Number.isFinite(nav._displayAlongPathM) &&
+        nav._displayAlongPathM) ||
+      (typeof nav?.snappedOnPath?.distanceAlongPathMeters === "number" &&
+        nav.snappedOnPath.distanceAlongPathMeters) ||
+      null;
+
+    if (typeof along === "number" && Number.isFinite(along)) {
+      const geoPath = cachedRouteInput
+        ? resolveFloorPath(cachedRouteInput, cachedFloorId)
+        : null;
+      if (geoPath?.length >= 2 && window.FplacesRouteGeometry) {
+        const geoTotal =
+          window.FplacesRouteGeometry.totalPathLengthMeters(geoPath) || 1;
+        let localTotal = 0;
+        for (let i = 0; i < points.length - 1; i++) {
+          localTotal += Math.hypot(
+            points[i + 1].x - points[i].x,
+            points[i + 1].z - points[i].z,
+          );
+        }
+        if (localTotal > 0.01 && geoTotal > 0.01) {
+          return Math.max(
+            0,
+            Math.min(localTotal, (along / geoTotal) * localTotal),
+          );
+        }
+      }
+      return Math.max(0, along);
+    }
+
+    if (camera?.position) {
+      return (
+        window.FplacesFloorArrows?.findAlongPathM?.(
+          points,
+          camera.position.x,
+          camera.position.z,
+        ) ?? 0
+      );
+    }
+    return 0;
+  }
+
+  /**
+   * Snap progress to the path arrow spacing grid so footprints stay fixed in
+   * world space until the user advances a full cell (no crawling).
+   */
+  function quantizeStartAlongM(alongM) {
+    const cfg = window.FPLACES_AR_CONFIG || {};
+    const spacing = cfg.floorArrowSpacingM ?? 2.15;
+    const leadIn = cfg.floorArrowLeadInM ?? 1.35;
+    const raw = Math.max(0, alongM || 0);
+    // Grid origins at leadIn, leadIn+spacing, … relative to path start.
+    const stepped = Math.floor(raw / spacing) * spacing;
+    return Math.max(0, stepped);
+  }
+
+  function resolveUserAlongM(points, camera) {
+    return resolveStartAlongM(points, camera);
+  }
+
+  function useIncrementalPath() {
+    const c = window.FPLACES_AR_CONFIG || {};
+    return c.useIncrementalPath !== false;
+  }
+
+  function refreshIncrementalPath(scene, camera, floorId) {
+    const DBG = window.FplacesArDebug;
+
+    if (!scene || !cachedRouteInput || !cachedAnchorEngine?.isCalibrated) {
+      DBG?.logThrottled?.(
+        "IncrementalPath",
+        "Extend skipped — not ready",
+        {
+          hasScene: !!scene,
+          hasRoute: !!cachedRouteInput,
+          calibrated: !!cachedAnchorEngine?.isCalibrated,
+        },
+        3000,
+        "incremental:not-ready",
+      );
+      return;
+    }
+    if (!window.THREE || !window.FplacesIncrementalPath?.extend) return;
+
+    const now = performance.now();
+    const floorChanged = !!(floorId && floorId !== cachedFloorId);
+    if (!floorChanged && now - lastArrowRefreshAt < 120) return;
+
+    const floorPath = resolveFloorPath(
+      cachedRouteInput,
+      floorId || cachedFloorId,
+    );
+    const points = toVector3List(floorPath, cachedAnchorEngine);
+    if (points.length < 2) return;
+
+    const alongPathM = resolveUserAlongM(points, camera);
+    if (floorId) cachedFloorId = floorId;
+    lastArrowRefreshAt = now;
+
+    window.FplacesIncrementalPath.extend(window.THREE, scene, points, {
+      floorY: FLOOR_Y,
+      cameraX: camera?.position?.x,
+      cameraZ: camera?.position?.z,
+      alongPathM,
+    });
+  }
+
+  function refreshFloorArrows(scene, camera, floorId) {
+    if (useIncrementalPath()) {
+      refreshIncrementalPath(scene, camera, floorId);
+      return;
+    }
+
+    const DBG = window.FplacesArDebug;
+
+    if (!scene || !cachedRouteInput || !cachedAnchorEngine?.isCalibrated) {
+      DBG?.logThrottled?.(
+        "Align",
+        "Trail refresh skipped — not ready",
+        {
+          hasScene: !!scene,
+          hasRoute: !!cachedRouteInput,
+          calibrated: !!cachedAnchorEngine?.isCalibrated,
+        },
+        3000,
+        "align:trail:not-ready",
+      );
+      return;
+    }
+    if (!window.THREE || !window.FplacesFloorArrows?.buildFloorArrows) return;
+
+    const now = performance.now();
+    const floorChanged = !!(floorId && floorId !== cachedFloorId);
+    if (!floorChanged && now - lastArrowRefreshAt < 200) return;
+
+    const floorPath = resolveFloorPath(
+      cachedRouteInput,
+      floorId || cachedFloorId,
+    );
+    const points = toVector3List(floorPath, cachedAnchorEngine);
+    if (points.length < 2) return;
+
+    const rawAlong = resolveStartAlongM(points, camera) ?? 0;
+    const startAlongM = quantizeStartAlongM(rawAlong);
+
+    // Peek next-turn distance for emphasize tier (2m / 5m) without moving markers.
+    let emphasisTier = 0;
+    try {
+      const peek = window.FplacesFloorArrows.walkPathPlacements(points, {
+        startAlongM,
+        floorY: FLOOR_Y,
+        maxArrows: 1,
+        leadInM: 0.5,
+        spacingM: 99,
+      });
+      const turn = peek.find((p) => p.kind === "turn");
+      emphasisTier = turnEmphasisTier(turn?.distAheadM);
+    } catch (_) {
+      /* ignore peek errors */
+    }
+
+    const hasGroup = !!scene.getObjectByName(
+      window.FplacesFloorArrows.GROUP_NAME,
+    );
+    if (
+      !floorChanged &&
+      hasGroup &&
+      startAlongM === lastArrowRefreshAlongM &&
+      emphasisTier === lastArrowEmphasisTier
+    ) {
+      DBG?.logThrottled?.(
+        "Align",
+        "Trail refresh skipped — progress unchanged",
+        {
+          rawAlongM: Math.round(rawAlong * 100) / 100,
+          startAlongM,
+          emphasisTier,
+          floorId: floorId || cachedFloorId,
+        },
+        2500,
+        "align:trail:progress-unchanged",
+      );
+      return;
+    }
+
+    DBG?.log?.("Align", "Trail refresh triggered", {
+      floorChanged,
+      rawAlongM: Math.round(rawAlong * 100) / 100,
+      quantizedAlongM: startAlongM,
+      emphasisTier,
+      floorId: floorId || cachedFloorId,
+      pointCount: points.length,
+      camera: {
+        x: Math.round((camera?.position?.x ?? 0) * 100) / 100,
+        z: Math.round((camera?.position?.z ?? 0) * 100) / 100,
+      },
+    });
+
+    lastArrowRefreshAt = now;
+    lastArrowRefreshAlongM = startAlongM;
+    lastArrowEmphasisTier = emphasisTier;
+    if (floorId) cachedFloorId = floorId;
+
+    window.FplacesFloorArrows.buildFloorArrows(window.THREE, scene, points, {
+      floorY: FLOOR_Y,
+      cameraX: camera?.position?.x,
+      cameraZ: camera?.position?.z,
+      startAlongM,
+    });
+  }
+
+  /**
+   * Per-frame leading arrow update (LookRotation + Slerp). Called every XR frame.
+   */
+  function updateLeadingArrow(scene, camera, floorId) {
+    const DBG = window.FplacesArDebug;
+
+    if (!scene || !cachedRouteInput || !cachedAnchorEngine?.isCalibrated) {
+      DBG?.logThrottled?.(
+        "Align",
+        "Leading update skipped — pathGeometry not ready",
+        {
+          hasScene: !!scene,
+          hasRoute: !!cachedRouteInput,
+          calibrated: !!cachedAnchorEngine?.isCalibrated,
+        },
+        3000,
+        "align:pathgeom-leading:not-ready",
+      );
+      return;
+    }
+    if (!window.THREE || !window.FplacesFloorArrows?.updateLeadingArrow) return;
+
+    const floorPath = resolveFloorPath(
+      cachedRouteInput,
+      floorId || cachedFloorId,
+    );
+    const points = toVector3List(floorPath, cachedAnchorEngine);
+    if (points.length < 2) {
+      DBG?.logThrottled?.(
+        "Align",
+        "Leading update skipped — floor path too short",
+        { pointCount: points.length, floorId: floorId || cachedFloorId },
+        2000,
+        "align:pathgeom-leading:short",
+      );
+      return;
+    }
+
+    const alongPathM = resolveUserAlongM(points, camera);
+
+    window.FplacesFloorArrows.updateLeadingArrow(window.THREE, scene, points, {
+      floorY: FLOOR_Y,
+      cameraX: camera?.position?.x,
+      cameraZ: camera?.position?.z,
+      alongPathM,
+    });
+  }
+
   function updateRibbonAnimation() {
     if (!ribbonTexture) return;
+    const now = performance.now();
+    if (now - lastTextureScrollAt < 50) return;
+    lastTextureScrollAt = now;
     ribbonTexture.offset.x -= TEXTURE_SCROLL_SPEED;
     if (ribbonTexture.offset.x <= -1) {
       ribbonTexture.offset.x += 1;
@@ -204,53 +509,150 @@
     ribbonTexture.needsUpdate = true;
   }
 
-  function generateWorldMeshPath(threeScene, routeInput, anchorEngine) {
+  function generateWorldMeshPath(
+    threeScene,
+    routeInput,
+    anchorEngine,
+    options,
+  ) {
     const THREE = window.THREE;
     const route = normalizeRouteInput(routeInput);
-    const coordinatesList = route.pathCoordinates;
+    const floorId = options?.floorId || null;
+    const coordinatesList = resolveFloorPath(routeInput, floorId);
 
     if (!THREE || !threeScene || !coordinatesList?.length) return null;
 
     disposePathVisuals(threeScene);
 
-    const points = toVector3List(coordinatesList, anchorEngine);
-    if (points.length < 2) return null;
+    let points = toVector3List(coordinatesList, anchorEngine);
+    if (points.length < 2) {
+      window.FplacesArDebug?.warn(
+        "PathGeometry",
+        "Path build failed — insufficient points",
+        {
+          inputPoints: coordinatesList.length,
+          calibrated: !!anchorEngine?.isCalibrated,
+        },
+      );
+      return null;
+    }
 
-    ribbonTexture = createChevronFlowTexture(THREE);
+    const camera = options?.camera || window.__fplacesXrCamera;
 
-    const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
-    const geometry = new THREE.TubeGeometry(curve, 64, 0.2, 4, false);
-    const material = new THREE.MeshBasicMaterial({
-      color: RIBBON_COLOR,
-      map: ribbonTexture || undefined,
-      transparent: true,
-      opacity: 0.88,
-      side: THREE.DoubleSide,
-      depthWrite: false,
+    cachedRouteInput = routeInput;
+    cachedAnchorEngine = anchorEngine;
+    cachedFloorId = floorId;
+
+    const cfg = window.FPLACES_AR_CONFIG || {};
+    const useRibbon = cfg.usePathRibbon === true;
+    let mesh = null;
+
+    if (useRibbon) {
+      ribbonTexture = createChevronFlowTexture(THREE);
+      const curve = new THREE.CatmullRomCurve3(points, false, "centripetal");
+      const geometry = new THREE.TubeGeometry(curve, 24, 0.35, 6, false);
+      const material = new THREE.MeshBasicMaterial({
+        color: RIBBON_COLOR,
+        map: ribbonTexture || undefined,
+        transparent: true,
+        opacity: 0.92,
+        side: THREE.DoubleSide,
+        depthTest: true,
+        depthWrite: true,
+      });
+      mesh = new THREE.Mesh(geometry, material);
+      mesh.name = RIBBON_NAME;
+      mesh.renderOrder = 520;
+      threeScene.add(mesh);
+    }
+
+    lastArrowRefreshAlongM = -1;
+    lastArrowRefreshAt = 0;
+    lastArrowEmphasisTier = -1;
+
+    if (useIncrementalPath()) {
+      window.FplacesIncrementalPath?.reset?.(threeScene);
+      const alongPathM = resolveUserAlongM(points, camera) ?? 0;
+      window.FplacesIncrementalPath?.extend?.(THREE, threeScene, points, {
+        floorY: FLOOR_Y,
+        cameraX: camera?.position?.x,
+        cameraZ: camera?.position?.z,
+        alongPathM,
+      });
+      lastArrowRefreshAlongM = alongPathM;
+    } else {
+      const rawAlong = resolveStartAlongM(points, camera) ?? 0;
+      const startAlongM = quantizeStartAlongM(rawAlong);
+      window.FplacesFloorArrows?.buildFloorArrows?.(THREE, threeScene, points, {
+        floorY: FLOOR_Y,
+        cameraX: camera?.position?.x,
+        cameraZ: camera?.position?.z,
+        startAlongM,
+      });
+      lastArrowRefreshAlongM = startAlongM;
+    }
+
+    window.FplacesFloorArrows?.updateLeadingArrow?.(THREE, threeScene, points, {
+      floorY: FLOOR_Y,
+      cameraX: camera?.position?.x,
+      cameraZ: camera?.position?.z,
     });
+    lastArrowRefreshAlongM = useIncrementalPath()
+      ? resolveStartAlongM(points, camera) ?? 0
+      : lastArrowRefreshAlongM;
 
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = RIBBON_NAME;
-    mesh.renderOrder = 520;
-    threeScene.add(mesh);
+    // Floating .cone turn markers removed — turn is shown as curved path on the floor.
+    disposeTurnMarkers(threeScene);
 
-    const turnIndices = detectTurnIndices(points);
-    buildTurnMarkers(THREE, threeScene, points, turnIndices);
-
-    window.FplacesArDebug?.log('PathGeometry', 'Ribbon built', {
+    window.FplacesArDebug?.log("PathGeometry", "Floor path visuals built", {
       points: points.length,
-      turns: turnIndices.length,
+      incrementalPath: useIncrementalPath(),
+      leadingArrow: true,
+      ribbon: useRibbon,
+      cameraY: camera?.position?.y ?? null,
+      floorId,
     });
 
-    return mesh;
+    return (
+      mesh || threeScene.getObjectByName(window.FplacesFloorArrows?.GROUP_NAME)
+    );
+  }
+
+  function hasRibbon(scene) {
+    return !!(
+      scene &&
+      (scene.getObjectByName(RIBBON_NAME) ||
+        scene.getObjectByName(window.FplacesFloorArrows?.GROUP_NAME) ||
+        scene.getObjectByName(window.FplacesFloorArrows?.LEADING_GROUP_NAME) ||
+        scene.getObjectByName(
+          window.FplacesIncrementalPath?.TRAIL_GROUP_NAME,
+        ) ||
+        scene.getObjectByName(
+          window.FplacesIncrementalPath?.DESTINATION_GROUP_NAME,
+        ))
+    );
   }
 
   window.FplacesPathGeometry = {
     generateWorldMeshPath,
+    hasRibbon,
     disposePathVisuals,
     disposeRibbon,
     disposeTurnMarkers,
-    update: updateRibbonAnimation,
+    update(scene, camera, floorId) {
+      updateRibbonAnimation();
+      const resolvedFloor =
+        floorId ||
+        window.__fplacesNavigator?._trackedFloorId ||
+        window.__fplacesNavigator?.lastPosition?.floorId ||
+        null;
+      const cam = camera || window.__fplacesXrCamera;
+      updateLeadingArrow(scene, cam, resolvedFloor);
+      refreshFloorArrows(scene, cam, resolvedFloor);
+      window.FplacesIncrementalPath?.updateVisuals?.(performance.now());
+    },
+    updateLeadingArrow,
+    resolveUserAlongM,
     RIBBON_NAME,
     TURN_GROUP_NAME,
     FLOOR_Y,

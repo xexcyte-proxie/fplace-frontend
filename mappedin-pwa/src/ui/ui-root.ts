@@ -2,7 +2,18 @@ import type { AppState } from "../types";
 import type { MapApp } from "../services/map-app";
 import { buildRouteSheetSummary } from "./route-summary";
 import { renderOnboardingScreen } from "./onboarding-screen";
-import { renderSocialScreen } from "./social-screen";
+import { renderCreateAccountScreen } from "./create-account-screen";
+import { renderCheckEmailScreen } from "./check-email-screen";
+import { renderVerifyEmailScreen } from "./verify-email-screen";
+import { renderVenueFeedScreen } from "./venue-feed-screen";
+import { renderProfileScreen } from "./profile-screen";
+import { renderSettingsScreen } from "./settings-screen";
+import { renderLocationActionSheet } from "./location-action-sheet";
+import {
+  bottomNavMapIcon,
+  bottomNavProfileIcon,
+  bottomNavSocialIcon,
+} from "./bottom-nav-icons";
 
 function escapeHtml(value: string): string {
   return value
@@ -12,15 +23,9 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
-const CATEGORY_FILTERS = [
-  { id: "food", label: "Food", color: "#f97316" },
-  { id: "retail", label: "Retail", color: "#2d4a7a" },
-  { id: "entrance", label: "Entrance / Exit", color: "#22c55e" },
-  { id: "restroom", label: "Restroom", color: "#a855f7" },
-] as const;
-
 export class UiRoot {
   private readonly root: HTMLElement;
+  private authEmailDraft = "";
 
   constructor(container: HTMLElement) {
     this.root = container;
@@ -28,31 +33,102 @@ export class UiRoot {
   }
 
   render(state: AppState, app: MapApp): void {
-    const showOnboarding =
+    const activeEl = document.activeElement;
+    const focusedSearch =
+      activeEl?.id === "search-input"
+        ? (activeEl as HTMLInputElement)
+        : null;
+    const selectionStart = focusedSearch?.selectionStart ?? null;
+    const selectionEnd = focusedSearch?.selectionEnd ?? null;
+
+    const showOnboardingFlow =
       state.mapStatus === "ready" && !state.onboardingComplete;
+    const showOnboardingScreen =
+      showOnboardingFlow && state.authStep === "none";
+    const showCreateAccount =
+      showOnboardingFlow && state.authStep === "create";
+    const showCheckEmail =
+      showOnboardingFlow && state.authStep === "check-email";
+    const showVerifyEmail =
+      showOnboardingFlow && state.authStep === "verify";
+    const arFullscreen = state.arPresentation === "fullscreen";
     const showOverlays =
-      state.mapStatus === "ready" && state.onboardingComplete && !state.isArOpen;
+      state.mapStatus === "ready" && state.onboardingComplete && !arFullscreen;
     const onMapTab = state.activeTab === "map";
+    const onSocialTab = state.activeTab === "social";
+    const onProfileTab = state.activeTab === "profile";
+    const onProfileSettings = onProfileTab && state.profileView === "settings";
+    const onProfileMain = onProfileTab && state.profileView === "main";
+
+    const focusedVenueInput =
+      activeEl?.id === "venue-feed-input"
+        ? (activeEl as HTMLInputElement)
+        : null;
+    const venueSelectionStart = focusedVenueInput?.selectionStart ?? null;
+    const venueSelectionEnd = focusedVenueInput?.selectionEnd ?? null;
+
+    if (!showCreateAccount && !showCheckEmail && !showVerifyEmail) {
+      this.authEmailDraft = "";
+    }
 
     document
       .getElementById("mappedin-map")
-      ?.classList.toggle("is-hidden", showOnboarding || (showOverlays && !onMapTab));
+      ?.classList.toggle("is-hidden", showOnboardingFlow || (showOverlays && !onMapTab));
 
     this.root.innerHTML = `
       ${this.loadingOverlay(state)}
-      ${showOnboarding ? renderOnboardingScreen() : ""}
+      ${showOnboardingScreen ? renderOnboardingScreen() : ""}
+      ${showCreateAccount ? renderCreateAccountScreen({
+        authEmail: this.authEmailDraft || state.authEmail,
+        authLoading: state.authLoading,
+        authFieldErrors: state.authFieldErrors,
+      }) : ""}
+      ${showCheckEmail ? renderCheckEmailScreen({
+        authEmail: state.authEmail || state.authUser?.email || "",
+        authLoading: state.authLoading,
+      }) : ""}
+      ${showVerifyEmail ? renderVerifyEmailScreen({
+        authEmail: state.authEmail || state.authUser?.email || "",
+        authLoading: state.authLoading,
+        authFieldErrors: state.authFieldErrors,
+      }) : ""}
       ${showOverlays && onMapTab ? this.homeHeader(state) : ""}
-      ${showOverlays && onMapTab && state.searchResults.length ? this.searchResults(state, app) : ""}
+      ${showOverlays && onMapTab && state.searchQuery.trim() ? this.searchResults(state) : ""}
       ${showOverlays && onMapTab ? this.fabs(state, app) : ""}
-      ${showOverlays && onMapTab && !state.showRouteSheet ? this.routeHintBar(state, app) : ""}
+      ${showOverlays && onMapTab && state.locationActionPrompt ? renderLocationActionSheet(state.locationActionPrompt, Boolean(state.markers.origin)) : ""}
+      ${showOverlays && onMapTab && (!state.showRouteSheet || !state.route) ? this.routeHintBar(state, app) : ""}
       ${showOverlays && onMapTab && state.showRouteSheet && (state.route || state.markers.destination) ? this.routeSheet(state, app) : ""}
-      ${showOverlays && !onMapTab ? renderSocialScreen(state) : ""}
-      ${showOverlays ? this.bottomNav(state) : ""}
+      ${showOverlays && onSocialTab ? renderVenueFeedScreen(state) : ""}
+      ${showOverlays && onProfileMain ? renderProfileScreen() : ""}
+      ${showOverlays && onProfileSettings ? renderSettingsScreen(state) : ""}
+      ${showOverlays && !onProfileSettings ? this.bottomNav(state) : ""}
       ${state.toast ? `<div class="toast" role="status">${escapeHtml(state.toast)}</div>` : ""}
-      ${state.isArOpen ? this.arChrome(app) : ""}
     `;
 
     this.bindEvents(app);
+    this.bindOtpInputs(app);
+
+    if (focusedSearch) {
+      const searchInput =
+        this.root.querySelector<HTMLInputElement>("#search-input");
+      if (searchInput) {
+        searchInput.focus();
+        if (selectionStart !== null && selectionEnd !== null) {
+          searchInput.setSelectionRange(selectionStart, selectionEnd);
+        }
+      }
+    }
+
+    if (focusedVenueInput) {
+      const venueInput =
+        this.root.querySelector<HTMLInputElement>("#venue-feed-input");
+      if (venueInput) {
+        venueInput.focus();
+        if (venueSelectionStart !== null && venueSelectionEnd !== null) {
+          venueInput.setSelectionRange(venueSelectionStart, venueSelectionEnd);
+        }
+      }
+    }
   }
 
   private loadingOverlay(state: AppState): string {
@@ -115,23 +191,35 @@ export class UiRoot {
   }
 
   private categoryFilters(state: AppState): string {
-    const pills = CATEGORY_FILTERS.map(
-      (category) => `
+    if (!state.searchChips.length) return "";
+
+    const pills = state.searchChips
+      .map(
+        (chip) => `
         <button
           type="button"
-          class="category-pill ${state.categoryFilter === category.id ? "is-active" : ""}"
-          data-category="${category.id}"
+          class="category-pill ${state.categoryFilter === chip.id ? "is-active" : ""}"
+          data-category="${escapeHtml(chip.id)}"
         >
-          <span class="category-dot" style="background:${category.color}"></span>
-          ${escapeHtml(category.label)}
+          <span class="category-dot" style="background:${chip.color}"></span>
+          ${escapeHtml(chip.label)}
         </button>
       `,
-    ).join("");
+      )
+      .join("");
 
     return `<div class="category-filters">${pills}</div>`;
   }
 
-  private searchResults(state: AppState, _app: MapApp): string {
+  private searchResults(state: AppState): string {
+    if (state.isSearching) {
+      return `<div class="search-results search-results--loading" role="status">Searching…</div>`;
+    }
+
+    if (!state.searchResults.length) {
+      return `<div class="search-results search-results--empty" role="status">No places found</div>`;
+    }
+
     const items = state.searchResults
       .map(
         (r) => `
@@ -150,12 +238,6 @@ export class UiRoot {
     const bottom = state.showRouteSheet
       ? "calc(252px + var(--bottom-nav-height) + env(safe-area-inset-bottom))"
       : "calc(var(--bottom-nav-height) + 48px + env(safe-area-inset-bottom))";
-    const floorOptions = state.floors
-      .map(
-        (f) =>
-          `<option value="${escapeHtml(f.id)}" ${f.id === state.currentFloorId ? "selected" : ""}>${escapeHtml(f.name)}</option>`,
-      )
-      .join("");
     const trackingActive =
       state.blueDotStatus === "active" || state.blueDotStatus === "inactive";
     const myLocationLabel = state.blueDotFollowing
@@ -166,11 +248,22 @@ export class UiRoot {
 
     return `
       <div class="fabs" style="bottom:${bottom}">
-        ${state.showRouteSheet ? `
-        <label class="floor-fab">
-          <span class="fab-icon">▤</span>
-          <select id="floor-select" aria-label="Select floor">${floorOptions}</select>
-        </label>` : ""}
+        <div class="zoom-controls">
+          <button
+            type="button"
+            id="zoom-in-btn"
+            class="fab fab--zoom"
+            aria-label="Zoom in"
+            title="Zoom in"
+          >+</button>
+          <button
+            type="button"
+            id="zoom-out-btn"
+            class="fab fab--zoom"
+            aria-label="Zoom out"
+            title="Zoom out"
+          >-</button>
+        </div>
         <button
           type="button"
           id="my-location-btn"
@@ -218,6 +311,7 @@ export class UiRoot {
 
   private routeSheet(state: AppState, _app: MapApp): string {
     const summary = buildRouteSheetSummary(state);
+    const resetDisabled = summary.isCalculating;
 
     return `
       <div class="route-sheet ${summary.isCalculating ? "route-sheet--calculating" : ""}">
@@ -237,14 +331,20 @@ export class UiRoot {
           <button
             type="button"
             id="begin-route-btn"
-            class="route-sheet-begin-btn ${summary.isCalculating || state.routeSimulating ? "is-disabled" : ""} ${state.routeSimulationComplete ? "route-sheet-begin-btn--reset" : ""}"
+            class="route-sheet-begin-btn ${summary.isCalculating || state.routeSimulating ? "is-disabled" : ""}"
             ${summary.isCalculating || state.routeSimulating ? "disabled" : ""}
-          >${state.routeSimulationComplete ? "Reset" : state.routeSimulating ? "Moving…" : "Begin"}</button>
+          >${state.routeSimulating ? "Moving…" : "Begin"}</button>
+          <button
+            type="button"
+            id="reset-route-sheet-btn"
+            class="route-sheet-reset-btn ${resetDisabled ? "is-disabled" : ""}"
+            ${resetDisabled ? "disabled" : ""}
+          >Reset</button>
           <button type="button" id="open-ar-btn" class="route-sheet-ar-btn" ${summary.isCalculating ? "disabled" : ""}>
             <svg class="ar-nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 2l8 4v6c0 5.25-3.5 10-8 11-4.5-1-8-5.75-8-11V6l8-4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
             </svg>
-            Start AR Navigation
+            Live View
           </button>
         </div>
       </div>
@@ -252,33 +352,46 @@ export class UiRoot {
   }
 
   private bottomNav(state: AppState): string {
+    const mapActive = state.activeTab === "map";
+    const socialActive = state.activeTab === "social";
+    const profileActive = state.activeTab === "profile";
+
     return `
       <nav class="bottom-nav" aria-label="Main navigation">
         <button
           type="button"
           id="nav-map"
-          class="bottom-nav-item ${state.activeTab === "map" ? "bottom-nav-item--active" : ""}"
-        >Map</button>
+          class="bottom-nav-item ${mapActive ? "bottom-nav-item--active" : ""}"
+        >
+          ${bottomNavMapIcon}
+          <span class="bottom-nav-label">Map</span>
+        </button>
         <button
           type="button"
           id="nav-social"
-          class="bottom-nav-item ${state.activeTab === "social" ? "bottom-nav-item--active" : ""}"
-        >Social</button>
+          class="bottom-nav-item ${socialActive ? "bottom-nav-item--active" : ""}"
+        >
+          ${bottomNavSocialIcon}
+          <span class="bottom-nav-label">Social</span>
+        </button>
+        <button
+          type="button"
+          id="nav-profile"
+          class="bottom-nav-item ${profileActive ? "bottom-nav-item--active" : ""}"
+        >
+          ${bottomNavProfileIcon}
+          <span class="bottom-nav-label">Profile</span>
+        </button>
       </nav>
-    `;
-  }
-
-  private arChrome(_app: MapApp): string {
-    return `
-      <div class="ar-chrome">
-        <button type="button" id="close-ar-btn" class="primary-btn">← Back to map</button>
-      </div>
     `;
   }
 
   private bindEvents(app: MapApp): void {
     const searchInput =
       this.root.querySelector<HTMLInputElement>("#search-input");
+    searchInput?.addEventListener("input", () => {
+      app.onSearchInput(searchInput.value);
+    });
     searchInput?.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         void app.submitSearch(searchInput.value);
@@ -286,7 +399,7 @@ export class UiRoot {
     });
 
     this.root.querySelector("#search-clear")?.addEventListener("click", () => {
-      void app.setCategoryFilter(null);
+      void app.clearSearch();
     });
 
     this.root
@@ -298,12 +411,13 @@ export class UiRoot {
         });
       });
 
-    this.root
-      .querySelector("#floor-select")
-      ?.addEventListener("change", (event) => {
-        const floorId = (event.target as HTMLSelectElement).value;
-        void app.selectFloor(floorId);
-      });
+    this.root.querySelector("#zoom-in-btn")?.addEventListener("click", () => {
+      app.zoomIn();
+    });
+
+    this.root.querySelector("#zoom-out-btn")?.addEventListener("click", () => {
+      app.zoomOut();
+    });
 
     this.root
       .querySelector("#my-location-btn")
@@ -355,9 +469,11 @@ export class UiRoot {
       app.beginOrResetRoute();
     });
 
-    this.root.querySelector("#close-ar-btn")?.addEventListener("click", () => {
-      app.closeAr();
-    });
+    this.root
+      .querySelector("#reset-route-sheet-btn")
+      ?.addEventListener("click", () => {
+        void app.clearRoutePoints();
+      });
 
     this.root
       .querySelectorAll<HTMLButtonElement>(".search-result")
@@ -383,13 +499,81 @@ export class UiRoot {
     this.root
       .querySelector("#onboarding-get-started")
       ?.addEventListener("click", () => {
-        app.completeOnboarding();
+        app.showCreateAccount();
       });
 
     this.root
       .querySelector("#onboarding-guest-btn")
       ?.addEventListener("click", () => {
         app.completeOnboarding();
+      });
+
+    this.root
+      .querySelector("#auth-back-btn")
+      ?.addEventListener("click", () => {
+        app.dismissCreateAccount();
+      });
+
+    this.root
+      .querySelector("#auth-login-link")
+      ?.addEventListener("click", () => {
+        app.completeOnboarding();
+      });
+
+    this.root
+      .querySelector("#auth-email")
+      ?.addEventListener("input", (event) => {
+        this.authEmailDraft = (event.currentTarget as HTMLInputElement).value;
+      });
+
+    this.root
+      .querySelector("#create-account-form")
+      ?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const form = event.currentTarget as HTMLFormElement;
+        const email = form.querySelector<HTMLInputElement>("#auth-email")?.value ?? "";
+        const password =
+          form.querySelector<HTMLInputElement>("#auth-password")?.value ?? "";
+        const passwordConfirm =
+          form.querySelector<HTMLInputElement>("#auth-password-confirm")?.value ?? "";
+        void app.submitRegistration(email, password, passwordConfirm);
+      });
+
+    this.root
+      .querySelector("#check-email-back-btn")
+      ?.addEventListener("click", () => {
+        app.dismissCheckEmail();
+      });
+
+    this.root
+      .querySelector("#check-email-continue-btn")
+      ?.addEventListener("click", () => {
+        app.proceedToVerifyEmail();
+      });
+
+    this.root
+      .querySelector("#check-email-resend-btn")
+      ?.addEventListener("click", () => {
+        void app.resendVerificationCode();
+      });
+
+    this.root
+      .querySelector("#verify-back-btn")
+      ?.addEventListener("click", () => {
+        app.dismissVerifyEmail();
+      });
+
+    this.root
+      .querySelector("#verify-resend-btn")
+      ?.addEventListener("click", () => {
+        void app.resendVerificationCode();
+      });
+
+    this.root
+      .querySelector("#verify-email-form")
+      ?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void app.submitVerification(this.readOtpValue());
       });
 
     this.root.querySelector("#nav-map")?.addEventListener("click", () => {
@@ -400,29 +584,44 @@ export class UiRoot {
       app.setActiveTab("social");
     });
 
+    this.root.querySelector("#nav-profile")?.addEventListener("click", () => {
+      app.setActiveTab("profile");
+    });
+
     this.root
-      .querySelectorAll<HTMLButtonElement>("[data-social-category]")
+      .querySelector("#profile-settings-btn")
+      ?.addEventListener("click", () => {
+        app.openProfileSettings();
+      });
+
+    this.root
+      .querySelector("#settings-back-btn")
+      ?.addEventListener("click", () => {
+        app.closeProfileSettings();
+      });
+
+    this.root
+      .querySelector("#settings-notifications-toggle")
+      ?.addEventListener("click", () => {
+        app.toggleNotifications();
+      });
+
+    this.root
+      .querySelectorAll<HTMLButtonElement>("[data-venue-filter]")
       .forEach((button) => {
         button.addEventListener("click", () => {
-          app.setSocialCategory(
-            button.dataset.socialCategory as AppState["socialCategory"],
+          app.setVenueFeedFilter(
+            button.dataset.venueFilter as AppState["venueFeedFilter"],
           );
         });
       });
 
     this.root
-      .querySelectorAll<HTMLButtonElement>("[data-social-location]")
+      .querySelectorAll<HTMLButtonElement>("[data-venue-quick-reply]")
       .forEach((button) => {
         button.addEventListener("click", () => {
-          app.setSocialLocation(button.dataset.socialLocation ?? null);
-        });
-      });
-
-    this.root
-      .querySelectorAll<HTMLButtonElement>("[data-social-tag]")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          app.setSocialTag(button.dataset.socialTag ?? null);
+          const reply = button.dataset.venueQuickReply;
+          if (reply) app.setVenueQuickReply(reply);
         });
       });
 
@@ -431,20 +630,120 @@ export class UiRoot {
       .forEach((button) => {
         button.addEventListener("click", () => {
           const postId = button.dataset.upvoteId;
-          if (postId) app.toggleSocialUpvote(postId);
+          if (postId) app.toggleVenueFeedUpvote(postId);
         });
       });
 
-    const socialInput =
-      this.root.querySelector<HTMLInputElement>("#social-input");
-    socialInput?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") app.submitSocialPost();
+    const venueFeedInput =
+      this.root.querySelector<HTMLInputElement>("#venue-feed-input");
+    venueFeedInput?.addEventListener("input", () => {
+      app.setVenueFeedDraft(venueFeedInput.value);
+    });
+    venueFeedInput?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") app.submitVenueFeedPost();
     });
 
     this.root
-      .querySelector("#social-send-btn")
+      .querySelector("#venue-feed-send-btn")
       ?.addEventListener("click", () => {
-        app.submitSocialPost();
+        app.submitVenueFeedPost();
       });
+
+    this.root
+      .querySelector("#location-action-dismiss")
+      ?.addEventListener("click", (event) => {
+        if (event.target === event.currentTarget) {
+          app.dismissLocationActionPrompt();
+        }
+      });
+
+    this.root
+      .querySelector("#location-action-cancel")
+      ?.addEventListener("click", () => {
+        app.dismissLocationActionPrompt();
+      });
+
+    this.root
+      .querySelector("#location-action-conversation")
+      ?.addEventListener("click", () => {
+        app.confirmLocationConversation();
+      });
+
+    this.root
+      .querySelector("#location-action-navigate")
+      ?.addEventListener("click", () => {
+        app.confirmLocationNavigate();
+      });
+
+    this.root
+      .querySelector(".location-action-sheet")
+      ?.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+  }
+
+  private readOtpValue(): string {
+    return Array.from(
+      this.root.querySelectorAll<HTMLInputElement>(".otp-digit"),
+    )
+      .map((input) => input.value.trim())
+      .join("");
+  }
+
+  private bindOtpInputs(app: MapApp): void {
+    const inputs = Array.from(
+      this.root.querySelectorAll<HTMLInputElement>(".otp-digit"),
+    );
+    if (!inputs.length) return;
+
+    inputs[0]?.focus();
+
+    inputs.forEach((input, index) => {
+      input.addEventListener("input", () => {
+        const digit = input.value.replace(/\D/g, "").slice(-1);
+        input.value = digit;
+        if (digit && index < inputs.length - 1) {
+          inputs[index + 1]?.focus();
+        }
+        if (digit && index === inputs.length - 1 && this.readOtpValue().length === 6) {
+          void app.submitVerification(this.readOtpValue());
+        }
+      });
+
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Backspace" && !input.value && index > 0) {
+          const previous = inputs[index - 1];
+          previous?.focus();
+          if (previous) previous.value = "";
+        }
+        if (event.key === "ArrowLeft" && index > 0) {
+          inputs[index - 1]?.focus();
+        }
+        if (event.key === "ArrowRight" && index < inputs.length - 1) {
+          inputs[index + 1]?.focus();
+        }
+      });
+
+      input.addEventListener("paste", (event) => {
+        event.preventDefault();
+        const pasted = event.clipboardData
+          ?.getData("text")
+          .replace(/\D/g, "")
+          .slice(0, 6);
+        if (!pasted) return;
+
+        pasted.split("").forEach((char, charIndex) => {
+          const target = inputs[charIndex];
+          if (target) target.value = char;
+        });
+
+        const nextIndex = Math.min(pasted.length, inputs.length - 1);
+        inputs[nextIndex]?.focus();
+
+        if (pasted.length === 6) {
+          void app.submitVerification(pasted);
+        }
+      });
+    });
   }
 }

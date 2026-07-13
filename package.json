@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "npm run dev --prefix mappedin-pwa",
     "build": "npm run build --prefix mappedin-pwa",
-    "preview": "npm run preview --prefix mappedin-pwa"
+    "preview": "npm run preview --prefix mappedin-pwa",
+    "deploy": "./deploy"
   },
   "devDependencies": {
     "netlify-cli": "^23.9.1"

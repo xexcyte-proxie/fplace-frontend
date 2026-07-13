@@ -1,22 +1,18 @@
 import type { Directions } from '@mappedin/mappedin-js';
 
-import type { FloorInfo, RouteCoordinate, RouteLeg, RoutePayload, RouteStep } from '../types';
+import type { NavigationProgressSnapshot } from '../position/types';
+import { buildProductionRoutePayload } from '../routing/build-route-payload';
+import { computeGeometryHash } from '../routing/geometry-hash-service';
+import { ensurePathFloorIds } from '../routing/floor-propagation-engine';
+import { routeLifecycleManager } from '../routing/route-lifecycle-manager';
+import { buildIntelligentLegs } from '../routing/route-leg-builder';
+import type { FloorInfo, RouteCoordinate, RouteLeg, RoutePayload } from '../types';
 
-export function haversineMeters(
-  a: { latitude: number; longitude: number },
-  b: { latitude: number; longitude: number },
-): number {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(b.latitude - a.latitude);
-  const dLng = toRad(b.longitude - a.longitude);
-  const lat1 = toRad(a.latitude);
-  const lat2 = toRad(b.latitude);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
+import { coordinateTransformationService } from '../routing/coordinate-transformation-service';
+
+export { haversineMeters } from './geo-math';
+
+export { computeGeometryHash, pathGeometryHash } from '../routing/geometry-hash-service';
 
 export function coordLatLng(target: unknown): { lat: number; lng: number } | null {
   if (!target || typeof target !== 'object') return null;
@@ -28,74 +24,16 @@ export function coordLatLng(target: unknown): { lat: number; lng: number } | nul
 }
 
 export function serializeCoordinate(target: unknown): RouteCoordinate | null {
-  const ll = coordLatLng(target);
-  if (!ll) return null;
-  const t = target as Record<string, unknown>;
-  const floor = t.floor as Record<string, unknown> | string | undefined;
-  const floorId =
-    typeof floor === 'object' && floor?.id != null
-      ? String(floor.id)
-      : floor != null
-        ? String(floor)
-        : undefined;
-  return { latitude: ll.lat, longitude: ll.lng, floorId };
+  return coordinateTransformationService.serializeCoordinate(target);
 }
 
 export function serializePathCoordinates(coords: unknown[] | undefined): RouteCoordinate[] {
-  if (!Array.isArray(coords)) return [];
-  return coords
-    .map((c) => serializeCoordinate(c))
-    .filter((c): c is RouteCoordinate => c != null);
+  return coordinateTransformationService.serializePathCoordinates(coords);
 }
 
-function instructionText(instruction: {
-  action?: { type?: string; bearing?: string };
-  distance?: number;
-}): string {
-  const action = instruction.action;
-  if (!action) return 'Continue';
-  const bearing = action.bearing ? ` ${action.bearing}` : '';
-  const distance =
-    instruction.distance != null ? ` in ${Math.round(instruction.distance)} m` : '';
-  return `${action.type || 'Continue'}${bearing}${distance}`;
-}
-
-function instructionStep(instruction: {
-  action?: { type?: string; bearing?: string };
-  distance?: number;
-}): RouteStep {
-  return {
-    instruction: instructionText(instruction),
-    actionType: instruction.action?.type,
-    bearing: instruction.action?.bearing,
-    distanceMeters: instruction.distance,
-  };
-}
-
+/** @deprecated Use buildProductionRoutePayload — kept for backward compatibility. */
 export function buildLegs(instructions: Directions['instructions'] | undefined): RouteLeg[] {
-  if (!instructions?.length) {
-    return [{ index: 0, steps: [{ instruction: 'Continue' }] }];
-  }
-
-  const legs: RouteLeg[] = [];
-  let current: RouteStep[] = [];
-
-  for (const instruction of instructions) {
-    current.push(instructionStep(instruction));
-    const type = instruction.action?.type?.toLowerCase() ?? '';
-    if (type.includes('connection')) {
-      legs.push({ index: legs.length, steps: [...current] });
-      current = [];
-    }
-  }
-
-  if (current.length) {
-    legs.push({ index: legs.length, steps: current });
-  }
-
-  return legs.length
-    ? legs
-    : [{ index: 0, steps: instructions.map((i) => instructionStep(i)) }];
+  return buildIntelligentLegs(instructions, [], 'legacy');
 }
 
 export function buildRoutePayload(
@@ -105,33 +43,12 @@ export function buildRoutePayload(
   origin?: unknown,
   destination?: unknown,
 ): RoutePayload {
-  const legs = buildLegs(directions.instructions);
-  const pathCoordinates = serializePathCoordinates(directions.coordinates as unknown[]);
-  const maneuvers: RouteStep[] = [];
-
-  for (const leg of legs) {
-    leg.steps.forEach((step, stepIndex) => {
-      maneuvers.push({ ...step, legIndex: leg.index, stepIndex });
-    });
-  }
-
-  return {
-    legs,
+  return buildProductionRoutePayload(directions, {
     destinationName,
-    pathCoordinates,
-    maneuvers,
-    distanceMeters: directions.distance ?? null,
-    durationSeconds:
-      directions.distance != null && Number.isFinite(directions.distance)
-        ? directions.distance / 1.4
-        : null,
-    origin: serializeCoordinate(origin) ?? pathCoordinates[0] ?? null,
-    destination:
-      serializeCoordinate(destination) ??
-      pathCoordinates[pathCoordinates.length - 1] ??
-      null,
     mapId,
-  };
+    origin,
+    destination,
+  });
 }
 
 export function legInstructions(leg: RouteLeg | undefined): string {
@@ -145,24 +62,62 @@ export function toArPayload(
   instructions: string,
   userPosition?: RouteCoordinate | null,
   floors?: FloorInfo[],
+  navigationProgress?: NavigationProgressSnapshot | null,
 ): Record<string, unknown> {
+  const { path: pathCoordinates } = ensurePathFloorIds(route.pathCoordinates, {
+    originFloorId: route.origin?.floorId,
+    destinationFloorId: route.destination?.floorId,
+    legs: route.legs,
+    maneuvers: route.maneuvers,
+  });
+
+  const geometryHash = route.geometryHash || computeGeometryHash({
+    pathCoordinates,
+    legs: route.legs,
+    maneuvers: route.maneuvers,
+    routeVersion: route.routeVersion,
+    generatedAt: route.generatedAt,
+  });
+
   return {
     type: 'route_update',
     legCount: route.legs.length,
     currentLegIndex,
     instructions,
     destinationName: route.destinationName ?? 'Destination',
+    ...(route.destinationFloorName
+      ? { destinationFloorName: route.destinationFloorName }
+      : {}),
+    ...(route.destinationAreaHint
+      ? { destinationAreaHint: route.destinationAreaHint }
+      : {}),
     distanceMeters: route.distanceMeters,
     durationSeconds: route.durationSeconds,
     mapId: route.mapId,
+    routeId: route.routeId,
+    routeVersion: route.routeVersion,
+    generatedAt: route.generatedAt,
+    updatedAt: route.updatedAt ?? route.generatedAt,
+    geometryHash,
+    checksum: route.checksum,
+    mapVersion: route.mapVersion ?? route.mapId,
+    venueId: route.venueId ?? route.mapId,
+    routingEngineVersion: route.routingEngineVersion,
+    pathHash: geometryHash,
     origin: route.origin,
     destination: route.destination,
-    pathCoordinates: route.pathCoordinates,
+    pathCoordinates,
     maneuvers: route.maneuvers,
     legs: route.legs,
     positioningMode: 'mappedin',
+    navigationMode: route.navigationMode ?? 'walk',
     floors: floors ?? [],
+    lifecycle: route.lifecycle ?? routeLifecycleManager.get(),
+    ...(route.floorTransitions?.length
+      ? { floorTransitions: route.floorTransitions }
+      : {}),
     ...(userPosition ? { userPosition } : {}),
+    ...(navigationProgress ? { navigationProgress } : {}),
   };
 }
 
@@ -175,8 +130,14 @@ function base64UrlEncode(text: string): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+/** Max URL hash length — large routes must use bridge/session transport. */
+const MAX_ROUTE_HASH_CHARS = 1800;
+
 export function encodeRouteForAr(payload: Record<string, unknown>): string {
   const json = JSON.stringify(payload);
+  if (json.length > MAX_ROUTE_HASH_CHARS) {
+    return '';
+  }
   return `#route=${base64UrlEncode(json)}`;
 }
 
@@ -186,6 +147,14 @@ export function buildArRoutePayload(
   instructions: string,
   userPosition?: RouteCoordinate | null,
   floors?: FloorInfo[],
+  navigationProgress?: NavigationProgressSnapshot | null,
 ): Record<string, unknown> {
-  return toArPayload(route, currentLegIndex, instructions, userPosition, floors);
+  return toArPayload(
+    route,
+    currentLegIndex,
+    instructions,
+    userPosition,
+    floors,
+    navigationProgress,
+  );
 }

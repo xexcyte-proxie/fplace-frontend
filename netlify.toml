@@ -1,0 +1,24 @@
+[build]
+  command = "npm ci --prefix mappedin-pwa && npm run build --prefix mappedin-pwa"
+  publish = "mappedin-pwa/dist"
+
+# Proxy API requests to the fPlaces backend (must be before SPA fallback).
+[[redirects]]
+  from = "/api/*"
+  to = "https://fplaces-backend.vercel.app/api/:splat"
+  status = 200
+  force = true
+
+# PWA SPA fallback — do not rewrite static assets (assets/, ar/, etc.)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+  force = false
+
+# AR module deep links under /ar/
+[[redirects]]
+  from = "/ar/*"
+  to = "/ar/index.html"
+  status = 200
+  force = false

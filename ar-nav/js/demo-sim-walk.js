@@ -4,7 +4,7 @@
  */
 (function () {
   const TICK_MS = 100;
-  const STEP_METERS_PER_TICK = 0.85;
+  const STEP_METERS_PER_TICK = 0.13;
   const PARENT_FEED_SOURCES = new Set(['simulator', 'pwa', 'mappedin', 'flutter']);
 
   let enabled = false;

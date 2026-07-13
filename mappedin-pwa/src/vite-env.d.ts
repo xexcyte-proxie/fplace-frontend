@@ -1,10 +1,12 @@
 /// <reference types="vite/client" />
+/// <reference types="vite-plugin-pwa/client" />
 
 interface ImportMetaEnv {
   readonly VITE_MAPPEDIN_KEY: string;
   readonly VITE_MAPPEDIN_SECRET: string;
   readonly VITE_MAPPEDIN_MAP_ID: string;
   readonly VITE_AR_URL: string;
+  readonly VITE_API_URL?: string;
   readonly VITE_POSITION_SOURCE?: string;
   readonly VITE_INDOOR_ATLAS_API_KEY?: string;
   readonly VITE_INDOOR_ATLAS_API_SECRET?: string;

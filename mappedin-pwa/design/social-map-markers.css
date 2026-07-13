@@ -1,0 +1,564 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Tradefaire Social Map Markers — design system (visual only, no map logic)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Brand & surfaces */
+  --sm-ink: #12121a;
+  --sm-ink-soft: rgba(18, 18, 26, 0.72);
+  --sm-muted: #8e8e93;
+  --sm-surface: #ffffff;
+  --sm-surface-glass: rgba(255, 255, 255, 0.92);
+  --sm-map-floor: #eceae6;
+  --sm-map-line: rgba(18, 18, 26, 0.06);
+
+  /* Category accents (matches social feed) */
+  --sm-vibe: #ef4444;
+  --sm-lines: #3b82f6;
+  --sm-food: #f97316;
+  --sm-live: #f97316;
+  --sm-trending: #f59e0b;
+  --sm-new: #2563eb;
+  --sm-viewed: #c7c7cc;
+
+  /* Geometry */
+  --sm-pill-radius: 999px;
+  --sm-card-radius: 14px;
+  --sm-halo-size: 56px;
+  --sm-dot-size: 8px;
+  --sm-min-tap: 44px;
+
+  /* Elevation */
+  --sm-shadow-rest:
+    0 1px 2px rgba(18, 18, 26, 0.06),
+    0 4px 14px rgba(18, 18, 26, 0.1);
+  --sm-shadow-hover:
+    0 2px 4px rgba(18, 18, 26, 0.08),
+    0 8px 24px rgba(18, 18, 26, 0.14);
+  --sm-shadow-selected:
+    0 4px 8px rgba(18, 18, 26, 0.1),
+    0 16px 40px rgba(18, 18, 26, 0.18);
+
+  /* Motion */
+  --sm-ease-spring: cubic-bezier(0.34, 1.36, 0.64, 1);
+  --sm-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --sm-duration-fast: 180ms;
+  --sm-duration-med: 280ms;
+}
+
+/* ── Marker shell ─────────────────────────────────────────────────────────── */
+
+.social-map-marker {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  max-width: 220px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transform-origin: 50% 100%;
+  transition:
+    transform var(--sm-duration-med) var(--sm-ease-spring),
+    filter var(--sm-duration-fast) ease;
+}
+
+.social-map-marker:focus-visible {
+  outline: none;
+}
+
+.social-map-marker:focus-visible .social-map-marker__card {
+  box-shadow:
+    var(--sm-shadow-rest),
+    0 0 0 3px rgba(37, 99, 235, 0.45);
+}
+
+/* Soft ground halo — replaces flat beige circle from reference */
+.social-map-marker__halo {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  z-index: 0;
+  width: var(--sm-halo-size);
+  height: var(--sm-halo-size);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  background: radial-gradient(
+    circle at 50% 55%,
+    color-mix(in srgb, var(--sm-halo-tint, #f5ddd0) 55%, transparent) 0%,
+    color-mix(in srgb, var(--sm-halo-tint, #f5ddd0) 18%, transparent) 52%,
+    transparent 72%
+  );
+  pointer-events: none;
+  transition: opacity var(--sm-duration-fast) ease;
+}
+
+/* Pin anchor — invisible hit geometry + visual anchor dot at map coordinate */
+.social-map-marker__anchor {
+  position: relative;
+  z-index: 1;
+  width: 6px;
+  height: 6px;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: var(--sm-ink);
+  box-shadow: 0 0 0 2px var(--sm-surface);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── Pill card ────────────────────────────────────────────────────────────── */
+
+.social-map-marker__card {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--sm-min-tap);
+  padding: 7px 12px 7px 10px;
+  border-radius: var(--sm-pill-radius);
+  background: var(--sm-surface-glass);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow: var(--sm-shadow-rest);
+  transition:
+    box-shadow var(--sm-duration-med) var(--sm-ease-out),
+    transform var(--sm-duration-med) var(--sm-ease-spring),
+    border-color var(--sm-duration-fast) ease,
+    opacity var(--sm-duration-fast) ease;
+}
+
+.social-map-marker__status-dot {
+  flex-shrink: 0;
+  width: var(--sm-dot-size);
+  height: var(--sm-dot-size);
+  border-radius: 50%;
+  background: var(--sm-status-color, var(--sm-live));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--sm-status-color, var(--sm-live)) 25%, transparent);
+}
+
+.social-map-marker__body {
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.social-map-marker__primary {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--sm-ink);
+  white-space: nowrap;
+}
+
+.social-map-marker__location {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.social-map-marker__sep {
+  color: var(--sm-muted);
+  font-weight: 500;
+}
+
+.social-map-marker__metric {
+  font-variant-numeric: tabular-nums;
+  color: var(--sm-ink-soft);
+  font-weight: 600;
+}
+
+.social-map-marker__secondary {
+  margin-top: 1px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--sm-secondary-color, var(--sm-live));
+  text-transform: lowercase;
+}
+
+/* Optional avatar chip (social identity) */
+.social-map-marker__avatar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--sm-surface);
+  background: var(--sm-avatar-bg, var(--sm-vibe));
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(18, 18, 26, 0.18);
+}
+
+.social-map-marker__avatar-stack {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.social-map-marker__avatar-stack .social-map-marker__avatar {
+  margin-left: -8px;
+}
+
+.social-map-marker__avatar-stack .social-map-marker__avatar:first-child {
+  margin-left: 0;
+  z-index: 2;
+}
+
+.social-map-marker__avatar-stack .social-map-marker__avatar:last-child {
+  z-index: 1;
+}
+
+/* Trending micro-badge */
+.social-map-marker__trend-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #fbbf24, #f97316);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* ── Expanded preview (selected state) ────────────────────────────────────── */
+
+.social-map-marker__preview {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 3;
+  width: max-content;
+  max-width: 200px;
+  padding: 10px 12px;
+  border-radius: var(--sm-card-radius);
+  background: var(--sm-surface);
+  border: 1px solid rgba(18, 18, 26, 0.08);
+  box-shadow: var(--sm-shadow-selected);
+  transform: translateX(-50%) translateY(6px) scale(0.96);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--sm-duration-med) var(--sm-ease-out),
+    transform var(--sm-duration-med) var(--sm-ease-spring);
+}
+
+.social-map-marker__preview-snippet {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--sm-ink-soft);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.social-map-marker__preview-meta {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--sm-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Cluster bubble ───────────────────────────────────────────────────────── */
+
+.social-map-marker--cluster .social-map-marker__card,
+.social-map-marker--cluster .social-map-marker__halo {
+  display: none;
+}
+
+.social-map-marker__cluster {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 50%;
+  background: var(--sm-ink);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow:
+    0 0 0 3px var(--sm-surface),
+    var(--sm-shadow-hover);
+  transition: transform var(--sm-duration-med) var(--sm-ease-spring);
+}
+
+.social-map-marker__cluster-label {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  border-radius: var(--sm-pill-radius);
+  background: var(--sm-surface-glass);
+  backdrop-filter: blur(8px);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--sm-muted);
+  white-space: nowrap;
+  box-shadow: var(--sm-shadow-rest);
+}
+
+/* ── Compact density (zoomed out) ─────────────────────────────────────────── */
+
+.social-map-marker--compact .social-map-marker__body,
+.social-map-marker--compact .social-map-marker__halo {
+  display: none;
+}
+
+.social-map-marker--compact .social-map-marker__card {
+  min-height: 28px;
+  padding: 5px 8px;
+  gap: 5px;
+}
+
+.social-map-marker--compact .social-map-marker__metric-inline {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--sm-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Micro dot (maximum density) ──────────────────────────────────────────── */
+
+.social-map-marker--micro {
+  width: 12px;
+  height: 12px;
+}
+
+.social-map-marker--micro .social-map-marker__card,
+.social-map-marker--micro .social-map-marker__halo,
+.social-map-marker--micro .social-map-marker__preview {
+  display: none;
+}
+
+.social-map-marker--micro .social-map-marker__anchor {
+  opacity: 1;
+  width: 10px;
+  height: 10px;
+  background: var(--sm-status-color, var(--sm-live));
+  box-shadow:
+    0 0 0 2px var(--sm-surface),
+    0 2px 6px rgba(18, 18, 26, 0.2);
+}
+
+/* ── Category tints ───────────────────────────────────────────────────────── */
+
+.social-map-marker--vibe {
+  --sm-halo-tint: #fecaca;
+  --sm-status-color: var(--sm-vibe);
+  --sm-secondary-color: var(--sm-vibe);
+}
+
+.social-map-marker--lines {
+  --sm-halo-tint: #bfdbfe;
+  --sm-status-color: var(--sm-lines);
+  --sm-secondary-color: var(--sm-lines);
+}
+
+.social-map-marker--food {
+  --sm-halo-tint: #fed7aa;
+  --sm-status-color: var(--sm-food);
+  --sm-secondary-color: var(--sm-food);
+}
+
+/* ── Interaction states ─────────────────────────────────────────────────────── */
+
+/* Default / unselected */
+.social-map-marker--default .social-map-marker__card {
+  opacity: 0.94;
+}
+
+/* Selected */
+.social-map-marker--selected {
+  z-index: 10;
+}
+
+.social-map-marker--selected .social-map-marker__card {
+  transform: translateY(-2px) scale(1.04);
+  border-color: var(--sm-ink);
+  box-shadow: var(--sm-shadow-selected);
+}
+
+.social-map-marker--selected .social-map-marker__halo {
+  opacity: 0.85;
+  transform: translateX(-50%) scale(1.12);
+}
+
+.social-map-marker--selected .social-map-marker__preview {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* Live / active */
+.social-map-marker--live {
+  --sm-halo-tint: #fed7aa;
+  --sm-status-color: var(--sm-live);
+  --sm-secondary-color: var(--sm-live);
+}
+
+.social-map-marker--live .social-map-marker__status-dot {
+  animation: sm-live-pulse 2s ease-in-out infinite;
+}
+
+.social-map-marker--live .social-map-marker__halo {
+  animation: sm-halo-breathe 2.4s ease-in-out infinite;
+}
+
+/* Viewed / stale */
+.social-map-marker--viewed {
+  --sm-halo-tint: #e5e5ea;
+  --sm-status-color: var(--sm-viewed);
+  --sm-secondary-color: var(--sm-muted);
+}
+
+.social-map-marker--viewed .social-map-marker__card {
+  opacity: 0.72;
+  filter: saturate(0.65);
+}
+
+.social-map-marker--viewed .social-map-marker__secondary {
+  text-transform: none;
+  font-weight: 500;
+}
+
+/* Trending */
+.social-map-marker--trending {
+  --sm-halo-tint: #fde68a;
+  --sm-status-color: var(--sm-trending);
+  --sm-secondary-color: var(--sm-trending);
+}
+
+.social-map-marker--trending .social-map-marker__card {
+  background: linear-gradient(var(--sm-surface-glass), var(--sm-surface-glass)) padding-box,
+    linear-gradient(135deg, #fbbf24, #f97316, #ef4444) border-box;
+  border: 1.5px solid transparent;
+}
+
+.social-map-marker--trending .social-map-marker__secondary::before {
+  content: "↑ ";
+}
+
+/* New / unread */
+.social-map-marker--new {
+  --sm-halo-tint: #bfdbfe;
+  --sm-status-color: var(--sm-new);
+  --sm-secondary-color: var(--sm-new);
+}
+
+.social-map-marker--new .social-map-marker__card {
+  animation: sm-enter 420ms var(--sm-ease-spring) both;
+}
+
+/* Hover (desktop) */
+@media (hover: hover) {
+  .social-map-marker:hover:not(.social-map-marker--selected) .social-map-marker__card {
+    transform: translateY(-1px);
+    box-shadow: var(--sm-shadow-hover);
+  }
+}
+
+/* Press feedback */
+.social-map-marker:active .social-map-marker__card {
+  transform: scale(0.97);
+  transition-duration: 80ms;
+}
+
+/* ── Fan-out cluster expansion (design mock) ──────────────────────────────── */
+
+.social-map-marker-fan {
+  position: relative;
+  width: 120px;
+  height: 120px;
+}
+
+.social-map-marker-fan .social-map-marker {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+}
+
+.social-map-marker-fan .social-map-marker:nth-child(1) {
+  transform: translateX(-50%) translate(-36px, -8px) rotate(-8deg);
+}
+
+.social-map-marker-fan .social-map-marker:nth-child(2) {
+  transform: translateX(-50%) translate(0, -28px);
+  z-index: 2;
+}
+
+.social-map-marker-fan .social-map-marker:nth-child(3) {
+  transform: translateX(-50%) translate(36px, -8px) rotate(8deg);
+}
+
+/* ── Entrance animation ───────────────────────────────────────────────────── */
+
+@keyframes sm-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes sm-live-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--sm-live) 25%, transparent);
+  }
+  50% {
+    transform: scale(1.18);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--sm-live) 12%, transparent);
+  }
+}
+
+@keyframes sm-halo-breathe {
+  0%,
+  100% {
+    opacity: 0.75;
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.08);
+  }
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .social-map-marker--live .social-map-marker__status-dot,
+  .social-map-marker--live .social-map-marker__halo,
+  .social-map-marker--new .social-map-marker__card {
+    animation: none;
+  }
+
+  .social-map-marker,
+  .social-map-marker__card,
+  .social-map-marker__preview {
+    transition: none;
+  }
+}

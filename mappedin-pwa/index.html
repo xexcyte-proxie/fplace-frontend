@@ -8,7 +8,7 @@
     />
     <meta name="theme-color" content="#12121a" />
     <meta name="description" content="Indoor navigation: search, route, and AR guidance inside mapped venues." />
-    <meta http-equiv="Permissions-Policy" content="geolocation=(self), camera=(self), bluetooth=(self)" />
+    <meta http-equiv="Permissions-Policy" content="geolocation=(self), camera=(self), gyroscope=(self), accelerometer=(self), magnetometer=(self), xr-spatial-tracking=(self), bluetooth=(self)" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -72,12 +72,23 @@
     <div id="app">
       <div id="mappedin-map"></div>
       <div id="ui-root"></div>
-      <iframe
-        id="ar-frame"
-        title="AR navigation"
-        hidden
-        allow="camera; geolocation"
-      ></iframe>
+      <div id="ar-pip-shell" hidden>
+        <iframe
+          id="ar-frame"
+          title="AR navigation"
+          allow="camera; geolocation; gyroscope; accelerometer; magnetometer; xr-spatial-tracking; fullscreen"
+        ></iframe>
+        <div class="ar-pip-drag-layer" aria-hidden="true"></div>
+        <div class="ar-pip-bar">
+          <span class="ar-pip-label">Live View</span>
+          <button type="button" id="ar-pip-expand" class="ar-pip-icon-btn" aria-label="Expand Live View">
+            <span aria-hidden="true">⛶</span>
+          </button>
+          <button type="button" id="ar-pip-close" class="ar-pip-icon-btn" aria-label="Close Live View">
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -1,34 +1,26 @@
 /**
  * Geometry helpers for route snapping and along-path distances.
+ * All geodetic math delegates to FplacesGeoMath (single coordinate model).
  */
 (function () {
-  const R = 6371000;
+  const geo = () => window.FplacesGeoMath;
 
   function haversineMeters(a, b) {
-    const dLat = ((b.latitude - a.latitude) * Math.PI) / 180;
-    const dLng = ((b.longitude - a.longitude) * Math.PI) / 180;
-    const lat1 = (a.latitude * Math.PI) / 180;
-    const lat2 = (b.latitude * Math.PI) / 180;
-    const h =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-    return 2 * R * Math.asin(Math.sqrt(h));
+    return geo().haversineMeters(a, b);
   }
 
+  /** Unified local projection — identical pre- and post-calibration. */
   function toLocalMeters(ref, p) {
-    const engine = window.FplacesAnchorEngine;
-    if (engine?.isCalibrated) {
-      const local = engine.convertToSLAMSpace(p);
-      return { x: local.x, y: -local.z };
-    }
+    return geo().geoToLocal2D(ref, p);
+  }
 
-    const cosLat = Math.cos((ref.latitude * Math.PI) / 180);
-    const mLat = 111320;
-    const mLng = 111320 * Math.max(Math.abs(cosLat), 0.01);
-    return {
-      x: (p.longitude - ref.longitude) * mLng,
-      y: -(p.latitude - ref.latitude) * mLat,
-    };
+  /** @deprecated Alias for toLocalMeters — same equirectangular model everywhere. */
+  function toGeographicLocalMeters(ref, p) {
+    return toLocalMeters(ref, p);
+  }
+
+  function segmentLengthMeters(a, b) {
+    return geo().segmentHorizontalMeters(a, b);
   }
 
   function projectPointOnSegment(point, a, b) {
@@ -38,10 +30,7 @@
     let t = abLen2 > 0 ? (ap.x * ab.x + ap.y * ab.y) / abLen2 : 0;
     t = Math.max(0, Math.min(1, t));
 
-    const proj = {
-      x: ab.x * t,
-      y: ab.y * t,
-    };
+    const proj = { x: ab.x * t, y: ab.y * t };
     const dx = ap.x - proj.x;
     const dy = ap.y - proj.y;
     const distToSegment = Math.sqrt(dx * dx + dy * dy);
@@ -52,6 +41,8 @@
       segLen: Math.sqrt(abLen2),
       latitude: a.latitude + t * (b.latitude - a.latitude),
       longitude: a.longitude + t * (b.longitude - a.longitude),
+      floorId: geo().floorIdAtT(a, b, t),
+      legId: t < 0.5 ? a.legId || b.legId : b.legId || a.legId,
     };
   }
 
@@ -59,24 +50,43 @@
     if (!floorId) return true;
     const aFloor = a.floorId || null;
     const bFloor = b.floorId || null;
-    if (!aFloor && !bFloor) return true;
+    if (!aFloor && !bFloor) return false;
     return aFloor === floorId || bFloor === floorId;
   }
 
-  function snapToRoute(path, lat, lng, options) {
-    const floorId = options?.floorId || null;
-    const preferVenue = !!options?.preferVenue;
-    const floorMismatchPenalty = preferVenue ? 40 : 80;
-    const normalized = path
+  function normalizePath(path) {
+    return path
       .map((p) => {
         const latP = p.latitude ?? p.lat;
         const lngP = p.longitude ?? p.lng;
         if (latP == null || lngP == null) return null;
-        return { latitude: Number(latP), longitude: Number(lngP), floorId: p.floorId };
+        return {
+          latitude: Number(latP),
+          longitude: Number(lngP),
+          floorId: p.floorId || 'unknown',
+          legId: p.legId,
+          segmentIndex: p.segmentIndex,
+          distanceAlongRoute: p.distanceAlongRoute,
+        };
       })
       .filter(Boolean);
+  }
+
+  function snapToRoute(path, lat, lng, options) {
+    const floorId = options?.floorId || null;
+    const legId = options?.legId || null;
+    const currentLegIndex = options?.currentLegIndex;
+    const legs = options?.legs || null;
+    const preferVenue = !!options?.preferVenue;
+    const floorMismatchPenalty = preferVenue ? 40 : 80;
+    const wrongLegPenalty = 25;
+    const futureLegPenalty = 50;
+    const previousLegPenalty = 15;
+    const wrongConnectorPenalty = 60;
+    const normalized = normalizePath(path);
     if (!normalized.length) return null;
     path = normalized;
+
     if (path.length === 1) {
       return {
         latitude: path[0].latitude,
@@ -85,6 +95,8 @@
         t: 0,
         distanceAlongPathMeters: 0,
         offRouteMeters: haversineMeters({ latitude: lat, longitude: lng }, path[0]),
+        floorId: path[0].floorId,
+        legId: path[0].legId,
       };
     }
 
@@ -92,17 +104,36 @@
     let cumulative = 0;
 
     for (let i = 0; i < path.length - 1; i++) {
-      const segLen = haversineMeters(path[i], path[i + 1]);
+      const segLen = segmentLengthMeters(path[i], path[i + 1]);
       const proj = projectPointOnSegment(
         { latitude: lat, longitude: lng },
         path[i],
         path[i + 1],
       );
 
-      let adjustedDist = proj.distToSegment;
+      let penalty = 0;
       if (floorId && !segmentOnFloor(path[i], path[i + 1], floorId)) {
-        adjustedDist += floorMismatchPenalty;
+        penalty += floorMismatchPenalty;
       }
+      if (legId && path[i].legId && path[i + 1].legId) {
+        if (path[i].legId !== legId && path[i + 1].legId !== legId) {
+          penalty += wrongLegPenalty;
+        }
+      }
+      if (currentLegIndex != null && legs?.length) {
+        const segLeg = legs.find((l) => i >= l.startIndex && i <= l.endIndex);
+        if (segLeg) {
+          if (segLeg.index > currentLegIndex) penalty += futureLegPenalty;
+          if (segLeg.index < currentLegIndex) penalty += previousLegPenalty;
+        }
+      }
+      if (geo().isVerticalConnector(path[i], path[i + 1]) && floorId) {
+        if (path[i].floorId !== floorId && path[i + 1].floorId !== floorId) {
+          penalty += wrongConnectorPenalty;
+        }
+      }
+
+      const adjustedDist = proj.distToSegment + penalty;
 
       if (!best || adjustedDist < best.offRouteMeters) {
         best = {
@@ -112,7 +143,8 @@
           t: proj.t,
           distanceAlongPathMeters: cumulative + proj.t * segLen,
           offRouteMeters: adjustedDist,
-          floorId: path[i].floorId || path[i + 1].floorId || null,
+          floorId: proj.floorId || path[i].floorId || path[i + 1].floorId,
+          legId: proj.floorId === path[i + 1].floorId ? path[i + 1].legId : path[i].legId,
         };
       }
       cumulative += segLen;
@@ -130,9 +162,9 @@
 
     if (targetIndex <= fromSeg) return 0;
 
-    let dist = (1 - fromT) * haversineMeters(path[fromSeg], path[fromSeg + 1]);
+    let dist = (1 - fromT) * segmentLengthMeters(path[fromSeg], path[fromSeg + 1]);
     for (let i = fromSeg + 1; i < targetIndex; i++) {
-      dist += haversineMeters(path[i], path[i + 1]);
+      dist += segmentLengthMeters(path[i], path[i + 1]);
     }
     return Math.max(0, dist);
   }
@@ -144,16 +176,20 @@
     let seg = startSnap.segmentIndex;
     let t = startSnap.t ?? 0;
 
-    const segLen = (i) => haversineMeters(path[i], path[i + 1]);
+    const segLen = (i) => segmentLengthMeters(path[i], path[i + 1]);
 
     let onSeg = (1 - t) * segLen(seg);
     if (remaining <= onSeg) {
-      const newT = t + remaining / segLen(seg);
+      const newT = t + remaining / Math.max(segLen(seg), 0.001);
+      const interp = geo().interpolateCoordinate(path[seg], path[seg + 1], newT);
       return {
-        latitude: path[seg].latitude + newT * (path[seg + 1].latitude - path[seg].latitude),
-        longitude: path[seg].longitude + newT * (path[seg + 1].longitude - path[seg].longitude),
+        latitude: interp.latitude,
+        longitude: interp.longitude,
+        floorId: interp.floorId,
+        legId: interp.legId,
         segmentIndex: seg,
         t: newT,
+        distanceAlongPathMeters: undefined,
       };
     }
     remaining -= onSeg;
@@ -162,10 +198,12 @@
     while (seg < path.length - 1) {
       const len = segLen(seg);
       if (remaining <= len) {
-        const newT = remaining / len;
+        const newT = remaining / Math.max(len, 0.001);
+        const interp = geo().interpolateCoordinate(path[seg], path[seg + 1], newT);
         return {
-          latitude: path[seg].latitude + newT * (path[seg + 1].latitude - path[seg].latitude),
-          longitude: path[seg].longitude + newT * (path[seg + 1].longitude - path[seg].longitude),
+          latitude: interp.latitude,
+          longitude: interp.longitude,
+          floorId: interp.floorId,
           segmentIndex: seg,
           t: newT,
         };
@@ -174,16 +212,18 @@
       seg++;
     }
 
-    return path[path.length - 1];
+    const last = path[path.length - 1];
+    return {
+      latitude: last.latitude,
+      longitude: last.longitude,
+      floorId: last.floorId,
+      segmentIndex: path.length - 2,
+      t: 1,
+    };
   }
 
   function totalPathLengthMeters(path) {
-    if (!path?.length || path.length < 2) return 0;
-    let total = 0;
-    for (let i = 0; i < path.length - 1; i++) {
-      total += haversineMeters(path[i], path[i + 1]);
-    }
-    return total;
+    return geo().totalHorizontalPathMeters(path);
   }
 
   function distanceAlongPathToEnd(path, fromSnap) {
@@ -200,12 +240,15 @@
       t: 0,
       latitude: path[0].latitude,
       longitude: path[0].longitude,
+      floorId: path[0].floorId,
     };
     const pt = pointAtDistanceAlongPath(path, start, clamped);
     if (!pt) return null;
     return {
       latitude: pt.latitude,
       longitude: pt.longitude,
+      floorId: pt.floorId,
+      legId: pt.legId,
       segmentIndex: pt.segmentIndex ?? 0,
       t: pt.t ?? 0,
       distanceAlongPathMeters: clamped,
@@ -216,11 +259,14 @@
   window.FplacesRouteGeometry = {
     haversineMeters,
     toLocalMeters,
+    toGeographicLocalMeters,
     snapToRoute,
     snapAtDistanceAlongPath,
     totalPathLengthMeters,
     distanceAlongPathBetween,
     distanceAlongPathToEnd,
     pointAtDistanceAlongPath,
+    segmentLengthMeters,
+    normalizePath,
   };
 })();

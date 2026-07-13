@@ -11,10 +11,14 @@
   const laneHeading = () => window.FplacesRouteLaneHeading;
 
   const CHEVRON_SVG =
-    '<svg viewBox="0 0 160 80" width="100%" height="100%" aria-hidden="true">' +
-    '<path d="M6 72 L80 6 L154 72" fill="none" stroke="#ffffff" stroke-width="18" ' +
+    '<svg viewBox="0 0 160 88" width="100%" height="100%" aria-hidden="true">' +
+    '<defs><filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/>' +
+    '<feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>' +
+    '<path d="M4 80 L80 8 L156 80" fill="none" stroke="#ffffff" stroke-width="22" ' +
+    'stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>' +
+    '<path d="M18 80 L80 28 L142 80" fill="none" stroke="#2ec8ff" stroke-width="14" ' +
     'stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<path d="M30 72 L80 32 L130 72" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="10" ' +
+    '<path d="M52 80 L80 52 L108 80" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="8" ' +
     'stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   function ensure() {
@@ -68,6 +72,7 @@
     if (headingBound) return;
     headingBound = true;
     const onOrientation = (event) => {
+      if (window.FplacesSlamHeading?.isActive?.()) return;
       const raw = readDeviceHeading(event);
       laneHeading()?.ingestCompassSample?.(raw, event);
     };

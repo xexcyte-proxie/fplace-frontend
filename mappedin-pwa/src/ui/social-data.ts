@@ -18,6 +18,8 @@ export const SOCIAL_CATEGORIES: Array<{
 
 export const SOCIAL_LOCATIONS = [
   { id: 'section-114', label: 'Section 114', postCount: 38, countColor: '#ef4444' },
+  { id: 'section-118', label: 'Section 118', postCount: 52, countColor: '#ef4444' },
+  { id: 'section-104', label: 'Section 104', postCount: 18, countColor: '#ef4444' },
   { id: 'food-court', label: 'Food Court', postCount: 22, countColor: '#f97316' },
   { id: 'gate-a', label: 'Gate A', postCount: 4, countColor: '#8e8e93' },
 ] as const;

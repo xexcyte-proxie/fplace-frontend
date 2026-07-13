@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tradefaire — Social Map Markers (Design Preview)</title>
+    <link rel="stylesheet" href="social-map-markers.css" />
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        background: #12121a;
+        color: #e2e8f0;
+        min-height: 100vh;
+      }
+
+      .design-page {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 32px 20px 64px;
+      }
+
+      .design-page h1 {
+        font-size: 22px;
+        font-weight: 700;
+        color: #fff;
+      }
+
+      .design-page .subtitle {
+        margin-top: 6px;
+        font-size: 14px;
+        color: #8e8e93;
+        line-height: 1.5;
+      }
+
+      .design-section {
+        margin-top: 36px;
+      }
+
+      .design-section h2 {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #8e8e93;
+        margin-bottom: 14px;
+      }
+
+      /* Mock indoor map canvas */
+      .map-canvas {
+        position: relative;
+        min-height: 320px;
+        border-radius: 20px;
+        overflow: hidden;
+        background:
+          linear-gradient(135deg, rgba(18, 18, 26, 0.03) 25%, transparent 25%) -10px -10px / 20px 20px,
+          linear-gradient(225deg, rgba(18, 18, 26, 0.03) 25%, transparent 25%) -10px -10px / 20px 20px,
+          var(--sm-map-floor, #eceae6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: inset 0 0 0 1px rgba(18, 18, 26, 0.04);
+      }
+
+      .map-canvas::before {
+        content: "";
+        position: absolute;
+        inset: 18% 22% 28% 18%;
+        border: 2px solid rgba(18, 18, 26, 0.07);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.35);
+      }
+
+      .map-canvas::after {
+        content: "";
+        position: absolute;
+        top: 42%;
+        left: 38%;
+        width: 24%;
+        height: 18%;
+        border: 2px solid rgba(18, 18, 26, 0.06);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.22);
+      }
+
+      .map-canvas__markers {
+        position: absolute;
+        inset: 0;
+      }
+
+      .map-canvas__markers .social-map-marker {
+        position: absolute;
+      }
+
+      .state-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 20px;
+      }
+
+      .state-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        min-height: 140px;
+        padding: 20px 16px;
+        border-radius: 16px;
+        background: #1c1c26;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .state-card__label {
+        font-size: 11px;
+        font-weight: 600;
+        color: #8e8e93;
+        text-align: center;
+      }
+
+      .density-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: center;
+        gap: 28px;
+        padding: 28px;
+        border-radius: 16px;
+        background: #1c1c26;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .density-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .density-item span {
+        font-size: 11px;
+        color: #8e8e93;
+      }
+
+      .spec-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      .spec-table th,
+      .spec-table td {
+        padding: 10px 12px;
+        text-align: left;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        vertical-align: top;
+      }
+
+      .spec-table th {
+        color: #8e8e93;
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .spec-table td:first-child {
+        color: #fff;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .spec-table td {
+        color: #cbd5e1;
+        line-height: 1.45;
+      }
+
+      .swatch {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 6px;
+        vertical-align: middle;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="design-page">
+      <h1>Social Map Markers</h1>
+      <p class="subtitle">
+        Production-ready visual design for Tradefaire's map social feed. Each marker
+        replaces a traditional location label with a post-aware, tappable social pin.
+        Open this file in a browser to review all states — no map logic attached.
+      </p>
+
+      <!-- Reference + live map mock -->
+      <section class="design-section">
+        <h2>On map — mixed activity</h2>
+        <div class="map-canvas">
+          <div class="map-canvas__markers">
+            <!-- Reference design evolved: Sec 203 · 76 live -->
+            <div
+              class="social-map-marker social-map-marker--live social-map-marker--default"
+              style="left: 52%; top: 38%"
+              role="button"
+              tabindex="0"
+              aria-label="Section 203, 76 posts, live"
+            >
+              <div class="social-map-marker__halo" aria-hidden="true"></div>
+              <div class="social-map-marker__card">
+                <span class="social-map-marker__status-dot" aria-hidden="true"></span>
+                <div class="social-map-marker__body">
+                  <div class="social-map-marker__primary">
+                    <span class="social-map-marker__location">Sec 203</span>
+                    <span class="social-map-marker__sep" aria-hidden="true">·</span>
+                    <span class="social-map-marker__metric">76</span>
+                  </div>
+                  <div class="social-map-marker__secondary">live</div>
+                </div>
+              </div>
+              <div class="social-map-marker__anchor" aria-hidden="true"></div>
+            </div>
+
+            <!-- Trending -->
+            <div
+              class="social-map-marker social-map-marker--trending social-map-marker--food"
+              style="left: 28%; top: 55%"
+              role="button"
+              tabindex="0"
+              aria-label="Food Court, 22 posts, trending"
+            >
+              <div class="social-map-marker__halo" aria-hidden="true"></div>
+              <div class="social-map-marker__card">
+                <span class="social-map-marker__trend-icon" aria-hidden="true">🔥</span>
+                <div class="social-map-marker__body">
+                  <div class="social-map-marker__primary">
+                    <span class="social-map-marker__location">Food Court</span>
+                    <span class="social-map-marker__sep" aria-hidden="true">·</span>
+                    <span class="social-map-marker__metric">22</span>
+                  </div>
+                  <div class="social-map-marker__secondary">trending</div>
+                </div>
+              </div>
+              <div class="social-map-marker__anchor" aria-hidden="true"></div>
+            </div>
+
+            <!-- Selected with preview -->
+            <div
+              class="social-map-marker social-map-marker--selected social-map-marker--vibe"
+              style="left: 68%; top: 58%"
+              role="button"
+              tabindex="0"
+              aria-label="Section 114, 38 posts, selected"
+              aria-expanded="true"
+            >
+              <div class="social-map-marker__preview">
+                <div class="social-map-marker__avatar-stack">
+                  <span class="social-map-marker__avatar" style="--sm-avatar-bg: #ef4444">JT</span>
+                  <span class="social-map-marker__avatar" style="--sm-avatar-bg: #3b82f6">M9</span>
+                </div>
+                <p class="social-map-marker__preview-snippet">
+                  Atmosphere in 114 right now is unreal
+                </p>
+                <div class="social-map-marker__preview-meta">2m ago · Fan Vibe</div>
+              </div>
+              <div class="social-map-marker__halo" aria-hidden="true"></div>
+              <div class="social-map-marker__card">
+                <span class="social-map-marker__status-dot" aria-hidden="true"></span>
+                <div class="social-map-marker__body">
+                  <div class="social-map-marker__primary">
+                    <span class="social-map-marker__location">Sec 114</span>
+                    <span class="social-map-marker__sep" aria-hidden="true">·</span>
+                    <span class="social-map-marker__metric">38</span>
+                  </div>
+                  <div class="social-map-marker__secondary">vibe</div>
+                </div>
+              </div>
+              <div class="social-map-marker__anchor" aria-hidden="true"></div>
+            </div>
+
+            <!-- Viewed -->
+            <div
+              class="social-map-marker social-map-marker--viewed social-map-marker--lines"
+              style="left: 38%; top: 72%"
+              role="button"
+              tabindex="0"
+              aria-label="Gate A, 4 posts, viewed"
+            >
+              <div class="social-map-marker__halo" aria-hidden="true"></div>
+              <div class="social-map-marker__card">
+                <span class="social-map-marker__status-dot" aria-hidden="true"></span>
+                <div class="social-map-marker__body">
+                  <div class="social-map-marker__primary">
+                    <span class="social-map-marker__location">Gate A</span>
+                    <span class="social-map-marker__sep" aria-hidden="true">·</span>
+                    <span class="social-map-marker__metric">4</span>
+                  </div>
+                  <div class="social-map-marker__secondary">8m ago</div>
+                </div>
+              </div>
+              <div class="social-map-marker__anchor" aria-hidden="true"></div>
+            </div>
+
+            <!-- Cluster -->
+            <div
+              class="social-map-marker social-map-marker--cluster"
+              style="left: 78%; top: 32%"
+              role="button"
+              tabindex="0"
+              aria-label="12 posts in this area"
+            >
+              <div class="social-map-marker__cluster">
+                12
+                <span class="social-map-marker__cluster-label">Upper bowl</span>
+              </div>
+              <div class="social-map-marker__anchor" aria-hidden="true"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- All states -->
+      <section class="design-section">
+        <h2>States</h2>
+        <div class="state-grid">
+          <div class="state-card">
+            <div
+              class="social-map-marker social-map-marker--default social-map-marker--live"
+              role="presentation"
+            >
+              <div class="social-map-marker__halo"></div>
+              <div class="social-map-marker__card">
+                <span class="social-map-marker__status-dot"></span>
+                <div class="social-map-marker__body">
+                  <div class="social-map-marker__primary">
+                    <span class="social-map-marker__location">Sec 203</span>
+                    <span class="social-map-marker__sep">·</span>
+                    <span class="social-map-marker__metric">76</span>
+                  </div>
+                  <div class="social-map-marker__secondary">live</div>
+                </div>
+              </div>
+              <div class="social-map-marker__anchor"></div>
+            </div>
+            <span class="state-card__label">Default · Live</span>
+          </div>
+
+          <div class="state-card">
+            <div
+              class="social-map-marker social-map-marker--selected social-map-marker--vibe"
+              role="presentation"
+            >
+              <div class="social-map-marker__preview">
+                <p class="social-map-marker__preview-snippet">Crowd is going wild</p>
+                <div class="social-map-marker__preview-meta">Just now</div>
+              </div>
+              <div class="social-map-marker__halo"></div>
+              <div class="social-map-marker__card">
+                <span class="social-map-marker__status-dot"></span>
+                <div class="social-map-marker__body">
+                  <div class="social-map-marker__primary">
+                    <span class="social-map-marker__location">Sec 114</span>
+                    <span class="social-map-marker__sep">·</span>
+                    <span class="social-map-marker__metric">38</span>
+                  </div>
+                  <div class="social-map-marker__secondary">vibe</div>
+                </div>
+              </div>
+              <div class="social-map-marker__anchor"></div>
+            </div>
+            <span class="state-card__label">Selected · Expanded</span>
+          </div>
+
+          <div class="state-card">
+            <div
+              class="social-map-marker social-map-marker--trending social-map-marker--food"
+              role="presentation"
+            >
+              <div class="social-map-marker__halo"></div>
+              <div class="social-map-marker__card">
+                <span class="social-map-marker__trend-icon">🔥</span>
+                <div class="social-map-marker__body">
+                  <div class="social-map-marker__primary">
+                    <span class="social-map-marker__location">Food Court</span>
+                    <span class="social-map-marker__sep">·</span>
+                    <span class="social-map-marker__metric">22</span>
+                  </div>
+                  <div class="social-map-marker__secondary">trending</div>
+                </div>
+              </div>
+              <div class="social-map-marker__anchor"></div>
+            </div>
+            <span class="state-card__label">Trending</span>
+          </div>
+
+          <div class="state-card">
+            <div
+              class="social-map-marker social-map-marker--new social-map-marker--lines"
+              role="presentation"
+            >
+              <div class="social-map-marker__halo"></div>
+              <div class="social-map-marker__card">
+                <span class="social-map-marker__status-dot"></span>
+                <div class="social-map-marker__body">
+                  <div class="social-map-marker__primary">
+                    <span class="social-map-marker__location">Gate C</span>
+                    <span class="social-map-marker__sep">·</span>
+                    <span class="social-map-marker__metric">1</span>
+                  </div>
+                  <div class="social-map-marker__secondary">new</div>
+                </div>
+              </div>
+              <div class="social-map-marker__anchor"></div>
+            </div>
+            <span class="state-card__label">New · Unread</span>
+          </div>
+
+          <div class="state-card">
+            <div
+              class="social-map-marker social-map-marker--viewed social-map-marker--lines"
+              role="presentation"
+            >
+              <div class="social-map-marker__halo"></div>
+              <div class="social-map-marker__card">
+                <span class="social-map-marker__status-dot"></span>
+                <div class="social-map-marker__body">
+                  <div class="social-map-marker__primary">
+                    <span class="social-map-marker__location">Gate A</span>
+                    <span class="social-map-marker__sep">·</span>
+                    <span class="social-map-marker__metric">4</span>
+                  </div>
+                  <div class="social-map-marker__secondary">8m ago</div>
+                </div>
+              </div>
+              <div class="social-map-marker__anchor"></div>
+            </div>
+            <span class="state-card__label">Viewed · Stale</span>
+          </div>
+
+          <div class="state-card">
+            <div class="social-map-marker social-map-marker--cluster" role="presentation">
+              <div class="social-map-marker__cluster">12</div>
+              <div class="social-map-marker__anchor"></div>
+            </div>
+            <span class="state-card__label">Cluster</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Density ladder -->
+      <section class="design-section">
+        <h2>Zoom density ladder</h2>
+        <div class="density-row">
+          <div class="density-item">
+            <div class="social-map-marker social-map-marker--live" role="presentation">
+              <div class="social-map-marker__halo"></div>
+              <div class="social-map-marker__card">
+                <span class="social-map-marker__status-dot"></span>
+                <div class="social-map-marker__body">
+                  <div class="social-map-marker__primary">
+                    <span class="social-map-marker__location">Sec 203</span>
+                    <span class="social-map-marker__sep">·</span>
+                    <span class="social-map-marker__metric">76</span>
+                  </div>
+                  <div class="social-map-marker__secondary">live</div>
+                </div>
+              </div>
+              <div class="social-map-marker__anchor"></div>
+            </div>
+            <span>Full · zoomed in</span>
+          </div>
+
+          <div class="density-item">
+            <div
+              class="social-map-marker social-map-marker--compact social-map-marker--live"
+              role="presentation"
+            >
+              <div class="social-map-marker__card">
+                <span class="social-map-marker__status-dot"></span>
+                <span class="social-map-marker__metric-inline">76</span>
+              </div>
+              <div class="social-map-marker__anchor"></div>
+            </div>
+            <span>Compact · mid zoom</span>
+          </div>
+
+          <div class="density-item">
+            <div
+              class="social-map-marker social-map-marker--micro social-map-marker--live"
+              role="presentation"
+            >
+              <div class="social-map-marker__anchor"></div>
+            </div>
+            <span>Micro · zoomed out</span>
+          </div>
+
+          <div class="density-item">
+            <div class="social-map-marker social-map-marker--cluster" role="presentation">
+              <div class="social-map-marker__cluster">12</div>
+            </div>
+            <span>Cluster · overlap</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Fan-out -->
+      <section class="design-section">
+        <h2>Cluster fan-out (on tap)</h2>
+        <div
+          class="density-row"
+          style="min-height: 180px; background: var(--sm-map-floor); border-color: rgba(18, 18, 26, 0.08)"
+        >
+          <div class="social-map-marker-fan">
+            <div class="social-map-marker social-map-marker--vibe social-map-marker--default" role="presentation">
+              <div class="social-map-marker__halo"></div>
+              <div class="social-map-marker__card">
+                <span class="social-map-marker__status-dot"></span>
+                <div class="social-map-marker__body">
+                  <div class="social-map-marker__primary">
+                    <span class="social-map-marker__location">Sec 112</span>
+                    <span class="social-map-marker__sep">·</span>
+                    <span class="social-map-marker__metric">9</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="social-map-marker social-map-marker--live social-map-marker--default" role="presentation">
+              <div class="social-map-marker__halo"></div>
+              <div class="social-map-marker__card">
+                <span class="social-map-marker__status-dot"></span>
+                <div class="social-map-marker__body">
+                  <div class="social-map-marker__primary">
+                    <span class="social-map-marker__location">Sec 114</span>
+                    <span class="social-map-marker__sep">·</span>
+                    <span class="social-map-marker__metric">38</span>
+                  </div>
+                  <div class="social-map-marker__secondary">live</div>
+                </div>
+              </div>
+            </div>
+            <div class="social-map-marker social-map-marker--food social-map-marker--default" role="presentation">
+              <div class="social-map-marker__halo"></div>
+              <div class="social-map-marker__card">
+                <span class="social-map-marker__status-dot"></span>
+                <div class="social-map-marker__body">
+                  <div class="social-map-marker__primary">
+                    <span class="social-map-marker__location">Sec 116</span>
+                    <span class="social-map-marker__sep">·</span>
+                    <span class="social-map-marker__metric">5</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Spec reference -->
+      <section class="design-section">
+        <h2>State specification</h2>
+        <table class="spec-table">
+          <thead>
+            <tr>
+              <th>State</th>
+              <th>Visual signal</th>
+              <th>Secondary label</th>
+              <th>When to use</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Default</td>
+              <td>Glass pill, category halo, 94% opacity</td>
+              <td>Category name or post count context</td>
+              <td>Unfocused markers on the map</td>
+            </tr>
+            <tr>
+              <td><span class="swatch" style="background:#f97316"></span>Live</td>
+              <td>Pulsing orange dot + breathing halo</td>
+              <td>"live"</td>
+              <td>Active posting in last ~5 min or live event zone</td>
+            </tr>
+            <tr>
+              <td>Selected</td>
+              <td>Scale 1.04, ink border, elevated shadow, preview card</td>
+              <td>Latest post snippet + avatar stack</td>
+              <td>User tapped marker; syncs with feed filter</td>
+            </tr>
+            <tr>
+              <td><span class="swatch" style="background:#f59e0b"></span>Trending</td>
+              <td>Gradient border ring, fire icon, ↑ prefix</td>
+              <td>"trending"</td>
+              <td>High velocity: upvotes/time or spike in posts</td>
+            </tr>
+            <tr>
+              <td><span class="swatch" style="background:#2563eb"></span>New</td>
+              <td>Blue dot, entrance bounce animation</td>
+              <td>"new"</td>
+              <td>Unread posts since user's last map visit</td>
+            </tr>
+            <tr>
+              <td><span class="swatch" style="background:#c7c7cc"></span>Viewed</td>
+              <td>72% opacity, desaturated, gray dot</td>
+              <td>Relative time ("8m ago")</td>
+              <td>User opened this zone's feed already</td>
+            </tr>
+            <tr>
+              <td>Cluster</td>
+              <td>Charcoal circle, white count, area label</td>
+              <td>Zone name above bubble</td>
+              <td>3+ markers within ~48px at current zoom</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </body>
+</html>

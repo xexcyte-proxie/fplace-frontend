@@ -1,6 +1,6 @@
 import type { MapData } from '@mappedin/mappedin-js';
 
-import type { LocationResult } from '../types';
+import type { LocationResult, SearchChip } from '../types';
 import { appLog } from '../utils/logger';
 import { coordLatLng, serializeCoordinate } from '../utils/route-helpers';
 
@@ -40,6 +40,125 @@ function profileAnchor(profile: {
   const objects = profile.mapObjects ?? [];
   if (objects.length) return objects[0];
   return null;
+}
+
+const CHIP_TAG_COLORS: Record<string, string> = {
+  food: '#f97316',
+  'food stall': '#f97316',
+  retail: '#2d4a7a',
+  store: '#2d4a7a',
+  entrance: '#22c55e',
+  restroom: '#a855f7',
+  washroom: '#a855f7',
+  bathroom: '#a855f7',
+};
+
+const CHIP_DEFAULT_COLORS = [
+  '#f97316',
+  '#2d4a7a',
+  '#22c55e',
+  '#a855f7',
+  '#ec4899',
+  '#06b6d4',
+];
+
+function formatChipLabel(value: string): string {
+  return value
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+/** Strip trailing unit numbers/letters so "Food Stall 100" groups as "food stall". */
+function locationGroupKey(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '';
+
+  const numbered = trimmed.match(/^(.+?)\s*#?\s*\d+[A-Za-z]?$/i);
+  if (numbered?.[1]) return numbered[1].trim().toLowerCase();
+
+  const lettered = trimmed.match(/^(.+?)\s+[A-Z]$/i);
+  if (lettered?.[1]) return lettered[1].trim().toLowerCase();
+
+  const dashed = trimmed.match(/^(.+?)[\s_-]+\d+[A-Za-z]?$/i);
+  if (dashed?.[1]) return dashed[1].trim().toLowerCase();
+
+  return trimmed.toLowerCase();
+}
+
+function collectNamedLocations(mapData: MapData): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+
+  const addName = (name?: string) => {
+    const trimmed = (name ?? '').trim();
+    if (trimmed.length < 2) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    names.push(trimmed);
+  };
+
+  for (const profile of mapData.getByType('location-profile')) {
+    addName(profile.name);
+  }
+  for (const location of mapData.getByType('enterprise-location')) {
+    addName(location.name);
+  }
+  for (const space of mapData.getByType('space')) {
+    addName(space.name);
+  }
+
+  return names.sort((a, b) => a.localeCompare(b));
+}
+
+function buildConsolidatedChips(
+  names: string[],
+  tagCounts: Map<string, number>,
+  limit: number,
+): SearchChip[] {
+  const groups = new Map<string, { label: string; count: number }>();
+
+  const addGroup = (key: string, weight = 1) => {
+    if (!key) return;
+    const label = formatChipLabel(key);
+    const entry = groups.get(key);
+    if (entry) entry.count += weight;
+    else groups.set(key, { label, count: weight });
+  };
+
+  for (const name of names) {
+    addGroup(locationGroupKey(name));
+  }
+
+  for (const [tag, count] of tagCounts) {
+    addGroup(tag, count);
+  }
+
+  return [...groups.entries()]
+    .sort((a, b) => b[1].count - a[1].count || a[1].label.localeCompare(b[1].label))
+    .slice(0, limit)
+    .map(([id, { label }], index) => ({
+      id,
+      label,
+      color: CHIP_TAG_COLORS[id] ?? CHIP_DEFAULT_COLORS[index % CHIP_DEFAULT_COLORS.length],
+    }));
+}
+
+export function getLocationChips(mapData: MapData, limit = 12): SearchChip[] {
+  const tagCounts = new Map<string, number>();
+
+  for (const profile of mapData.getByType('location-profile')) {
+    for (const tag of (profile as { searchTags?: string[] }).searchTags ?? []) {
+      const normalized = tag.trim().toLowerCase();
+      if (!normalized) continue;
+      tagCounts.set(normalized, (tagCounts.get(normalized) ?? 0) + 1);
+    }
+  }
+
+  const names = collectNamedLocations(mapData);
+  return buildConsolidatedChips(names, tagCounts, limit);
 }
 
 export async function searchVenue(

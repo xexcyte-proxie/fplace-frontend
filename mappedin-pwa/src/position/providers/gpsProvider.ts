@@ -6,8 +6,11 @@ export class GpsPositionProvider extends PositionProvider {
 
   private watchId: number | null = null;
   private orientationHandler: ((event: DeviceOrientationEvent) => void) | null = null;
-  private lastHeading = 0;
+  private lastHeading: number | null = null;
   private lastAccuracy = 15;
+  private lastLat: number | null = null;
+  private lastLng: number | null = null;
+  private lastOrientationEmitAt = 0;
 
   protected onStart(_options?: PositionProviderStartOptions): void {
     if (!navigator.geolocation) return;
@@ -15,6 +18,8 @@ export class GpsPositionProvider extends PositionProvider {
     this.watchId = navigator.geolocation.watchPosition(
       (position) => {
         this.lastAccuracy = position.coords.accuracy ?? this.lastAccuracy;
+        this.lastLat = position.coords.latitude;
+        this.lastLng = position.coords.longitude;
         this.emit({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
@@ -35,6 +40,8 @@ export class GpsPositionProvider extends PositionProvider {
       this.watchId = null;
     }
     this.detachOrientationListeners();
+    this.lastLat = null;
+    this.lastLng = null;
   }
 
   private async attachOrientationListeners(): Promise<void> {
@@ -43,9 +50,30 @@ export class GpsPositionProvider extends PositionProvider {
 
     this.orientationHandler = (event: DeviceOrientationEvent) => {
       const alpha = event.webkitCompassHeading ?? event.alpha;
-      if (alpha != null && Number.isFinite(alpha)) {
-        this.lastHeading = event.webkitCompassHeading ?? (360 - alpha) % 360;
+      if (alpha == null || !Number.isFinite(alpha)) return;
+
+      const heading = event.webkitCompassHeading ?? (360 - alpha) % 360;
+      const prev = this.lastHeading;
+      this.lastHeading = ((heading % 360) + 360) % 360;
+
+      // Re-emit while stationary so the 2D heading cone tracks phone turns.
+      if (this.lastLat == null || this.lastLng == null) return;
+      const now = performance.now();
+      if (prev != null) {
+        const delta = Math.abs(this.lastHeading - prev);
+        const turned = Math.min(delta, 360 - delta);
+        if (turned < 1.5 && now - this.lastOrientationEmitAt < 120) return;
+      } else if (now - this.lastOrientationEmitAt < 120) {
+        return;
       }
+      this.lastOrientationEmitAt = now;
+
+      this.emit({
+        latitude: this.lastLat,
+        longitude: this.lastLng,
+        heading: this.lastHeading,
+        accuracy: this.lastAccuracy,
+      });
     };
 
     window.addEventListener('deviceorientationabsolute', this.orientationHandler, true);
@@ -64,10 +92,14 @@ export class GpsPositionProvider extends PositionProvider {
   }
 
   private resolveHeading(geoHeading: number | null): number {
+    // Prefer compass for the direction glow; GPS course lags phone facing when turning.
+    if (this.lastHeading != null && Number.isFinite(this.lastHeading)) {
+      return this.lastHeading;
+    }
     if (geoHeading != null && Number.isFinite(geoHeading) && geoHeading >= 0) {
       return geoHeading;
     }
-    return this.lastHeading;
+    return 0;
   }
 }
 

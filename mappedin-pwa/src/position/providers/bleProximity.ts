@@ -1,4 +1,5 @@
 import type { FplacesPositionFrame } from '../types';
+import type { RouteCoordinate } from '../../types';
 import type { ParsedBeaconAdvert } from './bleBeaconParser';
 import { beaconKey } from './bleBeaconParser';
 import { bearingDegrees } from './heading';
@@ -62,10 +63,14 @@ export function snapToBeaconFrame(
   previousSnap?: Pick<FplacesPositionFrame, 'latitude' | 'longitude'> | null,
 ): FplacesPositionFrame {
   const { entry, reading } = match;
-  const from = previousSnap ?? entry;
+  const from: RouteCoordinate = {
+    latitude: previousSnap?.latitude ?? entry.latitude,
+    longitude: previousSnap?.longitude ?? entry.longitude,
+    floorId: (previousSnap as { floorId?: string })?.floorId ?? entry.floorId ?? 'unknown',
+  };
   const heading = bearingDegrees(
-    { latitude: from.latitude, longitude: from.longitude },
-    { latitude: entry.latitude, longitude: entry.longitude },
+    from,
+    { latitude: entry.latitude, longitude: entry.longitude, floorId: entry.floorId ?? 'unknown' },
   );
 
   const proximityMeters = Math.max(1, Math.min(12, (-reading.rssi - 30) / 3));

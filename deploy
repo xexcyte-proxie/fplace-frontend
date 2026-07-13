@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Deploy mappedin-pwa (+ bundled ar-nav) to Netlify production (fplaces.netlify.app).
+set -e
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
+
+if command -v netlify >/dev/null 2>&1; then
+  CLI=(netlify)
+else
+  CLI=(npx --yes netlify-cli)
+fi
+
+echo "→ Building mappedin-pwa…"
+npm run build --prefix mappedin-pwa
+
+if [[ -n "${NETLIFY_AUTH_TOKEN:-}" && -n "${NETLIFY_SITE_ID:-}" ]]; then
+  echo "→ Deploying with NETLIFY_AUTH_TOKEN to site ${NETLIFY_SITE_ID}…"
+  "${CLI[@]}" deploy --prod --dir=mappedin-pwa/dist --site="$NETLIFY_SITE_ID"
+  exit 0
+fi
+
+if [[ ! -f "$ROOT/.netlify/state.json" ]]; then
+  echo ""
+  echo "  First-time setup (once per machine):"
+  echo "    cd $ROOT"
+  echo "    npx netlify-cli login"
+  echo "    npx netlify-cli sites:create --name fplaces"
+  echo "    # or: npx netlify-cli link   # choose site: fplaces"
+  echo ""
+fi
+
+echo "→ Deploying to Netlify (production)…"
+"${CLI[@]}" deploy --prod --dir=mappedin-pwa/dist
+
+echo ""
+echo "  Done: https://fplaces.netlify.app/"
+echo "  Updates auto-reload for open tabs; close/reopen the home-screen app once if needed."

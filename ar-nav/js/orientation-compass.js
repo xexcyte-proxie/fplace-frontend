@@ -19,28 +19,28 @@
 
   const laneHeading = () => window.FplacesRouteLaneHeading;
 
-  const CHEVRON_SVG_BLUE =
+  const CHEVRON_SVG_CYAN =
     '<svg viewBox="0 0 160 80" width="100%" height="100%" aria-hidden="true">' +
-    '<path d="M6 72 L80 6 L154 72" fill="none" stroke="#4285f4" stroke-width="20" ' +
+    '<path d="M6 72 L80 6 L154 72" fill="none" stroke="#45d4f0" stroke-width="20" ' +
     'stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<path d="M28 72 L80 28 L132 72" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="11" ' +
+    '<path d="M28 72 L80 28 L132 72" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="11" ' +
     'stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   const CHEVRON_SVG_RED =
     '<svg viewBox="0 0 160 80" width="100%" height="100%" aria-hidden="true">' +
-    '<path d="M6 72 L80 6 L154 72" fill="none" stroke="#ea4335" stroke-width="18" ' +
+    '<path d="M6 72 L80 6 L154 72" fill="none" stroke="#e86a6a" stroke-width="18" ' +
     'stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<path d="M30 72 L80 32 L130 72" fill="none" stroke="rgba(234,67,53,0.45)" stroke-width="10" ' +
+    '<path d="M30 72 L80 32 L130 72" fill="none" stroke="rgba(232,106,106,0.45)" stroke-width="10" ' +
     'stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   function buildLane(className, svg) {
-    const lane = document.createElement('div');
+    const lane = document.createElement("div");
     lane.className = `path-arrows-lane ${className}`;
 
     for (let i = 0; i < CHEVRON_COUNT; i++) {
-      const chevron = document.createElement('div');
-      chevron.className = 'path-chevron';
-      chevron.style.setProperty('--i', String(i));
+      const chevron = document.createElement("div");
+      chevron.className = "path-chevron";
+      chevron.style.setProperty("--i", String(i));
       chevron.innerHTML = svg;
       lane.appendChild(chevron);
     }
@@ -51,16 +51,16 @@
   function ensure() {
     if (rootEl) return rootEl;
 
-    rootEl = document.createElement('div');
-    rootEl.id = 'fplaces-orientation-compass';
-    rootEl.setAttribute('aria-hidden', 'true');
+    rootEl = document.createElement("div");
+    rootEl.id = "fplaces-orientation-compass";
+    rootEl.setAttribute("aria-hidden", "true");
 
-    const ground = document.createElement('div');
-    ground.className = 'compass-ground';
+    const ground = document.createElement("div");
+    ground.className = "compass-ground";
 
-    pathLaneEl = buildLane('lane-path', CHEVRON_SVG_BLUE);
-    targetLaneEl = buildLane('lane-target', CHEVRON_SVG_RED);
-    userLaneEl = buildLane('lane-user hidden-lane', CHEVRON_SVG_BLUE);
+    pathLaneEl = buildLane("lane-path", CHEVRON_SVG_CYAN);
+    targetLaneEl = buildLane("lane-target", CHEVRON_SVG_RED);
+    userLaneEl = buildLane("lane-user hidden-lane", CHEVRON_SVG_CYAN);
 
     ground.appendChild(pathLaneEl);
     ground.appendChild(targetLaneEl);
@@ -72,36 +72,47 @@
 
   function readDeviceHeading(event) {
     if (
-      typeof event.webkitCompassHeading === 'number' &&
+      typeof event.webkitCompassHeading === "number" &&
       !Number.isNaN(event.webkitCompassHeading)
     ) {
       return event.webkitCompassHeading;
     }
-    if (typeof event.alpha !== 'number' || Number.isNaN(event.alpha)) return null;
+    if (typeof event.alpha !== "number" || Number.isNaN(event.alpha))
+      return null;
     return (360 - event.alpha) % 360;
   }
 
   function requestHeadingPermission() {
     if (
-      typeof DeviceOrientationEvent === 'undefined' ||
-      typeof DeviceOrientationEvent.requestPermission !== 'function'
+      typeof DeviceOrientationEvent === "undefined" ||
+      typeof DeviceOrientationEvent.requestPermission !== "function"
     ) {
       return Promise.resolve(true);
     }
     return DeviceOrientationEvent.requestPermission()
-      .then((state) => state === 'granted')
+      .then((state) => state === "granted")
       .catch(() => false);
   }
+
+  let lastRawCompassDeg = null;
+  let lastRawCompassAt = 0;
 
   function bindHeading() {
     if (headingBound) return;
     headingBound = true;
     const onOrientation = (event) => {
       const raw = readDeviceHeading(event);
+      if (raw != null && !Number.isNaN(raw)) {
+        // Always keep the raw magnetometer reading — SLAM calibration needs it
+        // even while FplacesSlamHeading owns the displayed heading.
+        lastRawCompassDeg = ((raw % 360) + 360) % 360;
+        lastRawCompassAt = performance.now();
+      }
+      if (window.FplacesSlamHeading?.isActive?.()) return;
       laneHeading()?.setInstantHeading?.(raw);
     };
-    window.addEventListener('deviceorientationabsolute', onOrientation, true);
-    window.addEventListener('deviceorientation', onOrientation, true);
+    window.addEventListener("deviceorientationabsolute", onOrientation, true);
+    window.addEventListener("deviceorientation", onOrientation, true);
   }
 
   function normalizeDelta(delta) {
@@ -112,28 +123,32 @@
 
   function applyLaneVisuals(deltaDeg, aligned) {
     if (pathLaneEl) {
-      pathLaneEl.style.setProperty('--lane-heading', '0deg');
-      pathLaneEl.classList.toggle('hidden-lane', !aligned);
+      pathLaneEl.style.setProperty("--lane-heading", "0deg");
+      pathLaneEl.classList.toggle("hidden-lane", !aligned);
     }
     if (targetLaneEl) {
-      targetLaneEl.classList.toggle('hidden-lane', aligned);
+      targetLaneEl.classList.toggle("hidden-lane", aligned);
       if (!aligned && deltaDeg != null) {
-        targetLaneEl.style.setProperty('--lane-heading', `${deltaDeg.toFixed(1)}deg`);
+        targetLaneEl.style.setProperty(
+          "--lane-heading",
+          `${deltaDeg.toFixed(1)}deg`,
+        );
       }
     }
     if (userLaneEl) {
-      userLaneEl.classList.add('hidden-lane');
+      userLaneEl.classList.add("hidden-lane");
     }
     if (rootEl) {
-      rootEl.classList.toggle('compass-aligned', aligned);
-      rootEl.classList.toggle('compass-misaligned', !aligned);
+      rootEl.classList.toggle("compass-aligned", aligned);
+      rootEl.classList.toggle("compass-misaligned", !aligned);
     }
   }
 
   function computeLaneDelta(targetRaw, state) {
     laneHeading()?.resolveDeviceHeading?.(state);
     const userDeg = laneHeading()?.getInstantHeading?.();
-    const targetDeg = laneHeading()?.smoothTargetBearing?.(targetRaw) ?? targetRaw;
+    const targetDeg =
+      laneHeading()?.smoothTargetBearing?.(targetRaw) ?? targetRaw;
     if (userDeg == null || targetDeg == null) return null;
     return normalizeDelta(targetDeg - userDeg);
   }
@@ -148,27 +163,40 @@
 
     const state = lastNavigator.getState?.() || {};
     if (state.arrived) {
-      if (rootEl) rootEl.style.display = 'none';
+      if (rootEl) rootEl.style.display = "none";
       return;
     }
 
     const targetRaw = lastNavigator.getTargetBearingDegrees?.();
     if (targetRaw == null) {
-      if (rootEl) rootEl.style.display = 'none';
+      if (rootEl) rootEl.style.display = "none";
       return;
     }
 
     if (webGlActive) {
-      if (rootEl) rootEl.style.display = 'none';
-      window.FplacesPathArrows3d?.update?.({ navigator: lastNavigator });
-      const headingForMinimap = laneHeading()?.getInstantHeading?.() ?? 0;
+      if (rootEl) rootEl.style.display = "none";
+      if (
+        !window.FplacesWorldRoute?.isAttached?.() &&
+        window.FplacesPathArrows3d?.isAttached?.()
+      ) {
+        window.FplacesPathArrows3d?.update?.({ navigator: lastNavigator });
+      }
+      const headingForMinimap =
+        window.FplacesOrientationCompass?.getDeviceHeading?.() ??
+        laneHeading()?.getInstantHeading?.() ??
+        0;
       window.FplacesMinimap?.update?.(lastNavigator, headingForMinimap);
       window.FplacesLiveViewHud?.update?.(state, lastNavigator);
       return;
     }
 
+    if (window.__fplacesExpectSlam) {
+      if (rootEl) rootEl.style.display = "none";
+      return;
+    }
+
     ensure();
-    rootEl.style.display = 'block';
+    rootEl.style.display = "block";
 
     const delta = computeLaneDelta(targetRaw, state) ?? 0;
     const aligned = Math.abs(delta) < ALIGN_THRESHOLD_DEG;
@@ -184,7 +212,10 @@
     applyLaneVisuals(smoothedDelta, aligned);
     lastAligned = aligned;
 
-    const headingForMinimap = laneHeading()?.getInstantHeading?.() ?? 0;
+    const headingForMinimap =
+      window.FplacesOrientationCompass?.getDeviceHeading?.() ??
+      laneHeading()?.getInstantHeading?.() ??
+      0;
     window.FplacesMinimap?.update?.(lastNavigator, headingForMinimap);
     window.FplacesLiveViewHud?.update?.(state, lastNavigator);
   }
@@ -194,7 +225,10 @@
       ensure();
       laneHeading()?.reset?.();
       smoothedDelta = null;
-      window.FplacesArDebug?.log('OrientationCompass', 'Starting Live View chevron lanes');
+      window.FplacesArDebug?.log(
+        "OrientationCompass",
+        "Starting Live View chevron lanes",
+      );
       requestHeadingPermission().then((granted) => {
         if (granted) bindHeading();
       });
@@ -214,7 +248,18 @@
     },
 
     getDeviceHeading() {
+      if (window.FplacesSlamHeading?.isActive?.()) {
+        return window.FplacesSlamHeading.getHeadingDegrees?.() ?? null;
+      }
       return laneHeading()?.getInstantHeading?.() ?? null;
+    },
+
+    /** Latest raw magnetometer heading (never SLAM-derived); null if stale/absent. */
+    getRawCompassHeading(maxAgeMs) {
+      if (lastRawCompassDeg == null) return null;
+      const age = performance.now() - lastRawCompassAt;
+      if (age > (maxAgeMs ?? 8000)) return null;
+      return lastRawCompassDeg;
     },
 
     isAligned() {
@@ -222,8 +267,14 @@
     },
 
     getAlignmentDelta(state, targetBearing) {
-      return computeLaneDelta(targetBearing ?? lastNavigator?.getTargetBearingDegrees?.(), state);
+      return computeLaneDelta(
+        targetBearing ?? lastNavigator?.getTargetBearingDegrees?.(),
+        state,
+      );
     },
+
+    requestHeadingPermission,
+    bindHeading,
   };
 
   window.FplacesPathArrows = {
@@ -233,7 +284,7 @@
 
     setWebGlActive(active) {
       webGlActive = !!active;
-      if (webGlActive && rootEl) rootEl.style.display = 'none';
+      if (webGlActive && rootEl) rootEl.style.display = "none";
     },
 
     getDeviceHeading() {

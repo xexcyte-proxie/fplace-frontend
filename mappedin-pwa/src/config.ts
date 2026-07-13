@@ -8,7 +8,14 @@ export const appConfig = {
     mapId: import.meta.env.VITE_MAPPEDIN_MAP_ID ?? '65c0ff7430b94e3fabd5bb8c',
     venueName: 'Demo Mall',
   },
-  arUrl: import.meta.env.VITE_AR_URL ?? (import.meta.env.DEV ? '/ar/' : 'https://fplaces-test.netlify.app/'),
+  /**
+   * API origin. Empty = same-origin `/api` (proxied to fplaces-backend in Vite dev + Netlify).
+   * Set VITE_API_URL only when the backend allows your origin via CORS.
+   */
+  apiUrl: (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, ''),
+  arUrl: import.meta.env.VITE_AR_URL ?? '/ar/',
+  /** Must match ar-nav/config.js buildId — busts iframe cache after AR deploys. */
+  arBuildId: import.meta.env.VITE_AR_BUILD_ID ?? '20260707-camera-v18',
   mapInitTimeoutMs: 45_000,
   positioning: {
     bleRssiThresholdDbm: -70,
@@ -18,5 +25,7 @@ export const appConfig = {
   debug: {
     positionHud:
       import.meta.env.DEV || import.meta.env.VITE_DEBUG_POSITION_HUD === '1',
+    arSlamDiag:
+      import.meta.env.DEV || import.meta.env.VITE_AR_SLAM_DIAG === '1',
   },
 };

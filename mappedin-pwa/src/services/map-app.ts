@@ -12,22 +12,31 @@ import {
   isArFrameVisible,
   notifyArSimulatorStarted,
   openArFullscreen,
+  setArMaximized,
+  setArMinimized,
+  syncNavigationToAr,
+  warmArIframe,
+  type NavigationProgressSnapshot,
 } from './ar-service';
+import { navigationStateSynchronizer } from '../routing/navigation-state-synchronizer';
+import { routeLifecycleManager } from '../routing/route-lifecycle-manager';
+import { AuthApiError, registerUser, resendVerification, verifyEmail } from './auth-service';
 import { BlueDotService } from './blue-dot-service';
 import type { PositionProvider } from '../position/positionProvider';
 import { HighFrequencyMockProvider } from '../position/providers/mockProvider';
 import { PositionProviderRegistry } from '../position/providerRegistry';
 import { requestDeviceOrientationPermission } from '../position/providers/gpsProvider';
 import type { FplacesPositionFrame, PositionSourceType } from '../position/types';
-import { scheduleLocationLabels } from './labels-service';
+import { scheduleSocialMapMarkers, type LocationCardSelection, type SocialMapMarkerService } from '../map/social-map-markers';
 import { LocationService } from './location-service';
-import { RoutePlanner } from './route-planner';
-import { resolveMapTarget, searchVenue } from './search-service';
+import { RoutePlanner, ROUTE_NOT_FOUND_MESSAGE } from './route-planner';
+import { resolveMapTarget, getLocationChips, searchVenue } from './search-service';
 import { AppStore } from '../state/app-store';
-import type { BlueDotStatus, FloorInfo, RoutePayload, SocialCategory } from '../types';
-import { markOnboardingComplete } from '../types';
+import type { AppTab, BlueDotStatus, FloorInfo, RouteCoordinate, RoutePayload, SocialCategory, VenueFeedFilter } from '../types';
+import { isArSessionActive, markOnboardingComplete, storeAuthUser } from '../types';
 import { inferAreaHint } from '../ui/route-summary';
 import { INITIAL_SOCIAL_POSTS, SOCIAL_CATEGORY_LABELS, SOCIAL_LOCATIONS_BY_ID, SOCIAL_QUICK_TAG_LABELS } from '../ui/social-data';
+import { INITIAL_VENUE_FEED_POSTS } from '../ui/venue-feed-data';
 import { legInstructions } from '../utils/route-helpers';
 import { appLog, appWarn } from '../utils/logger';
 import { serializeCoordinate } from '../utils/route-helpers';
@@ -49,6 +58,10 @@ export class MapApp {
   private autoRoutePending = false;
   private locationPromptShown = false;
   private lastProgressUiAt = 0;
+  private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private searchGeneration = 0;
+  private authFlowBootstrapped = false;
+  private socialMapMarkers: SocialMapMarkerService | null = null;
 
   constructor(private readonly store: AppStore) {}
 
@@ -100,7 +113,19 @@ export class MapApp {
       this.wireMapEvents();
       this.publishFloors();
 
-      scheduleLocationLabels(this.mapView, this.mapData);
+      this.socialMapMarkers = scheduleSocialMapMarkers(
+        this.mapView,
+        this.mapData,
+        mapContainer,
+        (selection) => {
+          this.handleLocationCardSelect(selection);
+        },
+      );
+
+      this.store.subscribe((state) => {
+        if (state.mapStatus !== 'ready') return;
+        this.socialMapMarkers?.syncState(state);
+      });
 
       if (this.initTimeout) clearTimeout(this.initTimeout);
       this.store.patch({
@@ -108,7 +133,10 @@ export class MapApp {
         loadingMessage: 'Ready',
         loadingProgress: 100,
         currentFloorId: this.mapView.currentFloor?.id,
+        searchChips: getLocationChips(this.mapData),
       });
+
+      this.bootstrapAuthFlow();
 
       this.maybePromptLocation();
       void this.maybeAutoStartBlueDot();
@@ -130,12 +158,45 @@ export class MapApp {
     }
   }
 
+  onSearchInput(query: string): void {
+    if (!this.mapData || !this.routePlanner) return;
+
+    const state = this.store.get();
+    const activeChip = state.searchChips.find((chip) => chip.id === state.categoryFilter);
+    const categoryFilter =
+      activeChip && activeChip.label.toLowerCase() === query.trim().toLowerCase()
+        ? state.categoryFilter
+        : null;
+
+    this.store.patch({ searchQuery: query, categoryFilter });
+
+    if (this.searchDebounceTimer) clearTimeout(this.searchDebounceTimer);
+
+    if (!query.trim()) {
+      void this.submitSearch('');
+      return;
+    }
+
+    this.searchDebounceTimer = setTimeout(() => {
+      void this.submitSearch(query);
+    }, 250);
+  }
+
+  async clearSearch(): Promise<void> {
+    if (this.searchDebounceTimer) clearTimeout(this.searchDebounceTimer);
+    this.store.patch({ categoryFilter: null });
+    await this.submitSearch('');
+  }
+
   async submitSearch(query: string): Promise<void> {
     if (!this.mapData || !this.routePlanner) return;
 
+    const trimmed = query.trim();
+    const generation = ++this.searchGeneration;
+
     this.store.patch({ searchQuery: query });
 
-    if (!query.trim()) {
+    if (!trimmed) {
       this.routePlanner.clearHighlights();
       this.store.patch({ searchResults: [], isSearching: false });
       return;
@@ -143,6 +204,8 @@ export class MapApp {
 
     this.store.patch({ isSearching: true });
     const results = await searchVenue(this.mapData, query);
+    if (generation !== this.searchGeneration) return;
+
     const targets = results
       .map((r) => resolveMapTarget(this.mapData!, r.id))
       .filter(Boolean);
@@ -151,22 +214,256 @@ export class MapApp {
   }
 
   async setCategoryFilter(category: string | null): Promise<void> {
-    const next = this.store.get().categoryFilter === category ? null : category;
-    this.store.patch({ categoryFilter: next });
-    if (next) {
-      await this.submitSearch(next);
+    const state = this.store.get();
+    const chip = state.searchChips.find((entry) => entry.id === category);
+    const next = state.categoryFilter === category ? null : category;
+    this.store.patch({
+      categoryFilter: next,
+      searchQuery: next && chip ? chip.label : '',
+    });
+
+    if (this.searchDebounceTimer) clearTimeout(this.searchDebounceTimer);
+
+    if (next && chip) {
+      await this.submitSearch(chip.label);
     } else {
       await this.submitSearch('');
     }
   }
 
-  setActiveTab(tab: 'map' | 'social'): void {
-    this.store.patch({ activeTab: tab, socialDraft: this.captureSocialDraft() });
+  setActiveTab(tab: AppTab): void {
+    this.store.patch({
+      activeTab: tab,
+      profileView: 'main',
+      socialLocation: tab === 'social' ? null : this.store.get().socialLocation,
+      socialDraft: this.captureSocialDraft(),
+      venueFeedDraft: this.captureVenueFeedDraft(),
+    });
+  }
+
+  openProfileSettings(): void {
+    this.store.patch({ activeTab: 'profile', profileView: 'settings' });
+  }
+
+  closeProfileSettings(): void {
+    this.store.patch({ profileView: 'main' });
+  }
+
+  toggleNotifications(): void {
+    const enabled = this.store.get().notificationsEnabled;
+    this.store.patch({ notificationsEnabled: !enabled });
   }
 
   completeOnboarding(): void {
     markOnboardingComplete();
-    this.store.patch({ onboardingComplete: true });
+    this.store.patch({ onboardingComplete: true, authStep: 'none' });
+  }
+
+  private bootstrapAuthFlow(): void {
+    if (this.authFlowBootstrapped) return;
+    this.authFlowBootstrapped = true;
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const state = this.store.get();
+        if (
+          state.mapStatus === 'ready' &&
+          !state.onboardingComplete &&
+          state.authStep === 'none'
+        ) {
+          this.showCreateAccount();
+        }
+      });
+    });
+  }
+
+  showCreateAccount(): void {
+    this.store.patch({ authStep: 'create', authFieldErrors: {} });
+  }
+
+  dismissCreateAccount(): void {
+    this.store.patch({ authStep: 'none', authFieldErrors: {} });
+  }
+
+  async submitRegistration(
+    email: string,
+    password: string,
+    passwordConfirm: string,
+  ): Promise<void> {
+    const fieldErrors: Record<string, string> = {};
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail) {
+      fieldErrors.email = 'Email is required.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      fieldErrors.email = 'Enter a valid email address.';
+    }
+
+    if (!password) {
+      fieldErrors.password = 'Password is required.';
+    } else if (password.length < 8) {
+      fieldErrors.password = 'Password must be at least 8 characters.';
+    }
+
+    if (!passwordConfirm) {
+      fieldErrors.password_confirm = 'Please confirm your password.';
+    } else if (password !== passwordConfirm) {
+      fieldErrors.password_confirm = 'Passwords must match.';
+    }
+
+    if (Object.keys(fieldErrors).length > 0) {
+      this.store.patch({
+        authEmail: trimmedEmail,
+        authFieldErrors: fieldErrors,
+      });
+      return;
+    }
+
+    this.store.patch({
+      authEmail: trimmedEmail,
+      authLoading: true,
+      authFieldErrors: {},
+    });
+
+    try {
+      const user = await registerUser({
+        email: trimmedEmail,
+        password,
+        password_confirm: passwordConfirm,
+      });
+      storeAuthUser(user);
+      this.store.patch({
+        authLoading: false,
+        authUser: user,
+        authEmail: trimmedEmail,
+        authStep: 'check-email',
+        authFieldErrors: {},
+      });
+    } catch (error) {
+      if (error instanceof AuthApiError) {
+        this.store.patch({
+          authLoading: false,
+          authFieldErrors: {
+            ...error.fieldErrors,
+            ...(Object.keys(error.fieldErrors).length === 0
+              ? { _form: error.summary }
+              : {}),
+          },
+        });
+        return;
+      }
+
+      this.store.patch({
+        authLoading: false,
+        authFieldErrors: {
+          _form:
+            error instanceof TypeError
+              ? 'Cannot reach the registration service. Restart the dev server and try again.'
+              : 'Could not create your account. Please try again.',
+        },
+      });
+      appWarn('Auth', 'Registration failed', error);
+    }
+  }
+
+  dismissCheckEmail(): void {
+    this.store.patch({ authStep: 'create', authFieldErrors: {} });
+  }
+
+  proceedToVerifyEmail(): void {
+    this.store.patch({ authStep: 'verify', authFieldErrors: {} });
+  }
+
+  dismissVerifyEmail(): void {
+    this.store.patch({ authStep: 'check-email', authFieldErrors: {} });
+  }
+
+  async submitVerification(otp: string): Promise<void> {
+    const state = this.store.get();
+    const email = state.authEmail || state.authUser?.email || '';
+    const trimmedOtp = otp.trim();
+    const fieldErrors: Record<string, string> = {};
+
+    if (!/^\d{6}$/.test(trimmedOtp)) {
+      fieldErrors.otp = 'Enter the 6-digit code from your email.';
+    }
+
+    if (!email) {
+      fieldErrors._form = 'Missing email for verification. Please sign up again.';
+    }
+
+    if (Object.keys(fieldErrors).length > 0) {
+      this.store.patch({ authFieldErrors: fieldErrors });
+      return;
+    }
+
+    this.store.patch({ authLoading: true, authFieldErrors: {} });
+
+    try {
+      const user = await verifyEmail(email, trimmedOtp);
+      if (!user.is_email_verified) {
+        this.store.patch({
+          authLoading: false,
+          authFieldErrors: {
+            _form: 'Verification did not complete. Please try again.',
+          },
+        });
+        return;
+      }
+      storeAuthUser(user);
+      this.store.patch({
+        authLoading: false,
+        authUser: user,
+        authFieldErrors: {},
+      });
+      this.completeOnboarding();
+      this.showToast('Email verified. Welcome to fplaces!');
+    } catch (error) {
+      if (error instanceof AuthApiError) {
+        this.store.patch({
+          authLoading: false,
+          authFieldErrors: {
+            ...error.fieldErrors,
+            ...(Object.keys(error.fieldErrors).length === 0
+              ? { _form: error.summary }
+              : {}),
+          },
+        });
+        return;
+      }
+
+      this.store.patch({
+        authLoading: false,
+        authFieldErrors: {
+          _form:
+            error instanceof TypeError
+              ? 'Cannot reach the verification service. Try again.'
+              : 'Could not verify your email. Please try again.',
+        },
+      });
+      appWarn('Auth', 'Verification failed', error);
+    }
+  }
+
+  async resendVerificationCode(): Promise<void> {
+    const state = this.store.get();
+    const email = state.authEmail || state.authUser?.email || '';
+    if (!email) {
+      this.showToast('Missing email for verification.');
+      return;
+    }
+
+    try {
+      const message = await resendVerification(email);
+      this.showToast(message);
+    } catch (error) {
+      const message =
+        error instanceof AuthApiError
+          ? error.summary
+          : 'Could not resend the verification code.';
+      this.showToast(message);
+      appWarn('Auth', 'Resend verification failed', error);
+    }
   }
 
   setSocialCategory(category: SocialCategory): void {
@@ -177,11 +474,194 @@ export class MapApp {
   }
 
   setSocialLocation(locationId: string | null): void {
-    const current = this.store.get().socialLocation;
+    if (!locationId) return;
     this.store.patch({
-      socialLocation: current === locationId ? null : locationId,
-      socialDraft: this.captureSocialDraft(),
+      activeTab: 'social',
+      socialLocation: locationId,
+      venueFeedDraft: this.captureVenueFeedDraft(),
     });
+  }
+
+  handleLocationCardSelect(selection: LocationCardSelection): void {
+    this.store.patch({ locationActionPrompt: selection });
+  }
+
+  dismissLocationActionPrompt(): void {
+    this.store.patch({ locationActionPrompt: null });
+  }
+
+  confirmLocationConversation(): void {
+    const prompt = this.store.get().locationActionPrompt;
+    if (!prompt) return;
+    this.store.patch({ locationActionPrompt: null });
+    this.setSocialLocation(prompt.locationId);
+  }
+
+  confirmLocationNavigate(): void {
+    const state = this.store.get();
+    const prompt = state.locationActionPrompt;
+    if (!prompt) return;
+    this.store.patch({ locationActionPrompt: null });
+    if (state.markers.origin) {
+      void this.setDestinationFromLocationCard(prompt);
+      return;
+    }
+    void this.setOriginFromLocationCard(prompt);
+  }
+
+  private async setOriginFromLocationCard(
+    selection: LocationCardSelection,
+  ): Promise<void> {
+    if (!this.routePlanner) return;
+
+    try {
+      if (this.store.get().route) {
+        this.routePlanner.clearRoute();
+        this.routePlanner.setRoutePlanningPaused(false);
+        this.stopPositionProvider();
+      }
+
+      await this.routePlanner.setOriginFromLocation(
+        selection.anchor,
+        selection.name,
+      );
+
+      const hasDestination = this.routePlanner.hasDestination;
+      this.store.patch({
+        activeTab: 'map',
+        markers: this.routePlanner.markersState,
+        showRouteSheet: hasDestination,
+        route: null,
+        routeNotFound: false,
+        routeSimulating: false,
+        routeSimulationComplete: false,
+        routeTraveledMeters: 0,
+        routeRemainingMeters: null,
+      });
+
+      if (hasDestination) {
+        this.scheduleAutoRoute();
+      }
+    } catch (error) {
+      this.showToast(
+        error instanceof Error ? error.message : 'Could not set start point.',
+      );
+    }
+  }
+
+  private async setDestinationFromLocationCard(
+    selection: LocationCardSelection,
+  ): Promise<void> {
+    if (!this.routePlanner) return;
+
+    try {
+      if (this.store.get().route) {
+        this.routePlanner.clearRoute();
+        this.routePlanner.setRoutePlanningPaused(false);
+        this.stopPositionProvider();
+      }
+
+      await this.routePlanner.setDestinationFromLocation(
+        selection.anchor,
+        selection.name,
+        { areaHint: inferAreaHint(selection.name) },
+      );
+
+      this.store.patch({
+        activeTab: 'map',
+        markers: this.routePlanner.markersState,
+        showRouteSheet: true,
+        route: null,
+        routeNotFound: false,
+        routeSimulating: false,
+        routeSimulationComplete: false,
+        routeTraveledMeters: 0,
+        routeRemainingMeters: null,
+      });
+      this.scheduleAutoRoute();
+    } catch (error) {
+      this.showToast(
+        error instanceof Error ? error.message : 'Could not set destination.',
+      );
+    }
+  }
+
+  setVenueFeedFilter(filter: VenueFeedFilter): void {
+    this.store.patch({
+      venueFeedFilter: filter,
+      venueFeedDraft: this.captureVenueFeedDraft(),
+    });
+  }
+
+  setVenueFeedDraft(draft: string): void {
+    this.store.patch({ venueFeedDraft: draft });
+  }
+
+  setVenueQuickReply(text: string): void {
+    this.store.patch({ venueFeedDraft: text });
+  }
+
+  toggleVenueFeedUpvote(postId: string): void {
+    const state = this.store.get();
+    const posts = state.venueFeedPosts.length
+      ? [...state.venueFeedPosts]
+      : [...INITIAL_VENUE_FEED_POSTS];
+    const post = posts.find((entry) => entry.id === postId);
+    if (!post) return;
+
+    const upvoted = state.upvotedPostIds.includes(postId);
+    if (upvoted) {
+      post.upvotes = Math.max(0, post.upvotes - 1);
+      this.store.patch({
+        venueFeedPosts: posts,
+        upvotedPostIds: state.upvotedPostIds.filter((id) => id !== postId),
+        venueFeedDraft: this.captureVenueFeedDraft(),
+      });
+      return;
+    }
+
+    post.upvotes += 1;
+    this.store.patch({
+      venueFeedPosts: posts,
+      upvotedPostIds: [...state.upvotedPostIds, postId],
+      venueFeedDraft: this.captureVenueFeedDraft(),
+    });
+  }
+
+  submitVenueFeedPost(): void {
+    const state = this.store.get();
+    const content = this.captureVenueFeedDraft().trim();
+    if (!content) return;
+
+    const posts = state.venueFeedPosts.length
+      ? [...state.venueFeedPosts]
+      : [...INITIAL_VENUE_FEED_POSTS];
+
+    posts.unshift({
+      id: `venue-post-${Date.now()}`,
+      author: 'You',
+      initials: 'YO',
+      avatarColor: '#3b5998',
+      location: 'LA Stadium',
+      locationId: state.socialLocation ?? 'section-118',
+      timeAgo: 'just now',
+      feedType: 'hype',
+      content,
+      upvotes: 0,
+      comments: 0,
+    });
+
+    this.store.patch({
+      venueFeedPosts: posts,
+      venueFeedDraft: '',
+    });
+  }
+
+  private captureVenueFeedDraft(): string {
+    return (
+      document.querySelector<HTMLInputElement>('#venue-feed-input')?.value ??
+      this.store.get().venueFeedDraft
+    );
   }
 
   setSocialTag(tagId: string | null): void {
@@ -300,6 +780,44 @@ export class MapApp {
     positionTelemetry.setOrchestratorState(this.floorOrchestrator.getState());
     this.mapView.setFloor(floorId);
     this.store.patch({ currentFloorId: floorId });
+
+    const state = this.store.get();
+    if (isArSessionActive(state.arPresentation) && state.route) {
+      navigationStateSynchronizer.sync({
+        route: state.route,
+        currentLegIndex: state.currentLegIndex,
+        instructions: state.routeInstructions,
+        floors: state.floors,
+        navigationProgress: this.getNavigationProgressSnapshot(),
+        reason: 'floor_change',
+      });
+    }
+  }
+
+  /** Called from AR iframe when user transitions floors during Live View. */
+  forceFloor(floorId: string): void {
+    void this.selectFloor(floorId);
+  }
+
+  zoomIn(): void {
+    if (!this.mapView) return;
+    const camera = this.mapView.Camera;
+    const zoomLevel = Math.min(camera.zoomLevel + 1, camera.maxZoomLevel);
+    void camera.animateTo({ zoomLevel }, { duration: 200 });
+  }
+
+  zoomOut(): void {
+    if (!this.mapView) return;
+    const camera = this.mapView.Camera;
+    const zoomLevel = Math.max(camera.zoomLevel - 1, camera.minZoomLevel);
+    void camera.animateTo({ zoomLevel }, { duration: 200 });
+  }
+
+  private zoomToOverview(): void {
+    if (!this.mapView) return;
+    const camera = this.mapView.Camera;
+    const overviewZoom = Math.max(camera.minZoomLevel, camera.zoomLevel - 1);
+    void camera.animateTo({ zoomLevel: overviewZoom }, { duration: 350 });
   }
 
   getActivePositionSource(): PositionSourceType {
@@ -356,9 +874,12 @@ export class MapApp {
     if (!this.routePlanner) return;
     await this.clearRoute();
     this.routePlanner.clearRoutePoints();
+    this.blueDotService?.resetNavigationDisplay();
+    this.zoomToOverview();
     this.store.patch({
       markers: this.routePlanner.markersState,
       showRouteSheet: false,
+      blueDotFollowing: false,
     });
   }
 
@@ -375,6 +896,7 @@ export class MapApp {
       routeRemainingMeters: null,
       routeSimulating: false,
       routeSimulationComplete: false,
+      routeNotFound: false,
     });
 
     this.stopPositionProvider();
@@ -401,26 +923,47 @@ export class MapApp {
       return;
     }
 
+    const progress = this.getNavigationProgressSnapshot();
+    const userPosition =
+      progress.latitude != null && progress.longitude != null
+        ? ({
+            latitude: progress.latitude,
+            longitude: progress.longitude,
+            floorId: progress.floorId ?? state.route.pathCoordinates[0]?.floorId ?? 'unknown',
+            ...(progress.heading != null ? { heading: progress.heading } : {}),
+          } as RouteCoordinate & { heading?: number })
+        : this.blueDotService?.getLastPosition()?.coordinate ??
+          serializeCoordinate(state.route.pathCoordinates[0] ?? null);
+
+    const routePayload = buildArRoutePayloadForHandoff(
+      state.route,
+      state.currentLegIndex,
+      state.routeInstructions,
+      userPosition,
+      this.store.get().floors,
+      progress,
+    );
+    const url = buildArUrl(
+      state.route,
+      state.currentLegIndex,
+      state.routeInstructions,
+      userPosition,
+      this.store.get().floors,
+      progress,
+    );
+    openArFullscreen(url, routePayload);
+    this.store.patch({ arPresentation: 'fullscreen' });
+    this.resumeRouteNavigation(progress);
+    appLog('AR', 'Opened', { url, alongPathMeters: progress.alongPathMeters });
+
+    void this.warmArSensors();
+  }
+
+  private async warmArSensors(): Promise<void> {
     const pendingSource = PositionProviderRegistry.resolveActiveSource();
     if (pendingSource === 'gps' || pendingSource === 'apple_indoor') {
       void requestDeviceOrientationPermission();
     }
-
-    let userPosition =
-      this.blueDotService?.getLastPosition()?.coordinate ??
-      serializeCoordinate(state.route.pathCoordinates[0] ?? null);
-    if (!userPosition) {
-      try {
-        const position = await this.locationService.getCurrentPosition();
-        userPosition = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        };
-      } catch {
-        /* optional seed */
-      }
-    }
-
     if (!this.blueDotService?.isTracking) {
       try {
         await this.blueDotService?.startTracking();
@@ -429,42 +972,31 @@ export class MapApp {
         /* AR can still use one-shot seed */
       }
     }
+  }
 
-    const routePayload = buildArRoutePayloadForHandoff(
-      state.route,
-      state.currentLegIndex,
-      state.routeInstructions,
-      userPosition,
-      this.store.get().floors,
-    );
-    const url = buildArUrl(
-      state.route,
-      state.currentLegIndex,
-      state.routeInstructions,
-      userPosition,
-      this.store.get().floors,
-    );
-    openArFullscreen(url, routePayload);
-    this.store.patch({ isArOpen: true });
-    // Bootstrap paused simulator only if route planning did not already start one.
-    if (
-      PositionProviderRegistry.resolveActiveSource() === 'simulator' &&
-      !this.getSimulatorProvider()
-    ) {
-      this.startPositionProvider(state.route.pathCoordinates);
-    }
-    appLog('AR', 'Opened', url);
+  minimizeAr(): void {
+    if (!isArSessionActive(this.store.get().arPresentation)) return;
+    setArMinimized();
+    this.store.patch({ arPresentation: 'minimized' });
+    appLog('AR', 'Minimized to picture-in-picture');
+  }
+
+  maximizeAr(): void {
+    if (!isArSessionActive(this.store.get().arPresentation)) return;
+    setArMaximized();
+    this.store.patch({ arPresentation: 'fullscreen' });
+    syncNavigationToAr(this.getNavigationProgressSnapshot());
+    appLog('AR', 'Maximized to fullscreen');
   }
 
   closeAr(): void {
-    this.stopPositionProvider();
     closeArFullscreen();
-    this.store.patch({ isArOpen: false });
+    this.store.patch({ arPresentation: 'closed' });
   }
 
   focusRouteStart(): void {
     this.routePlanner?.focusRoutePoint('start');
-    this.startRouteMovement({ alongPathMeters: 0 });
+    this.startRouteMovement({ alongPathMeters: 0, resetProgress: true });
   }
 
   focusRouteEnd(): void {
@@ -472,7 +1004,9 @@ export class MapApp {
   }
 
   isArOpen(): boolean {
-    return this.store.get().isArOpen || isArFrameVisible();
+    return (
+      isArSessionActive(this.store.get().arPresentation) || isArFrameVisible()
+    );
   }
 
   private getSimulatorProvider(): HighFrequencyMockProvider | null {
@@ -484,8 +1018,94 @@ export class MapApp {
     return provider as HighFrequencyMockProvider;
   }
 
+  private getNavigationProgressSnapshot(): NavigationProgressSnapshot {
+    const state = this.store.get();
+    const provider = this.getSimulatorProvider();
+
+    let alongPathMeters = state.routeTraveledMeters;
+    let routeTraveledMeters = state.routeTraveledMeters;
+    let routeRemainingMeters = state.routeRemainingMeters;
+    let routeSimulating = state.routeSimulating;
+    let routeSimulationComplete = state.routeSimulationComplete;
+    let source: NavigationProgressSnapshot['source'] = state.routeSimulating
+      ? 'simulator'
+      : undefined;
+
+    if (provider) {
+      alongPathMeters = provider.getMetersAlongPath();
+      routeTraveledMeters = alongPathMeters;
+      const total = provider.getTotalPathMeters();
+      routeRemainingMeters = Math.max(0, total - alongPathMeters);
+      routeSimulating = provider.moving && !provider.isAtPathEnd();
+      routeSimulationComplete = provider.isAtPathEnd() && alongPathMeters > 0;
+      source = 'simulator';
+    } else if (
+      routeRemainingMeters == null &&
+      state.route?.distanceMeters != null
+    ) {
+      routeRemainingMeters = Math.max(
+        0,
+        state.route.distanceMeters - routeTraveledMeters,
+      );
+    }
+
+    const providerFrame = provider?.buildCurrentFrame?.() ?? null;
+    const lastPos = this.blueDotService?.getLastPosition();
+    const latitude =
+      providerFrame?.latitude ??
+      lastPos?.coordinate.latitude;
+    const longitude =
+      providerFrame?.longitude ??
+      lastPos?.coordinate.longitude;
+    const heading = providerFrame?.heading ?? lastPos?.heading ?? undefined;
+    const floorId =
+      providerFrame?.floorId ??
+      lastPos?.floorId ??
+      lastPos?.coordinate.floorId;
+
+    return {
+      alongPathMeters,
+      routeTraveledMeters,
+      routeRemainingMeters,
+      routeSimulating,
+      routeSimulationComplete,
+      latitude,
+      longitude,
+      heading,
+      floorId,
+      source,
+    };
+  }
+
+  /** Continue or start simulator at the current map progress when AR opens. */
+  private resumeRouteNavigation(progress: NavigationProgressSnapshot): void {
+    const state = this.store.get();
+    if (!state.route?.pathCoordinates?.length) return;
+
+    const provider = this.getSimulatorProvider();
+    if (provider?.moving) {
+      this.syncRouteProgress(true);
+      syncNavigationToAr(this.getNavigationProgressSnapshot());
+      return;
+    }
+
+    if (
+      progress.routeSimulating ||
+      progress.alongPathMeters > 0.05 ||
+      progress.routeSimulationComplete
+    ) {
+      this.startRouteMovement({ alongPathMeters: progress.alongPathMeters });
+      return;
+    }
+
+    this.startRouteMovement();
+  }
+
   /** Kick simulator walk along the active route (2D “Start” and AR calibrate). */
-  startRouteMovement(options?: { alongPathMeters?: number }): void {
+  startRouteMovement(options?: {
+    alongPathMeters?: number;
+    resetProgress?: boolean;
+  }): void {
     const state = this.store.get();
     if (!state.route?.pathCoordinates?.length) {
       this.showToast('Generate a route before starting navigation.');
@@ -513,38 +1133,56 @@ export class MapApp {
       return;
     }
 
+    const currentProgress = this.getNavigationProgressSnapshot();
+    const resetProgress = options?.resetProgress === true;
+    let targetAlong: number;
     if (typeof options?.alongPathMeters === 'number') {
-      provider.seekAlongPath(options.alongPathMeters);
+      targetAlong = options.alongPathMeters;
+    } else if (
+      !resetProgress &&
+      (currentProgress.routeSimulating || currentProgress.alongPathMeters > 0.05)
+    ) {
+      targetAlong = currentProgress.alongPathMeters;
+    } else {
+      targetAlong = 0;
     }
 
+    provider.seekAlongPath(targetAlong);
     provider.startSimulationMove();
     this.blueDotService?.follow();
     this.lastProgressUiAt = 0;
+
+    const traveled = provider.getMetersAlongPath();
+    const total = provider.getTotalPathMeters();
+    const remaining = Math.max(0, total - traveled);
+    const atEnd = provider.isAtPathEnd();
+
     this.store.patch({
       blueDotFollowing: true,
-      routeSimulating: true,
-      routeSimulationComplete: false,
-      routeTraveledMeters: 0,
-      routeRemainingMeters: state.route.distanceMeters ?? null,
+      routeSimulating: provider.moving && !atEnd,
+      routeSimulationComplete: atEnd && traveled > 0,
+      routeTraveledMeters: traveled,
+      routeRemainingMeters: remaining,
     });
 
     console.log('[PWA Bridge] Simulator 10Hz loop armed', {
-      alongPathMeters: options?.alongPathMeters ?? 0,
+      alongPathMeters: traveled,
       pathPoints: state.route.pathCoordinates.length,
       moving: provider.moving,
+      resumed: !resetProgress && targetAlong > 0,
     });
 
+    const snapshot = this.getNavigationProgressSnapshot();
     notifyArSimulatorStarted({
-      alongPathMeters: options?.alongPathMeters,
+      alongPathMeters: snapshot.alongPathMeters,
       pathPoints: state.route.pathCoordinates.length,
     });
+    if (isArSessionActive(this.store.get().arPresentation)) {
+      syncNavigationToAr(snapshot);
+    }
   }
 
   beginOrResetRoute(): void {
-    if (this.store.get().routeSimulationComplete) {
-      this.resetRouteSimulation();
-      return;
-    }
     this.startRouteMovement();
   }
 
@@ -611,7 +1249,7 @@ export class MapApp {
     if (!this.mapView) return;
 
     this.mapView.on('click', async (event) => {
-      if (!this.routePlanner || this.store.get().showRouteSheet) return;
+      if (!this.routePlanner || this.routePlanner.isRoutePlanningPaused) return;
       try {
         await this.routePlanner.handleMapClick(event.coordinate);
         this.store.patch({ markers: this.routePlanner.markersState });
@@ -665,15 +1303,28 @@ export class MapApp {
     this.store.patch({
       isCalculatingRoute: true,
       showRouteSheet: true,
+      routeNotFound: false,
       markers: this.routePlanner.markersState,
     });
     try {
       const route = await this.routePlanner.generateRoute();
       this.applyRoute(route);
     } catch (error) {
-      this.showToast(
-        error instanceof Error ? error.message : 'Route generation failed.',
-      );
+      const message =
+        error instanceof Error ? error.message : 'Route generation failed.';
+      this.showToast(message);
+      if (message === ROUTE_NOT_FOUND_MESSAGE) {
+        this.stopPositionProvider();
+        this.store.patch({
+          route: null,
+          routeNotFound: true,
+          routeInstructions: '',
+          routeTraveledMeters: 0,
+          routeRemainingMeters: null,
+          routeSimulating: false,
+          routeSimulationComplete: false,
+        });
+      }
     } finally {
       this.store.patch({ isCalculatingRoute: false });
     }
@@ -683,6 +1334,10 @@ export class MapApp {
     if (!this.routePlanner) return;
     this.routePlanner.setRoutePlanningPaused(true);
     const instructions = legInstructions(route.legs[0]);
+    const wasArOpen = isArSessionActive(this.store.get().arPresentation);
+
+    routeLifecycleManager.transition('recalculating');
+
     this.store.patch({
       route,
       showRouteSheet: true,
@@ -693,10 +1348,23 @@ export class MapApp {
       routeRemainingMeters: route.distanceMeters ?? null,
       routeSimulating: false,
       routeSimulationComplete: false,
+      routeNotFound: false,
     });
 
     if (PositionProviderRegistry.resolveActiveSource() === 'simulator') {
       this.startPositionProvider(route.pathCoordinates);
+    }
+    warmArIframe();
+
+    if (wasArOpen) {
+      navigationStateSynchronizer.sync({
+        route,
+        currentLegIndex: 0,
+        instructions,
+        floors: this.store.get().floors,
+        navigationProgress: this.getNavigationProgressSnapshot(),
+        reason: 'reroute',
+      });
     }
   }
 
@@ -709,6 +1377,17 @@ export class MapApp {
       currentLegIndex: legIndex,
       routeInstructions: legInstructions(leg),
     });
+
+    if (isArSessionActive(this.store.get().arPresentation)) {
+      navigationStateSynchronizer.sync({
+        route: state.route,
+        currentLegIndex: legIndex,
+        instructions: legInstructions(leg),
+        floors: state.floors,
+        navigationProgress: this.getNavigationProgressSnapshot(),
+        reason: 'leg_change',
+      });
+    }
   }
 
   private streamPositionToAr(position: {
@@ -717,7 +1396,7 @@ export class MapApp {
     heading?: number;
     floorId?: string;
   }, animated = false): void {
-    if (!this.store.get().isArOpen) return;
+    if (!isArSessionActive(this.store.get().arPresentation)) return;
 
     if (this.positionProvider?.isRunning) return;
 
@@ -769,7 +1448,7 @@ export class MapApp {
       });
     }
 
-    if (this.store.get().isArOpen) {
+    if (isArSessionActive(this.store.get().arPresentation)) {
       this.ingestPositionFrame({
         latitude: position.coordinate.latitude,
         longitude: position.coordinate.longitude,
@@ -876,7 +1555,19 @@ export class MapApp {
     positionTelemetry.recordStreamTick(frame.source);
 
     if (frame.floorId) {
-      const result = this.floorOrchestrator.propose(frame.floorId);
+      const route = this.store.get().route;
+      const transitions = route?.floorTransitions ?? [];
+      const alongM = frame.alongPathMeters ?? this.store.get().routeTraveledMeters ?? 0;
+      const upcoming = transitions.find((t) => {
+        const path = route?.pathCoordinates ?? [];
+        return path[t.pathIndex] != null;
+      });
+      const result = this.floorOrchestrator.propose(frame.floorId, {
+        headingDegrees: frame.heading,
+        confidence: frame.accuracy != null ? Math.max(0.3, 1 - frame.accuracy / 30) : 0.6,
+        distanceToTransitionM: upcoming ? Math.max(0, alongM) : undefined,
+        transitionKind: upcoming?.kind,
+      });
       positionTelemetry.setOrchestratorState(this.floorOrchestrator.getState());
       if (result.committedChanged && result.committedFloorId) {
         this.applyOrchestratedFloor(result.committedFloorId);
@@ -893,11 +1584,16 @@ export class MapApp {
   private handleProviderFrame(frame: FplacesPositionFrame): void {
     this.ingestPositionFrame(frame);
 
-    if (isArFrameVisible() || this.store.get().isArOpen) {
-      const now = performance.now();
-      if (now - this.lastArProviderStreamAt >= 90) {
-        this.lastArProviderStreamAt = now;
-        dispatchPositionToAr(frame);
+    if (isArFrameVisible() || isArSessionActive(this.store.get().arPresentation)) {
+      if (frame.source === 'simulator') {
+        // Full simulator clock at 10 Hz — single source of truth for AR.
+        syncNavigationToAr(this.getNavigationProgressSnapshot());
+      } else {
+        const now = performance.now();
+        if (now - this.lastArProviderStreamAt >= 90) {
+          this.lastArProviderStreamAt = now;
+          dispatchPositionToAr(frame);
+        }
       }
     }
 
@@ -907,11 +1603,11 @@ export class MapApp {
         this.routePlanner?.updateTravelledPath({
           latitude: frame.latitude,
           longitude: frame.longitude,
-          floorId: frame.floorId,
+          floorId: frame.floorId ?? 'unknown',
         });
       }
       this.syncRouteProgress();
-    } else if (this.store.get().isArOpen) {
+    } else if (isArSessionActive(this.store.get().arPresentation)) {
       this.blueDotService?.applyProviderFrame(frame);
     }
   }
@@ -979,7 +1675,7 @@ export class MapApp {
     }
   }
 
-  private showToast(message: string): void {
+  showToast(message: string): void {
     this.store.patch({ toast: message });
     window.setTimeout(() => {
       if (this.store.get().toast === message) {

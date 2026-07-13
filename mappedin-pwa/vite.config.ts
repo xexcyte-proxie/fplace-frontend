@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { defineConfig, type Plugin } from 'vite';
+import basicSsl from '@vitejs/plugin-basic-ssl';
 import { VitePWA } from 'vite-plugin-pwa';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -57,11 +58,15 @@ function serveArNav(): Plugin {
   };
 }
 
+const BACKEND_ORIGIN = 'https://fplaces-backend.vercel.app';
+
 export default defineConfig({
   plugins: [
+    basicSsl(),
     serveArNav(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: false,
       includeAssets: ['favicon.svg'],
       manifest: {
         name: 'Indoor Nav',
@@ -93,6 +98,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,json,woff2}'],
+        navigateFallbackDenylist: [/^\/ar\//],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         runtimeCaching: [
           {
@@ -113,12 +119,26 @@ export default defineConfig({
     fs: {
       allow: [repoRoot],
     },
+    proxy: {
+      '/api': {
+        target: BACKEND_ORIGIN,
+        changeOrigin: true,
+        secure: true,
+      },
+    },
   },
   preview: {
     host: true,
     port: 4173,
     fs: {
       allow: [repoRoot],
+    },
+    proxy: {
+      '/api': {
+        target: BACKEND_ORIGIN,
+        changeOrigin: true,
+        secure: true,
+      },
     },
   },
 });

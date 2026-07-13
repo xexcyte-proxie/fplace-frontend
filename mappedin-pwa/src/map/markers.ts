@@ -17,10 +17,26 @@ export interface BlueDotPosition {
 
 const MARKER_OVERLAY_ID = 'fplaces-nav-marker-overlay';
 
+/**
+ * TEMP diagnostic: glow follows phone compass even while Begin uses simulated position.
+ * Compare 2D cone vs AR arrows while turning in place (not about movement).
+ * Set false to restore path-travel heading on the cone.
+ */
+const TEMP_COMPASS_GLOW_OVER_SIM_HEADING = true;
+
+const HEADING_CONE = {
+  visible: true,
+  opacity: 0.7,
+  color: '#2266ff',
+  displayWhenInactive: true,
+} as const;
+
 export class MapMarkerService {
   private readonly blueDot: BlueDot;
   private tracking = false;
   private simulatorDrivesAvatar = false;
+  private deviceHeadingActive = false;
+  private lastDeviceHeading: number | null = null;
   private lastPosition: BlueDotPosition | null = null;
   private overlayShell: HTMLElement | null = null;
   private overlayArrow: HTMLElement | null = null;
@@ -57,7 +73,8 @@ export class MapMarkerService {
       watchDevicePosition: false,
       visible: true,
       color: 'transparent',
-      heading: { visible: false, opacity: 0 },
+      // Cone stays ready; device orientation is bound in enableHeading().
+      heading: { ...HEADING_CONE, visible: false, opacity: 0 },
       accuracyRing: { visible: true, opacity: 0.22, color: '#3b82f6' },
       inactiveColor: '#64748b',
       timeout: 30_000,
@@ -87,41 +104,63 @@ export class MapMarkerService {
       this.enableSimulatorBlueDot();
       this.blueDot.watchDevicePosition(false);
       this.blueDot.Sensors.get('geolocation')?.disable();
-      this.blueDot.Sensors.get('deviceorientation')?.disable();
-      this.blueDot.watchDeviceOrientation(false).catch(() => undefined);
       this.blueDot.setPositionProcessor(undefined);
       if (this.overlayShell) this.overlayShell.style.display = 'none';
+
+      if (TEMP_COMPASS_GLOW_OVER_SIM_HEADING) {
+        // Keep simulated position; drive cone from phone compass only.
+        void this.enableHeading({ forceDuringSimulator: true });
+      } else {
+        this.deviceHeadingActive = false;
+        this.lastDeviceHeading = null;
+        this.blueDot.Sensors.get('deviceorientation')?.disable();
+        this.blueDot.watchDeviceOrientation(false).catch(() => undefined);
+      }
       return;
     }
 
     this.blueDot.disable();
     this.blueDot.setPositionProcessor(undefined);
-    if (this.overlayShell) this.overlayShell.style.display = '';
+    this.stopFollow();
+    if (this.overlayShell) this.overlayShell.style.display = 'none';
   }
 
   applyProviderFrame(frame: FplacesPositionFrame): void {
     if (this.simulatorDrivesAvatar) {
+      const useCompassGlow =
+        TEMP_COMPASS_GLOW_OVER_SIM_HEADING && this.deviceHeadingActive;
       this.blueDot.update(
         {
           latitude: frame.latitude,
           longitude: frame.longitude,
-          heading: frame.heading ?? undefined,
+          // Omit simulated path bearing so the cone tracks the phone.
+          ...(useCompassGlow
+            ? { heading: 'device' as const }
+            : { heading: frame.heading ?? undefined }),
           accuracy: frame.accuracy,
           floorOrFloorId: frame.floorId,
         },
         { animate: true },
       );
     } else {
-      this.applyHeading(frame.heading);
+      // When compass is live, omit GPS course so the heading cone follows the phone.
+      const headingForDot = this.deviceHeadingActive
+        ? undefined
+        : frame.heading;
+      if (headingForDot != null) this.applyHeading(headingForDot);
       this.blueDot.reportPosition({
         latitude: frame.latitude,
         longitude: frame.longitude,
-        heading: frame.heading,
+        ...(headingForDot != null ? { heading: headingForDot } : {}),
         accuracy: frame.accuracy,
         confidence: 0.75,
       });
     }
 
+    const heading =
+      this.deviceHeadingActive && this.lastDeviceHeading != null
+        ? this.lastDeviceHeading
+        : frame.heading;
     const position = this.toPosition(
       {
         latitude: frame.latitude,
@@ -129,7 +168,7 @@ export class MapMarkerService {
         floorId: frame.floorId,
       } as Coordinate,
       frame.accuracy,
-      frame.heading,
+      heading,
       frame.floorId,
     );
     this.lastPosition = position;
@@ -144,9 +183,11 @@ export class MapMarkerService {
     this.applyProviderFrame(frame);
   }
 
-  applyHeading(heading: number): void {
+  applyHeading(heading: number | null | undefined): void {
+    if (heading == null || Number.isNaN(heading)) return;
+    const deg = ((heading % 360) + 360) % 360;
     if (this.overlayArrow) {
-      this.overlayArrow.style.transform = `rotate(${heading}deg)`;
+      this.overlayArrow.style.transform = `rotate(${deg}deg)`;
     }
   }
 
@@ -184,13 +225,62 @@ export class MapMarkerService {
     appLog('MapMarker', 'Tracking started', { follow: options?.follow ?? false });
   }
 
-  async enableHeading(): Promise<void> {
-    if (this.simulatorDrivesAvatar) return;
+  async enableHeading(options?: {
+    forceDuringSimulator?: boolean;
+  }): Promise<void> {
+    if (
+      this.simulatorDrivesAvatar &&
+      !options?.forceDuringSimulator &&
+      !TEMP_COMPASS_GLOW_OVER_SIM_HEADING
+    ) {
+      return;
+    }
 
     const orientation = this.blueDot.Sensors.get('deviceorientation');
     await orientation?.enable();
     await this.blueDot.watchDeviceOrientation(true);
-    appLog('MapMarker', 'Device heading enabled');
+    this.deviceHeadingActive = true;
+
+    if (this.blueDot.isEnabled) {
+      this.blueDot.updateState({ heading: { ...HEADING_CONE } });
+      // Prefer live compass over GPS / simulated path bearing for the cone.
+      this.blueDot.update({ heading: 'device' });
+    }
+
+    if (this.overlayArrow) {
+      this.overlayArrow.style.display = '';
+    }
+    appLog('MapMarker', 'Device heading enabled', {
+      compassOverSim: TEMP_COMPASS_GLOW_OVER_SIM_HEADING,
+    });
+  }
+
+  async disableHeading(): Promise<void> {
+    this.deviceHeadingActive = false;
+    this.lastDeviceHeading = null;
+    this.blueDot.Sensors.get('deviceorientation')?.disable();
+    await this.blueDot.watchDeviceOrientation(false).catch(() => undefined);
+    if (this.blueDot.isEnabled) {
+      this.blueDot.updateState({
+        heading: { visible: false, opacity: 0 },
+      });
+    }
+    if (this.overlayArrow) {
+      this.overlayArrow.style.display = 'none';
+    }
+    appLog('MapMarker', 'Device heading disabled');
+  }
+
+  resetNavigationDisplay(): void {
+    this.stopFollow();
+    void this.disableHeading();
+    if (this.overlayShell) {
+      this.overlayShell.style.display = 'none';
+    }
+    if (this.blueDot.isEnabled) {
+      this.blueDot.disable();
+    }
+    appLog('MapMarker', 'Navigation display reset');
   }
 
   follow(): void {
@@ -216,6 +306,8 @@ export class MapMarkerService {
     this.blueDot.Sensors.get('geolocation')?.disable();
     this.blueDot.Sensors.get('deviceorientation')?.disable();
     this.blueDot.watchDeviceOrientation(false).catch(() => undefined);
+    this.deviceHeadingActive = false;
+    this.lastDeviceHeading = null;
     this.stopFollow();
     this.tracking = false;
     this.onStatus?.('off');
@@ -256,21 +348,44 @@ export class MapMarkerService {
   private wireEvents(): void {
     this.blueDot.on('position-update', (event) => {
       if (this.simulatorDrivesAvatar) return;
+      const heading =
+        this.deviceHeadingActive && this.lastDeviceHeading != null
+          ? this.lastDeviceHeading
+          : event.heading;
       const position = this.toPosition(
         event.coordinate,
         event.accuracy,
-        event.heading,
+        heading,
         event.floor?.id,
       );
       this.lastPosition = position;
-      if (event.heading != null) this.applyHeading(event.heading);
+      if (heading != null) this.applyHeading(heading);
       this.onPosition?.(position);
+    });
+
+    this.blueDot.on('device-orientation-update', (event) => {
+      if (this.simulatorDrivesAvatar && !TEMP_COMPASS_GLOW_OVER_SIM_HEADING) {
+        return;
+      }
+      if (event.heading == null || Number.isNaN(event.heading)) return;
+      this.lastDeviceHeading = ((event.heading % 360) + 360) % 360;
+      this.applyHeading(this.lastDeviceHeading);
+      if (this.lastPosition) {
+        this.lastPosition = {
+          ...this.lastPosition,
+          heading: this.lastDeviceHeading,
+        };
+      }
     });
 
     this.blueDot.on('dot-position-update', (event) => {
       const position = this.toPosition(event.position);
       this.lastPosition = position;
-      if (position.heading != null && !this.simulatorDrivesAvatar) {
+      if (
+        position.heading != null &&
+        !this.simulatorDrivesAvatar &&
+        !this.deviceHeadingActive
+      ) {
         this.applyHeading(position.heading);
       }
       if (!this.simulatorDrivesAvatar) {
@@ -308,7 +423,7 @@ export class MapMarkerService {
       coordinate: {
         latitude: coordinate.latitude,
         longitude: coordinate.longitude,
-        floorId: floor,
+        floorId: floor ?? 'unknown',
       },
       mapCoordinate: coordinate,
       accuracy: accuracy ?? undefined,
