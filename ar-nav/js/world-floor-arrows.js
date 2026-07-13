@@ -10,10 +10,15 @@
   const GOOGLE_BLUE = 0x1a73e8;
   const GOOGLE_BLUE_BRIGHT = 0x4285f4;
   const GOOGLE_BLUE_EDGE = 0x1557b0;
+  /** Current-position marker red (distinct from blue path chevrons) */
+  const MARKER_RED = 0xea4335;
+  const MARKER_RED_DARK = 0xc5221f;
   const CYAN_BRIGHT = GOOGLE_BLUE_BRIGHT;
   const CYAN_CORE = GOOGLE_BLUE;
   const CYAN_EDGE = GOOGLE_BLUE_EDGE;
   const WHITE = 0xffffff;
+  const TEAL = 0x14b8a6;
+  const TEAL_EDGE = 0x0d9488;
   const TURN_DETECT_DEG = 35;
   const TURN_LOOKAHEAD_M = 40;
   const PAST_TURN_CLEAR_M = 0.6;
@@ -133,7 +138,6 @@
       body: extrudeShape(THREE, bodyShape, 0.055),
       rim: extrudeShape(THREE, bodyShape, 0.012),
       stripe: extrudeShape(THREE, stripeShape, 0.018),
-      shadow: new THREE.CircleGeometry(1.05, 20),
     };
 
     // Build turn glyphs defensively — never block straight arrows if one fails.
@@ -152,30 +156,18 @@
       );
     }
 
+    // Flat teal chevron — no backing disc (user-requested clean look).
     sharedMats = {
-      outline: mat(THREE, WHITE, { opacity: 1 }),
-      body: mat(THREE, GOOGLE_BLUE_BRIGHT, { opacity: 0.96 }),
-      rim: mat(THREE, GOOGLE_BLUE, { opacity: 0.92 }),
-      stripe: mat(THREE, WHITE, { opacity: 0.95 }),
-      shadow: new THREE.MeshBasicMaterial({
-        color: GOOGLE_BLUE,
-        transparent: true,
-        opacity: 0.22,
-        depthTest: true,
-        depthWrite: false,
-      }),
+      outline: mat(THREE, TEAL_EDGE, { opacity: 1 }),
+      body: mat(THREE, TEAL, { opacity: 0.96 }),
+      rim: mat(THREE, TEAL_EDGE, { opacity: 0.92 }),
+      stripe: mat(THREE, TEAL, { opacity: 0.95 }),
     };
   }
 
   function createArrowInstance(THREE, opacity, scale) {
     ensureSharedAssets(THREE);
     const group = new THREE.Group();
-
-    const shadow = new THREE.Mesh(sharedGeoms.shadow, sharedMats.shadow);
-    shadow.rotation.x = -Math.PI / 2;
-    shadow.position.y = 0.002;
-    shadow.scale.setScalar(scale * 1.05);
-    shadow.renderOrder = 510;
 
     const outline = new THREE.Mesh(
       sharedGeoms.outline,
@@ -203,7 +195,7 @@
     stripe.position.y = 0.048;
     stripe.renderOrder = 513;
 
-    group.add(shadow, outline, body, rim, stripe);
+    group.add(outline, body, rim, stripe);
     group.scale.setScalar(scale);
     group.userData.kind = "straight";
     return group;
@@ -212,6 +204,86 @@
   function leadingArrowScale() {
     const cfg = window.FPLACES_AR_CONFIG || {};
     return cfg.leadingArrowScale ?? 1.22;
+  }
+
+  /**
+   * Red map-pin marker for the user's current position — visually distinct
+   * from the blue navigation chevrons. Rotationally symmetric, so the shared
+   * LookRotation/Slerp orientation pipeline stays harmless.
+   */
+  function createLocationMarkerInstance(THREE, scale) {
+    const group = new THREE.Group();
+
+    const shadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.34, 24),
+      new THREE.MeshBasicMaterial({
+        color: MARKER_RED_DARK,
+        transparent: true,
+        opacity: 0.25,
+        depthTest: true,
+        depthWrite: false,
+      }),
+    );
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.002;
+    shadow.renderOrder = 598;
+
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.3, 0.4, 32),
+      new THREE.MeshBasicMaterial({
+        color: MARKER_RED,
+        transparent: true,
+        opacity: 0.75,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.015;
+    ring.renderOrder = 599;
+
+    // Pin stem: cone apex touching the floor.
+    const stem = new THREE.Mesh(
+      new THREE.ConeGeometry(0.13, 0.42, 20),
+      new THREE.MeshBasicMaterial({
+        color: MARKER_RED,
+        transparent: true,
+        opacity: 0.96,
+      }),
+    );
+    stem.rotation.x = Math.PI;
+    stem.position.y = 0.21;
+    stem.renderOrder = 600;
+
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.19, 22, 22),
+      new THREE.MeshBasicMaterial({
+        color: MARKER_RED,
+        transparent: true,
+        opacity: 0.98,
+      }),
+    );
+    head.position.y = 0.47;
+    head.renderOrder = 601;
+
+    const headHighlight = new THREE.Mesh(
+      new THREE.SphereGeometry(0.075, 14, 14),
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: false,
+      }),
+    );
+    headHighlight.position.y = 0.55;
+    headHighlight.renderOrder = 602;
+
+    group.add(shadow, ring, stem, head, headHighlight);
+    group.scale.setScalar(scale);
+    group.userData.kind = "location-marker";
+    group.userData.pulseRing = ring;
+    group.userData.bobParts = [stem, head, headHighlight];
+    return group;
   }
 
   function createTurnArrowInstance(THREE, side, opacity, scale) {
@@ -231,13 +303,6 @@
 
     const group = new THREE.Group();
 
-    const shadow = new THREE.Mesh(sharedGeoms.shadow, sharedMats.shadow.clone());
-    shadow.rotation.x = -Math.PI / 2;
-    shadow.position.y = 0.002;
-    shadow.scale.setScalar(scale * 1.35);
-    shadow.material.opacity = 0.28;
-    shadow.renderOrder = 510;
-
     const outline = new THREE.Mesh(outlineGeom, sharedMats.outline.clone());
     outline.material.opacity = opacity;
     outline.scale.set(1.1, 1.08, 1.1);
@@ -248,7 +313,7 @@
     body.material.opacity = opacity;
     body.renderOrder = 515;
 
-    group.add(shadow, outline, body);
+    group.add(outline, body);
     group.scale.setScalar(scale);
     group.userData.kind = "turn";
     group.userData.side = side;
@@ -483,12 +548,19 @@
     if (!group) return;
 
     group.traverse((obj) => {
+      if (!obj.isMesh) return;
       if (
-        obj.isMesh &&
         obj.material &&
         !Object.values(sharedMats || {}).includes(obj.material)
       ) {
         obj.material.dispose?.();
+      }
+      // Marker geometries are per-instance (unlike shared chevron geoms).
+      if (
+        obj.geometry &&
+        !Object.values(sharedGeoms || {}).includes(obj.geometry)
+      ) {
+        obj.geometry.dispose?.();
       }
     });
     scene.remove(group);
@@ -537,17 +609,17 @@
 
     const group = new THREE.Group();
     group.name = LEADING_GROUP_NAME;
-    const arrow = createArrowInstance(THREE, 1, leadingArrowScale());
-    arrow.position.set(0, 0, 0);
-    arrow.renderOrder = 600;
-    group.add(arrow);
+    const marker = createLocationMarkerInstance(THREE, leadingArrowScale());
+    marker.position.set(0, 0, 0);
+    group.add(marker);
+    group.userData.markerInstance = marker;
 
     leadingQuatCurrent = new THREE.Quaternion();
     leadingQuatTarget = new THREE.Quaternion();
     leadingArrowMesh = group;
     scene.add(group);
 
-    window.FplacesArDebug?.log("FloorArrows", "Single leading guidance arrow created");
+    window.FplacesArDebug?.log("FloorArrows", "Red current-position marker created");
     return group;
   }
 
@@ -681,6 +753,24 @@
     }
 
     group.position.set(pos.x, floorY + 0.02, pos.z);
+
+    // Marker life: ring pulse + gentle pin bob (per-frame, cheap transforms only).
+    const marker = group.userData.markerInstance;
+    if (marker) {
+      const t = performance.now() / 1000;
+      const ring = marker.userData.pulseRing;
+      if (ring) {
+        const pulse = 1 + Math.sin(t * 2.6) * 0.12;
+        ring.scale.setScalar(pulse);
+        ring.material.opacity = 0.55 + Math.sin(t * 2.6) * 0.2;
+      }
+      const bob = Math.sin(t * 2.0) * 0.02;
+      const parts = marker.userData.bobParts || [];
+      for (const part of parts) {
+        if (part.userData.baseY == null) part.userData.baseY = part.position.y;
+        part.position.y = part.userData.baseY + bob;
+      }
+    }
 
     DBG?.logThrottled?.(
       'Align',

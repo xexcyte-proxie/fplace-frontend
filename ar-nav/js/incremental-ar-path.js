@@ -21,6 +21,7 @@
   let furthestAlongM = 0;
   let pulsePhase = 0;
   let lastPulseAt = 0;
+  let lastSpawnAt = -Infinity;
 
   function cfg() {
     return window.FPLACES_AR_CONFIG || {};
@@ -144,7 +145,8 @@
       z: curr.a.z + curr.dz * Math.min(1, t2),
     };
 
-    const steps = Math.max(4, Math.ceil((bend * 2.2) / spacing));
+    // Fewer curve arrows — wide spacing keeps corners readable without crowding.
+    const steps = Math.max(3, Math.ceil((bend * 2.2) / spacing));
     const placements = [];
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
@@ -225,6 +227,10 @@
       mark += spacing;
     }
 
+    // Path order — required for one-at-a-time progressive spawning.
+    placements.sort(
+      (a, b) => (a.alongM - b.alongM) || ((a.t ?? 0.5) - (b.t ?? 0.5)),
+    );
     return placements;
   }
 
@@ -415,6 +421,7 @@
     spawnedTurnKeys = new Set();
     furthestAlongM = 0;
     pulsePhase = 0;
+    lastSpawnAt = -Infinity;
 
     if (scene) {
       const trail = scene.getObjectByName(TRAIL_GROUP_NAME);
@@ -467,6 +474,8 @@
         : (window.FplacesFloorArrows?.findAlongPathM?.(points, userX, userZ) ?? 0);
     const c = cfg();
     const horizonM = c.incrementalPathHorizonM ?? 22;
+    const revealAheadM = Math.min(horizonM, c.incrementalPathRevealAheadM ?? 6);
+    const spawnIntervalMs = c.incrementalPathSpawnIntervalMs ?? 260;
     const leadGap =
       (c.leadingArrowDistanceM ?? 2.2) +
       (c.floorArrowSpacingM ?? 1.85) * 0.35;
@@ -474,11 +483,15 @@
     const { totalLen } = buildSegmentTable(points);
     // Only spawn ahead of navigation progress — never from path origin when user is mid-route.
     const spawnFrom = Math.max(furthestAlongM, findAlong + leadGap * 0.25);
-    const spawnTo = Math.min(totalLen - 0.2, findAlong + horizonM);
+    // Progressive reveal: the path only exists a short window ahead of covered distance.
+    const spawnTo = Math.min(totalLen - 0.2, findAlong + revealAheadM);
 
     const group = ensureTrailGroup(THREE, scene);
-    const dest = points[points.length - 1];
-    ensureDestinationMarker(THREE, scene, dest, floorY);
+    // Destination marker appears once the reveal window reaches the path end.
+    if (findAlong + revealAheadM >= totalLen - 0.2) {
+      const dest = points[points.length - 1];
+      ensureDestinationMarker(THREE, scene, dest, floorY);
+    }
 
     if (spawnTo > spawnFrom + 0.3) {
       const placements = collectPlacementsInRange(
@@ -488,34 +501,36 @@
         floorY,
       );
       let added = 0;
-      const turnsMarked = new Set();
+      const now = performance.now();
 
       for (const place of placements) {
-        if (place.turnAlongM != null) {
+        if (place.kind === "bend-ribbon" && place.turnAlongM != null) {
           const tk = `turn:${round2(place.turnAlongM)}`;
           if (spawnedTurnKeys.has(tk)) continue;
         }
 
         const sk = segmentKey(place);
         if (spawnedKeys.has(sk)) continue;
-        spawnedKeys.add(sk);
 
+        // One-at-a-time build-up: at most one new arrow per spawn interval.
+        if (added > 0 || now - lastSpawnAt < spawnIntervalMs) break;
+
+        spawnedKeys.add(sk);
         spawnPlacement(THREE, group, place, group.children.length);
+        lastSpawnAt = now;
         if (typeof place.alongM === "number") {
           furthestAlongM = Math.max(furthestAlongM, place.alongM);
         }
         if (place.kind === "bend-ribbon" && place.turnAlongM != null) {
-          turnsMarked.add(round2(place.turnAlongM));
+          spawnedTurnKeys.add(`turn:${round2(place.turnAlongM)}`);
         }
         added++;
       }
 
-      turnsMarked.forEach((t) => spawnedTurnKeys.add(`turn:${t}`));
-
       if (added > 0) {
         DBG?.logThrottled?.(
           "IncrementalPath",
-          "Segments appended",
+          "Segment appended",
           {
             added,
             totalChildren: group.children.length,

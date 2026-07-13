@@ -20,12 +20,17 @@
     usePathRibbon: false,
     /** Incremental world-anchored path — append segments as user walks (default on). */
     useIncrementalPath: true,
+    /** Hard cap on how far ahead arrows may ever exist. */
     incrementalPathHorizonM: 22,
     incrementalPathPruneBehindM: 14,
-    incrementalPathSpacingM: 1.85,
-    floorArrowSpacingM: 1.85,
+    /** Progressive reveal: arrows spawn only this far ahead of current progress. */
+    incrementalPathRevealAheadM: 8,
+    /** One-at-a-time build-up: min delay between consecutive arrow spawns. */
+    incrementalPathSpawnIntervalMs: 260,
+    incrementalPathSpacingM: 4.0,
+    floorArrowSpacingM: 3.0,
     turnCurveBendM: 2.2,
-    turnCurveArrowSpacingM: 1.1,
+    turnCurveArrowSpacingM: 2.0,
     floorArrowCount: 6,
     floorArrowLeadInM: 1.1,
     /** Single leading guidance arrow — meters ahead along path floor. */
