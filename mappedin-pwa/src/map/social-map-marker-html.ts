@@ -1,4 +1,4 @@
-import type { SocialPost } from '../types';
+import type { SectionHeatPriority, SocialPost } from '../types';
 
 export type SocialMarkerCategory = 'vibe' | 'lines' | 'food';
 export type SocialMarkerVisualState =
@@ -6,7 +6,11 @@ export type SocialMarkerVisualState =
   | 'live'
   | 'trending'
   | 'new'
-  | 'viewed';
+  | 'viewed'
+  | 'heat-high'
+  | 'heat-medium'
+  | 'heat-low'
+  | 'heat-neutral';
 
 export interface SocialMarkerModel {
   anchorId: string;
@@ -34,11 +38,20 @@ function shortenLabel(name: string): string {
   return trimmed.replace(/^Store\s+/i, 'St ').slice(0, 16);
 }
 
+export function heatVisualState(
+  priority: SectionHeatPriority | null,
+): SocialMarkerVisualState {
+  if (!priority) return 'heat-neutral';
+  return `heat-${priority}`;
+}
+
 function classNames(model: SocialMarkerModel): string {
   const classes = ['social-map-marker', 'social-map-marker--default'];
   if (model.selected) classes.push('social-map-marker--selected');
   if (model.category) classes.push(`social-map-marker--${model.category}`);
-  if (model.visualState === 'viewed') {
+  if (model.visualState.startsWith('heat-')) {
+    classes.push(`social-map-marker--${model.visualState}`);
+  } else if (model.visualState === 'viewed') {
     classes.push('social-map-marker--viewed');
   } else if (model.visualState === 'trending') {
     classes.push('social-map-marker--trending');
@@ -65,7 +78,10 @@ function previewHtml(model: SocialMarkerModel): string {
 }
 
 function leadingIcon(model: SocialMarkerModel): string {
-  if (model.visualState === 'trending') {
+  if (
+    model.visualState === 'trending' ||
+    model.visualState === 'heat-high'
+  ) {
     return '<span class="social-map-marker__trend-icon" aria-hidden="true">🔥</span>';
   }
   return '<span class="social-map-marker__status-dot" aria-hidden="true"></span>';

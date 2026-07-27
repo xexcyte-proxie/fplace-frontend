@@ -1,5 +1,9 @@
 import type { AppState } from '../types';
-import mailIcon from '../../assets/mail.png';
+
+const AUTH_ASSETS = {
+  back: '/auth/back-chevron.svg',
+  mail: '/auth/mail-icon.svg',
+} as const;
 
 export function renderCheckEmailScreen(
   state: Pick<AppState, 'authEmail' | 'authLoading'>,
@@ -7,9 +11,14 @@ export function renderCheckEmailScreen(
   return `
     <div class="auth-screen check-email-screen">
       <button type="button" id="check-email-back-btn" class="auth-back-btn" aria-label="Back">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M15 6L9 12L15 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+        <img
+          class="auth-back-icon"
+          src="${AUTH_ASSETS.back}"
+          alt=""
+          width="22"
+          height="22"
+          decoding="async"
+        />
       </button>
 
       <div class="check-email-body">
@@ -17,10 +26,10 @@ export function renderCheckEmailScreen(
           <div class="check-email-icon-card">
             <img
               class="check-email-icon"
-              src="${mailIcon}"
+              src="${AUTH_ASSETS.mail}"
               alt=""
-              width="56"
-              height="56"
+              width="60"
+              height="60"
               decoding="async"
             />
           </div>
@@ -29,25 +38,17 @@ export function renderCheckEmailScreen(
         <h1 class="check-email-title">Check your email</h1>
         <p class="check-email-subtitle">
           We sent a verification link and code to
-          <span class="auth-email-highlight">${escapeHtml(state.authEmail)}</span>
         </p>
+        <p class="check-email-address">${escapeHtml(state.authEmail)}</p>
       </div>
 
-      <div class="auth-actions">
-        <button
-          type="button"
-          id="check-email-continue-btn"
-          class="onboarding-primary-btn auth-submit-btn"
-          ${state.authLoading ? 'disabled' : ''}
-        >
-          Continue
-        </button>
-        <p class="auth-footer-text">
+      <div class="auth-actions check-email-actions">
+        <p class="check-email-resend">
           Did not get it?
           <button
             type="button"
             id="check-email-resend-btn"
-            class="auth-inline-link auth-inline-link--accent"
+            class="auth-legal-link"
             ${state.authLoading ? 'disabled' : ''}
           >
             Resend

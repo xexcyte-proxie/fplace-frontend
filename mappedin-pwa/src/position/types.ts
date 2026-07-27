@@ -15,6 +15,8 @@ export interface FplacesPositionFrame {
   timestamp?: number;
   /** Meters along the active route polyline (simulator — matches 2D map progress). */
   alongPathMeters?: number;
+  /** Geometric distance from the raw fix to the snapped route point (live ETA). */
+  offRouteMeters?: number;
 }
 
 /** Who owns the navigation clock for the AR child. */

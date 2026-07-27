@@ -3,11 +3,34 @@ import type { MapApp } from "../services/map-app";
 import { buildRouteSheetSummary } from "./route-summary";
 import { renderOnboardingScreen } from "./onboarding-screen";
 import { renderCreateAccountScreen } from "./create-account-screen";
+import { renderLoginScreen } from "./login-screen";
 import { renderCheckEmailScreen } from "./check-email-screen";
 import { renderVerifyEmailScreen } from "./verify-email-screen";
+import { renderPseudoNameScreen } from "./pseudo-name-screen";
+import { renderVenueSelectScreen } from "./venue-select-screen";
 import { renderVenueFeedScreen } from "./venue-feed-screen";
 import { renderProfileScreen } from "./profile-screen";
 import { renderSettingsScreen } from "./settings-screen";
+import { renderLanguageSettingsScreen } from "./language-settings-screen";
+import { renderEditProfileSettingsScreen } from "./edit-profile-settings-screen";
+import { renderAboutSettingsScreen } from "./about-settings-screen";
+import {
+  renderAuthPrivacyScreen,
+  renderPrivacySettingsScreen,
+} from "./legal-settings-screen";
+import { renderTermsWebViewSheet } from "./legal-webview-sheet";
+import { evaluatePasswordStrength } from "../auth/domain/password-strength";
+import {
+  isCompleteOtpCode,
+  normalizeOtpDigits,
+  OTP_CODE_LENGTH,
+} from "../auth/domain/otp-code";
+import {
+  formatResendCountdown,
+  RESEND_OTP_COOLDOWN_MS,
+} from "../auth/domain/resend-countdown";
+import { renderNotificationsScreen } from "./notifications-screen";
+import { renderArNavigationScreen } from "./ar-navigation-screen";
 import { renderLocationActionSheet } from "./location-action-sheet";
 import {
   bottomNavMapIcon,
@@ -26,6 +49,12 @@ function escapeHtml(value: string): string {
 export class UiRoot {
   private readonly root: HTMLElement;
   private authEmailDraft = "";
+  private authPasswordDraft = "";
+  private pseudoNameDraft: string | null = null;
+  private venueSearchDraft: string | null = null;
+  private otpDraft = "";
+  private verifyResendEndsAt: number | null = null;
+  private verifyResendInterval: number | null = null;
 
   constructor(container: HTMLElement) {
     this.root = container;
@@ -43,14 +72,28 @@ export class UiRoot {
 
     const showOnboardingFlow =
       state.mapStatus === "ready" && !state.onboardingComplete;
+    const showSessionRestore =
+      showOnboardingFlow && state.authLoading && state.authStep === "none";
     const showOnboardingScreen =
-      showOnboardingFlow && state.authStep === "none";
+      showOnboardingFlow && state.authStep === "none" && !state.authLoading;
     const showCreateAccount =
-      showOnboardingFlow && state.authStep === "create";
+      showOnboardingFlow &&
+      state.authStep === "create" &&
+      !state.authLegalDocument;
+    const showLogin =
+      showOnboardingFlow &&
+      state.authStep === "login" &&
+      !state.authLegalDocument;
+    const showAuthPrivacy =
+      showOnboardingFlow && state.authLegalDocument === "privacy";
     const showCheckEmail =
       showOnboardingFlow && state.authStep === "check-email";
     const showVerifyEmail =
       showOnboardingFlow && state.authStep === "verify";
+    const showPseudoName =
+      showOnboardingFlow && state.authStep === "pseudo-name";
+    const showVenueSelect =
+      showOnboardingFlow && state.authStep === "venue-select";
     const arFullscreen = state.arPresentation === "fullscreen";
     const showOverlays =
       state.mapStatus === "ready" && state.onboardingComplete && !arFullscreen;
@@ -58,7 +101,21 @@ export class UiRoot {
     const onSocialTab = state.activeTab === "social";
     const onProfileTab = state.activeTab === "profile";
     const onProfileSettings = onProfileTab && state.profileView === "settings";
+    const onProfileLanguage = onProfileTab && state.profileView === "language";
+    const onProfileEditProfile =
+      onProfileTab && state.profileView === "edit-profile";
+    const onProfileAbout = onProfileTab && state.profileView === "about";
+    const onProfilePrivacy = onProfileTab && state.profileView === "privacy";
     const onProfileMain = onProfileTab && state.profileView === "main";
+    const onProfileOverlay =
+      onProfileSettings ||
+      onProfileLanguage ||
+      onProfileEditProfile ||
+      onProfileAbout ||
+      onProfilePrivacy;
+    const showTermsWebView = state.legalWebView === "terms";
+    const onNotificationsInbox =
+      showOverlays && onSocialTab && state.notificationsOpen;
 
     const focusedVenueInput =
       activeEl?.id === "venue-feed-input"
@@ -67,9 +124,51 @@ export class UiRoot {
     const venueSelectionStart = focusedVenueInput?.selectionStart ?? null;
     const venueSelectionEnd = focusedVenueInput?.selectionEnd ?? null;
 
-    if (!showCreateAccount && !showCheckEmail && !showVerifyEmail) {
+    const focusedPseudoName =
+      activeEl?.id === "pseudo-name-input"
+        ? (activeEl as HTMLInputElement)
+        : null;
+    const pseudoSelectionStart = focusedPseudoName?.selectionStart ?? null;
+    const pseudoSelectionEnd = focusedPseudoName?.selectionEnd ?? null;
+
+    const focusedVenueSearch =
+      activeEl?.id === "venue-select-search-input"
+        ? (activeEl as HTMLInputElement)
+        : null;
+    const venueSearchSelectionStart =
+      focusedVenueSearch?.selectionStart ?? null;
+    const venueSearchSelectionEnd = focusedVenueSearch?.selectionEnd ?? null;
+
+    if (!showCreateAccount && !showCheckEmail && !showVerifyEmail && !showLogin) {
       this.authEmailDraft = "";
+      this.authPasswordDraft = "";
     }
+    if (showLogin) {
+      const livePassword =
+        this.root.querySelector<HTMLInputElement>("#login-password")?.value;
+      if (livePassword) this.authPasswordDraft = livePassword;
+    } else {
+      this.authPasswordDraft = "";
+    }
+    if (!showPseudoName && !onProfileEditProfile) {
+      this.pseudoNameDraft = null;
+    }
+    if (!showVenueSelect) {
+      this.venueSearchDraft = null;
+    }
+    if (showVerifyEmail) {
+      const currentOtp = this.readOtpValue();
+      if (currentOtp) this.otpDraft = currentOtp;
+    } else {
+      this.otpDraft = "";
+      this.clearVerifyResendCountdown();
+    }
+
+    const focusedOtpIndex =
+      activeEl instanceof HTMLInputElement &&
+      activeEl.classList.contains("otp-digit")
+        ? Number(activeEl.dataset.otpIndex)
+        : null;
 
     document
       .getElementById("mappedin-map")
@@ -77,12 +176,19 @@ export class UiRoot {
 
     this.root.innerHTML = `
       ${this.loadingOverlay(state)}
+      ${showSessionRestore ? this.sessionRestoreOverlay() : ""}
       ${showOnboardingScreen ? renderOnboardingScreen() : ""}
       ${showCreateAccount ? renderCreateAccountScreen({
         authEmail: this.authEmailDraft || state.authEmail,
         authLoading: state.authLoading,
         authFieldErrors: state.authFieldErrors,
       }) : ""}
+      ${showLogin ? renderLoginScreen({
+        authEmail: this.authEmailDraft || state.authEmail,
+        authLoading: state.authLoading,
+        authFieldErrors: state.authFieldErrors,
+      }) : ""}
+      ${showAuthPrivacy ? renderAuthPrivacyScreen() : ""}
       ${showCheckEmail ? renderCheckEmailScreen({
         authEmail: state.authEmail || state.authUser?.email || "",
         authLoading: state.authLoading,
@@ -92,21 +198,100 @@ export class UiRoot {
         authLoading: state.authLoading,
         authFieldErrors: state.authFieldErrors,
       }) : ""}
+      ${showPseudoName ? renderPseudoNameScreen({
+        pseudoNameDraft: this.pseudoNameDraft ?? state.pseudoNameDraft,
+        pseudoNameHint: state.pseudoNameHint,
+        selectedInterests: state.selectedInterests,
+        authLoading: state.authLoading,
+        authFieldErrors: state.authFieldErrors,
+        allowBack: !state.authUser,
+      }) : ""}
+      ${showVenueSelect ? renderVenueSelectScreen({
+        venueSearchQuery: this.venueSearchDraft ?? state.venueSearchQuery,
+        selectedVenueId: state.selectedVenueId,
+        selectedGateId: state.selectedGateId,
+        forumVenues: state.forumVenues,
+        forumSections: state.forumSections,
+        authLoading: state.authLoading,
+        authFieldErrors: state.authFieldErrors,
+      }) : ""}
       ${showOverlays && onMapTab ? this.homeHeader(state) : ""}
       ${showOverlays && onMapTab && state.searchQuery.trim() ? this.searchResults(state) : ""}
       ${showOverlays && onMapTab ? this.fabs(state, app) : ""}
       ${showOverlays && onMapTab && state.locationActionPrompt ? renderLocationActionSheet(state.locationActionPrompt, Boolean(state.markers.origin)) : ""}
-      ${showOverlays && onMapTab && (!state.showRouteSheet || !state.route) ? this.routeHintBar(state, app) : ""}
-      ${showOverlays && onMapTab && state.showRouteSheet && (state.route || state.markers.destination) ? this.routeSheet(state, app) : ""}
-      ${showOverlays && onSocialTab ? renderVenueFeedScreen(state) : ""}
-      ${showOverlays && onProfileMain ? renderProfileScreen() : ""}
+      ${showOverlays && onMapTab && (!state.showRouteSheet || (!state.route && !state.routeNotFound && !state.markers.destination)) ? this.routeHintBar(state, app) : ""}
+      ${showOverlays && onMapTab && state.showRouteSheet && (state.route || state.markers.destination || state.routeNotFound) ? this.routeSheet(state, app) : ""}
+      ${showOverlays && onSocialTab && !onNotificationsInbox ? renderVenueFeedScreen(state) : ""}
+      ${onNotificationsInbox ? renderNotificationsScreen(state) : ""}
+      ${showOverlays && onProfileMain ? renderProfileScreen(state) : ""}
       ${showOverlays && onProfileSettings ? renderSettingsScreen(state) : ""}
-      ${showOverlays && !onProfileSettings ? this.bottomNav(state) : ""}
-      ${state.toast ? `<div class="toast" role="status">${escapeHtml(state.toast)}</div>` : ""}
+      ${showOverlays && onProfileLanguage ? renderLanguageSettingsScreen(state) : ""}
+      ${showOverlays && onProfileEditProfile ? renderEditProfileSettingsScreen({
+        pseudoNameDraft: this.pseudoNameDraft ?? state.pseudoNameDraft,
+        pseudoNameHint: state.pseudoNameHint,
+        selectedInterests: state.selectedInterests,
+        authLoading: state.authLoading,
+        authFieldErrors: state.authFieldErrors,
+      }) : ""}
+      ${showOverlays && onProfileAbout ? renderAboutSettingsScreen() : ""}
+      ${showOverlays && onProfilePrivacy ? renderPrivacySettingsScreen() : ""}
+      ${showOverlays && !onProfileOverlay && !onNotificationsInbox ? this.bottomNav(state) : ""}
+      ${arFullscreen ? renderArNavigationScreen(state) : ""}
+      ${showTermsWebView ? renderTermsWebViewSheet() : ""}
+      ${
+        state.toast
+          ? `<div class="toast" role="status">
+              <div class="toast-icon" aria-hidden="true">
+                <img
+                  class="toast-icon-logo"
+                  src="/onboarding/map-pin-logo.svg"
+                  alt=""
+                  width="22"
+                  height="22"
+                  decoding="async"
+                />
+              </div>
+              <p class="toast-message">${escapeHtml(state.toast)}</p>
+            </div>`
+          : ""
+      }
     `;
 
     this.bindEvents(app);
-    this.bindOtpInputs(app);
+    this.bindOtpInputs(app, focusedOtpIndex);
+    this.restoreLoginPasswordDraft(showLogin);
+
+    if (focusedPseudoName && (showPseudoName || onProfileEditProfile)) {
+      const pseudoInput =
+        this.root.querySelector<HTMLInputElement>("#pseudo-name-input");
+      if (pseudoInput) {
+        pseudoInput.focus();
+        if (pseudoSelectionStart !== null && pseudoSelectionEnd !== null) {
+          pseudoInput.setSelectionRange(
+            pseudoSelectionStart,
+            pseudoSelectionEnd,
+          );
+        }
+      }
+    }
+
+
+    if (focusedVenueSearch) {
+      const venueSearchInput =
+        this.root.querySelector<HTMLInputElement>("#venue-select-search-input");
+      if (venueSearchInput) {
+        venueSearchInput.focus();
+        if (
+          venueSearchSelectionStart !== null &&
+          venueSearchSelectionEnd !== null
+        ) {
+          venueSearchInput.setSelectionRange(
+            venueSearchSelectionStart,
+            venueSearchSelectionEnd,
+          );
+        }
+      }
+    }
 
     if (focusedSearch) {
       const searchInput =
@@ -137,11 +322,7 @@ export class UiRoot {
     const progress = Math.max(0, Math.min(100, state.loadingProgress));
     return `
       <div class="splash-screen ${isError ? "splash-screen--error" : ""}" role="status">
-        <div class="splash-brand">
-          <div class="splash-logo" aria-hidden="true"></div>
-          <h1 class="splash-title">fplaces</h1>
-          <p class="splash-tagline">Find places. Find people. Find your way.</p>
-        </div>
+        <h1 class="splash-title">fplaces</h1>
         ${
           isError
             ? `<p class="splash-error">${escapeHtml(state.loadingMessage)}</p>`
@@ -158,6 +339,17 @@ export class UiRoot {
             </div>
           `
         }
+      </div>
+    `;
+  }
+
+  private sessionRestoreOverlay(): string {
+    return `
+      <div class="auth-screen auth-restore-screen" role="status" aria-live="polite">
+        <div class="auth-header">
+          <h1 class="auth-title">Signing you in</h1>
+          <p class="auth-subtitle">Restoring your session…</p>
+        </div>
       </div>
     `;
   }
@@ -235,9 +427,14 @@ export class UiRoot {
   }
 
   private fabs(state: AppState, _app: MapApp): string {
-    const bottom = state.showRouteSheet
-      ? "calc(252px + var(--bottom-nav-height) + env(safe-area-inset-bottom))"
-      : "calc(var(--bottom-nav-height) + 48px + env(safe-area-inset-bottom))";
+    // Keep FABs clear of route sheet, or of the route-hint pill when that is showing.
+    const hintVisible = !state.showRouteSheet || !state.route;
+    const bottom =
+      state.showRouteSheet && (state.route || state.markers.destination)
+        ? "calc(252px + var(--bottom-nav-height) + env(safe-area-inset-bottom))"
+        : hintVisible
+          ? "calc(var(--bottom-nav-height) + 108px + env(safe-area-inset-bottom))"
+          : "calc(var(--bottom-nav-height) + 48px + env(safe-area-inset-bottom))";
     const trackingActive =
       state.blueDotStatus === "active" || state.blueDotStatus === "inactive";
     const myLocationLabel = state.blueDotFollowing
@@ -245,9 +442,10 @@ export class UiRoot {
       : trackingActive
         ? "Live location active"
         : "My location";
+    const aboveSheetClass = state.showRouteSheet ? " fabs--above-sheet" : "";
 
     return `
-      <div class="fabs" style="bottom:${bottom}">
+      <div class="fabs${aboveSheetClass}" style="--fabs-bottom:${bottom}">
         <div class="zoom-controls">
           <button
             type="button"
@@ -278,16 +476,21 @@ export class UiRoot {
   private routeHintBar(state: AppState, _app: MapApp): string {
     const hasStart = Boolean(state.markers.origin);
     const hasEnd = Boolean(state.markers.destination);
+    const needsReset =
+      state.routeNotFound && hasStart && hasEnd && !state.isCalculatingRoute;
+    const canReset = hasStart || hasEnd || needsReset;
     const hint = state.isCalculatingRoute
       ? "Finding route…"
-      : !hasStart
-        ? "Tap the map to set your location."
-        : !hasEnd
-          ? "Tap the map to choose your destination."
-          : "Route ready";
+      : needsReset
+        ? "No route found. Reset to start again."
+        : !hasStart
+          ? "Tap the map to set your location."
+          : !hasEnd
+            ? "Tap the map to choose your destination."
+            : "Route ready";
 
     return `
-      <div class="route-hint">
+      <div class="route-hint ${needsReset ? "route-hint--needs-reset" : ""}">
         <div class="route-steps">
           <button type="button" class="step-dot step-dot--start ${hasStart ? "is-done" : "is-active"}" data-focus="start" ${hasStart ? "" : "disabled"}></button>
           <div class="step-line ${hasStart ? "is-done" : ""}"></div>
@@ -296,6 +499,7 @@ export class UiRoot {
         <div class="route-hint-copy">
           <div>${escapeHtml(hint)}</div>
           ${
+            !needsReset &&
             hasEnd &&
             state.markers.destinationLabel &&
             state.markers.destinationLabel !== "End point"
@@ -304,7 +508,12 @@ export class UiRoot {
           }
         </div>
         ${state.isCalculatingRoute ? '<div class="mini-spinner"></div>' : ""}
-        <button type="button" id="reset-points-btn" class="ghost-btn" ${hasStart || hasEnd ? "" : "disabled"}>Reset</button>
+        <button
+          type="button"
+          id="reset-points-btn"
+          class="ghost-btn ${needsReset ? "ghost-btn--emphasis" : ""}"
+          ${canReset ? "" : "disabled"}
+        >Reset</button>
       </div>
     `;
   }
@@ -312,9 +521,15 @@ export class UiRoot {
   private routeSheet(state: AppState, _app: MapApp): string {
     const summary = buildRouteSheetSummary(state);
     const resetDisabled = summary.isCalculating;
+    const beginDisabled =
+      summary.isCalculating ||
+      state.routeSimulating ||
+      summary.needsReset ||
+      !state.route;
+    const arDisabled = summary.isCalculating || summary.needsReset || !state.route;
 
     return `
-      <div class="route-sheet ${summary.isCalculating ? "route-sheet--calculating" : ""}">
+      <div class="route-sheet ${summary.isCalculating ? "route-sheet--calculating" : ""} ${summary.needsReset ? "route-sheet--needs-reset" : ""}">
         <div class="route-sheet-handle" aria-hidden="true"></div>
         <button type="button" id="close-route-btn" class="route-sheet-close icon-btn" aria-label="Close route">×</button>
         <div class="route-sheet-top">
@@ -327,12 +542,22 @@ export class UiRoot {
             <div class="route-sheet-distance">${escapeHtml(summary.walkDistance)}</div>
           </div>
         </div>
-        <div class="route-sheet-actions">
+        <div class="route-sheet-actions ${summary.needsReset ? "route-sheet-actions--needs-reset" : ""}">
+          ${
+            summary.needsReset
+              ? `
+          <button
+            type="button"
+            id="reset-route-sheet-btn"
+            class="route-sheet-reset-btn route-sheet-reset-btn--primary"
+          >Reset &amp; start over</button>
+              `
+              : `
           <button
             type="button"
             id="begin-route-btn"
-            class="route-sheet-begin-btn ${summary.isCalculating || state.routeSimulating ? "is-disabled" : ""}"
-            ${summary.isCalculating || state.routeSimulating ? "disabled" : ""}
+            class="route-sheet-begin-btn ${beginDisabled ? "is-disabled" : ""}"
+            ${beginDisabled ? "disabled" : ""}
           >${state.routeSimulating ? "Moving…" : "Begin"}</button>
           <button
             type="button"
@@ -340,12 +565,14 @@ export class UiRoot {
             class="route-sheet-reset-btn ${resetDisabled ? "is-disabled" : ""}"
             ${resetDisabled ? "disabled" : ""}
           >Reset</button>
-          <button type="button" id="open-ar-btn" class="route-sheet-ar-btn" ${summary.isCalculating ? "disabled" : ""}>
+          <button type="button" id="open-ar-btn" class="route-sheet-ar-btn" ${arDisabled ? "disabled" : ""}>
             <svg class="ar-nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 2l8 4v6c0 5.25-3.5 10-8 11-4.5-1-8-5.75-8-11V6l8-4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
             </svg>
-            Live View
+            Start AR navigation
           </button>
+              `
+          }
         </div>
       </div>
     `;
@@ -434,7 +661,7 @@ export class UiRoot {
     this.root
       .querySelector("#close-route-btn")
       ?.addEventListener("click", () => {
-        void app.clearRoute();
+        void app.dismissRouteSheet();
       });
 
     this.root.querySelector("#prev-leg-btn")?.addEventListener("click", () => {
@@ -464,6 +691,24 @@ export class UiRoot {
     this.root.querySelector("#open-ar-btn")?.addEventListener("click", () => {
       void app.openAr();
     });
+
+    this.root
+      .querySelector("#ar-nav-close-btn")
+      ?.addEventListener("click", () => {
+        app.closeAr();
+      });
+
+    this.root
+      .querySelector("#ar-nav-minimize-btn")
+      ?.addEventListener("click", () => {
+        app.minimizeAr();
+      });
+
+    this.root
+      .querySelector("#ar-nav-end-btn")
+      ?.addEventListener("click", () => {
+        void app.endArNavigation();
+      });
 
     this.root.querySelector("#begin-route-btn")?.addEventListener("click", () => {
       app.beginOrResetRoute();
@@ -497,15 +742,15 @@ export class UiRoot {
       });
 
     this.root
-      .querySelector("#onboarding-get-started")
+      .querySelector("#onboarding-create-account")
       ?.addEventListener("click", () => {
         app.showCreateAccount();
       });
 
     this.root
-      .querySelector("#onboarding-guest-btn")
+      .querySelector("#onboarding-login")
       ?.addEventListener("click", () => {
-        app.completeOnboarding();
+        app.showLogin();
       });
 
     this.root
@@ -517,7 +762,66 @@ export class UiRoot {
     this.root
       .querySelector("#auth-login-link")
       ?.addEventListener("click", () => {
-        app.completeOnboarding();
+        app.showLogin();
+      });
+
+    this.root
+      .querySelector("#auth-google-btn")
+      ?.addEventListener("click", () => {
+        void app.submitGoogleSignIn();
+      });
+
+    this.root
+      .querySelector("#login-back-btn")
+      ?.addEventListener("click", () => {
+        app.dismissLogin();
+      });
+
+    this.root
+      .querySelector("#login-create-link")
+      ?.addEventListener("click", () => {
+        app.showCreateAccount();
+      });
+
+    this.root
+      .querySelector("#login-google-btn")
+      ?.addEventListener("click", () => {
+        void app.submitGoogleSignIn();
+      });
+
+    this.root
+      .querySelector("#login-email")
+      ?.addEventListener("input", (event) => {
+        this.authEmailDraft = (event.currentTarget as HTMLInputElement).value;
+      });
+
+    this.root
+      .querySelector("#login-password")
+      ?.addEventListener("input", (event) => {
+        this.authPasswordDraft = (
+          event.currentTarget as HTMLInputElement
+        ).value;
+      });
+
+    this.root
+      .querySelector("#login-password")
+      ?.addEventListener("change", (event) => {
+        this.authPasswordDraft = (
+          event.currentTarget as HTMLInputElement
+        ).value;
+      });
+
+    this.root
+      .querySelector("#login-form")
+      ?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const form = event.currentTarget as HTMLFormElement;
+        const email =
+          form.querySelector<HTMLInputElement>("#login-email")?.value ?? "";
+        const password =
+          form.querySelector<HTMLInputElement>("#login-password")?.value ?? "";
+        this.authPasswordDraft = password;
+        void app.submitLogin(email, password);
       });
 
     this.root
@@ -536,19 +840,82 @@ export class UiRoot {
           form.querySelector<HTMLInputElement>("#auth-password")?.value ?? "";
         const passwordConfirm =
           form.querySelector<HTMLInputElement>("#auth-password-confirm")?.value ?? "";
-        void app.submitRegistration(email, password, passwordConfirm);
+        const termsAccepted =
+          form.querySelector<HTMLInputElement>("#auth-terms")?.checked ?? false;
+        void app.submitRegistration(
+          email,
+          password,
+          passwordConfirm,
+          termsAccepted,
+        );
+      });
+
+    this.root
+      .querySelectorAll<HTMLButtonElement>("[data-password-toggle]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const inputId = button.dataset.passwordToggle;
+          if (!inputId) return;
+          const input = this.root.querySelector<HTMLInputElement>(`#${inputId}`);
+          if (!input) return;
+          const showing = input.type === "text";
+          input.type = showing ? "password" : "text";
+          button.setAttribute(
+            "aria-label",
+            showing ? "Show password" : "Hide password",
+          );
+        });
+      });
+
+    const passwordInput =
+      this.root.querySelector<HTMLInputElement>("#auth-password");
+    const strengthHint = this.root.querySelector<HTMLElement>(
+      "#auth-password-strength",
+    );
+    const syncPasswordStrength = (): void => {
+      if (!passwordInput || !strengthHint) return;
+      const strength = evaluatePasswordStrength(passwordInput.value);
+      strengthHint.hidden = strength !== "strong";
+    };
+    passwordInput?.addEventListener("input", syncPasswordStrength);
+    syncPasswordStrength();
+
+    this.root
+      .querySelector("#auth-terms-link")
+      ?.addEventListener("click", () => {
+        app.openAuthTerms();
+      });
+
+    this.root
+      .querySelector("#auth-privacy-link")
+      ?.addEventListener("click", () => {
+        app.openAuthPrivacy();
+      });
+
+    this.root
+      .querySelector("#auth-legal-back-btn")
+      ?.addEventListener("click", () => {
+        app.dismissAuthLegal();
+      });
+
+    this.root
+      .querySelector("#legal-webview-cancel")
+      ?.addEventListener("click", () => {
+        app.dismissLegalWebView();
+      });
+
+    this.root
+      .querySelector("#legal-webview-dismiss")
+      ?.addEventListener("click", (event) => {
+        if (event.target === event.currentTarget) {
+          app.dismissLegalWebView();
+        }
       });
 
     this.root
       .querySelector("#check-email-back-btn")
       ?.addEventListener("click", () => {
         app.dismissCheckEmail();
-      });
-
-    this.root
-      .querySelector("#check-email-continue-btn")
-      ?.addEventListener("click", () => {
-        app.proceedToVerifyEmail();
       });
 
     this.root
@@ -566,7 +933,9 @@ export class UiRoot {
     this.root
       .querySelector("#verify-resend-btn")
       ?.addEventListener("click", () => {
-        void app.resendVerificationCode();
+        void app.resendVerificationCode().then((ok) => {
+          if (ok) this.restartVerifyResendCountdown();
+        });
       });
 
     this.root
@@ -574,6 +943,89 @@ export class UiRoot {
       ?.addEventListener("submit", (event) => {
         event.preventDefault();
         void app.submitVerification(this.readOtpValue());
+      });
+
+    if (this.root.querySelector("#verify-resend-status")) {
+      this.ensureVerifyResendCountdown();
+    }
+
+    this.root
+      .querySelector("#pseudo-name-back-btn")
+      ?.addEventListener("click", () => {
+        app.dismissPseudoNameSetup();
+      });
+
+    this.root
+      .querySelector("#pseudo-name-input")
+      ?.addEventListener("input", (event) => {
+        this.pseudoNameDraft = (
+          event.currentTarget as HTMLInputElement
+        ).value;
+      });
+
+    this.root
+      .querySelector("#pseudo-name-shuffle-btn")
+      ?.addEventListener("click", () => {
+        this.pseudoNameDraft = null;
+        app.shufflePseudoName();
+      });
+
+    this.root
+      .querySelectorAll<HTMLButtonElement>(".interest-chip")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const interest = button.dataset.interest;
+          if (interest) app.toggleInterest(interest);
+        });
+      });
+
+    this.root
+      .querySelector("#pseudo-name-form")
+      ?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const input =
+          this.root.querySelector<HTMLInputElement>("#pseudo-name-input");
+        void app.submitPseudoNameSetup(
+          input?.value ?? this.pseudoNameDraft ?? "",
+        );
+      });
+
+    this.root
+      .querySelector("#venue-select-back-btn")
+      ?.addEventListener("click", () => {
+        app.dismissVenueSelect();
+      });
+
+    this.root
+      .querySelector("#venue-select-search-input")
+      ?.addEventListener("input", (event) => {
+        const value = (event.currentTarget as HTMLInputElement).value;
+        this.venueSearchDraft = value;
+        app.setVenueSearchQuery(value);
+      });
+
+    this.root
+      .querySelectorAll<HTMLButtonElement>("[data-venue-id]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const venueId = button.dataset.venueId;
+          if (venueId) app.selectOnboardingVenue(venueId);
+        });
+      });
+
+    this.root
+      .querySelectorAll<HTMLButtonElement>("[data-gate-id]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const gateId = button.dataset.gateId;
+          if (gateId) app.selectOnboardingGate(gateId);
+        });
+      });
+
+    this.root
+      .querySelector("#venue-select-enter-btn")
+      ?.addEventListener("click", () => {
+        app.submitVenueSelect();
       });
 
     this.root.querySelector("#nav-map")?.addEventListener("click", () => {
@@ -601,9 +1053,173 @@ export class UiRoot {
       });
 
     this.root
+      .querySelector("#settings-edit-profile-btn")
+      ?.addEventListener("click", () => {
+        app.openEditProfileFromSettings();
+      });
+
+    this.root
+      .querySelector("#settings-interests-btn")
+      ?.addEventListener("click", () => {
+        app.openEditProfileFromSettings();
+      });
+
+    this.root
+      .querySelector("#settings-language-btn")
+      ?.addEventListener("click", () => {
+        app.openMapLanguageSettings();
+      });
+
+    this.root
+      .querySelector("#settings-language-back-btn")
+      ?.addEventListener("click", () => {
+        app.closeMapLanguageSettings();
+      });
+
+    this.root
+      .querySelector("#edit-profile-back-btn")
+      ?.addEventListener("click", () => {
+        app.closeEditProfileSettings();
+      });
+
+    this.root
+      .querySelector("#edit-profile-form")
+      ?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const input =
+          this.root.querySelector<HTMLInputElement>("#pseudo-name-input");
+        void app.submitProfileEditFromSettings(
+          input?.value ?? this.pseudoNameDraft ?? "",
+        );
+      });
+
+    this.root
+      .querySelector("#settings-privacy-btn")
+      ?.addEventListener("click", () => {
+        app.openPrivacySettings();
+      });
+
+    this.root
+      .querySelector("#settings-terms-btn")
+      ?.addEventListener("click", () => {
+        app.openTermsSettings();
+      });
+
+    this.root
+      .querySelector("#settings-about-btn")
+      ?.addEventListener("click", () => {
+        app.openAboutSettings();
+      });
+
+    this.root
+      .querySelector("#settings-privacy-back-btn")
+      ?.addEventListener("click", () => {
+        app.closeSecondarySettings();
+      });
+
+    this.root
+      .querySelector("#settings-about-back-btn")
+      ?.addEventListener("click", () => {
+        app.closeSecondarySettings();
+      });
+
+    this.root
+      .querySelectorAll<HTMLButtonElement>("[data-map-language]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const code = button.dataset.mapLanguage;
+          if (!code) return;
+          void app.setMapLanguage(code);
+        });
+      });
+
+    this.root
       .querySelector("#settings-notifications-toggle")
       ?.addEventListener("click", () => {
         app.toggleNotifications();
+      });
+
+    this.root
+      .querySelector("#settings-change-venue-btn")
+      ?.addEventListener("click", () => {
+        app.openVenueSelectFromSettings();
+      });
+
+    this.root
+      .querySelector("#settings-simulation-toggle")
+      ?.addEventListener("click", () => {
+        app.toggleSimulation();
+      });
+
+    this.root
+      .querySelector("#settings-logout-btn")
+      ?.addEventListener("click", () => {
+        app.requestLogoutConfirm();
+      });
+
+    this.root
+      .querySelector("#settings-delete-account-btn")
+      ?.addEventListener("click", () => {
+        app.requestDeleteAccountConfirm();
+      });
+
+    this.root
+      .querySelector("#settings-confirm-cancel-btn")
+      ?.addEventListener("click", () => {
+        app.dismissSettingsConfirm();
+      });
+
+    this.root
+      .querySelector("#settings-confirm-dismiss")
+      ?.addEventListener("click", (event) => {
+        if (event.target === event.currentTarget) {
+          app.dismissSettingsConfirm();
+        }
+      });
+
+    this.root
+      .querySelector("#settings-confirm-logout-btn")
+      ?.addEventListener("click", () => {
+        void app.logout();
+      });
+
+    this.root
+      .querySelector("#settings-confirm-delete-btn")
+      ?.addEventListener("click", () => {
+        void app.deleteAccount();
+      });
+
+    this.root
+      .querySelector("#venue-feed-notify-btn")
+      ?.addEventListener("click", () => {
+        app.openNotifications();
+      });
+
+    this.root
+      .querySelector("#notifications-back-btn")
+      ?.addEventListener("click", () => {
+        app.closeNotifications();
+      });
+
+    this.root
+      .querySelector("#notifications-mark-all-btn")
+      ?.addEventListener("click", () => {
+        void app.markAllNotificationsAsRead();
+      });
+
+    this.root
+      .querySelector("#notifications-load-more-btn")
+      ?.addEventListener("click", () => {
+        void app.loadMoreNotifications();
+      });
+
+    this.root
+      .querySelectorAll<HTMLButtonElement>("[data-notification-id]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const notificationId = button.dataset.notificationId;
+          if (notificationId) void app.markNotificationAsRead(notificationId);
+        });
       });
 
     this.root
@@ -628,9 +1244,20 @@ export class UiRoot {
     this.root
       .querySelectorAll<HTMLButtonElement>("[data-upvote-id]")
       .forEach((button) => {
-        button.addEventListener("click", () => {
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
           const postId = button.dataset.upvoteId;
-          if (postId) app.toggleVenueFeedUpvote(postId);
+          if (postId) void app.toggleVenueFeedUpvote(postId);
+        });
+      });
+
+    this.root
+      .querySelectorAll<HTMLButtonElement>("[data-flag-id]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const postId = button.dataset.flagId;
+          if (postId) void app.flagVenueFeedPost(postId);
         });
       });
 
@@ -640,13 +1267,13 @@ export class UiRoot {
       app.setVenueFeedDraft(venueFeedInput.value);
     });
     venueFeedInput?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") app.submitVenueFeedPost();
+      if (event.key === "Enter") void app.submitVenueFeedPost();
     });
 
     this.root
       .querySelector("#venue-feed-send-btn")
       ?.addEventListener("click", () => {
-        app.submitVenueFeedPost();
+        void app.submitVenueFeedPost();
       });
 
     this.root
@@ -682,6 +1309,15 @@ export class UiRoot {
       });
   }
 
+  private restoreLoginPasswordDraft(showLogin: boolean): void {
+    if (!showLogin || !this.authPasswordDraft) return;
+    const passwordInput =
+      this.root.querySelector<HTMLInputElement>("#login-password");
+    if (passwordInput && !passwordInput.value) {
+      passwordInput.value = this.authPasswordDraft;
+    }
+  }
+
   private readOtpValue(): string {
     return Array.from(
       this.root.querySelectorAll<HTMLInputElement>(".otp-digit"),
@@ -690,24 +1326,61 @@ export class UiRoot {
       .join("");
   }
 
-  private bindOtpInputs(app: MapApp): void {
+  private applyOtpDigits(inputs: HTMLInputElement[], raw: string): string {
+    const digits = normalizeOtpDigits(raw);
+    if (!digits) return this.readOtpValue();
+
+    inputs.forEach((input, index) => {
+      input.value = digits[index] ?? "";
+    });
+
+    this.otpDraft = digits;
+    return this.otpDraft;
+  }
+
+  private bindOtpInputs(app: MapApp, focusedOtpIndex: number | null): void {
     const inputs = Array.from(
       this.root.querySelectorAll<HTMLInputElement>(".otp-digit"),
     );
     if (!inputs.length) return;
 
-    inputs[0]?.focus();
+    if (this.otpDraft) {
+      this.applyOtpDigits(inputs, this.otpDraft);
+    }
+
+    const focusIndex =
+      focusedOtpIndex != null && Number.isFinite(focusedOtpIndex)
+        ? Math.min(Math.max(focusedOtpIndex, 0), inputs.length - 1)
+        : this.otpDraft.length < inputs.length
+          ? this.otpDraft.length
+          : 0;
+    inputs[focusIndex]?.focus();
+
+    const maybeSubmit = (code: string): void => {
+      if (isCompleteOtpCode(code)) {
+        void app.submitVerification(code);
+      }
+    };
 
     inputs.forEach((input, index) => {
       input.addEventListener("input", () => {
-        const digit = input.value.replace(/\D/g, "").slice(-1);
+        const rawDigits = normalizeOtpDigits(input.value);
+        // Browser / OS OTP autofill inserts the full code into one field.
+        if (rawDigits.length > 1) {
+          const code = this.applyOtpDigits(inputs, rawDigits);
+          const nextIndex = Math.min(code.length, inputs.length) - 1;
+          inputs[Math.max(nextIndex, 0)]?.focus();
+          maybeSubmit(code);
+          return;
+        }
+
+        const digit = rawDigits.slice(-1);
         input.value = digit;
+        this.otpDraft = this.readOtpValue();
         if (digit && index < inputs.length - 1) {
           inputs[index + 1]?.focus();
         }
-        if (digit && index === inputs.length - 1 && this.readOtpValue().length === 6) {
-          void app.submitVerification(this.readOtpValue());
-        }
+        maybeSubmit(this.otpDraft);
       });
 
       input.addEventListener("keydown", (event) => {
@@ -715,6 +1388,7 @@ export class UiRoot {
           const previous = inputs[index - 1];
           previous?.focus();
           if (previous) previous.value = "";
+          this.otpDraft = this.readOtpValue();
         }
         if (event.key === "ArrowLeft" && index > 0) {
           inputs[index - 1]?.focus();
@@ -726,24 +1400,68 @@ export class UiRoot {
 
       input.addEventListener("paste", (event) => {
         event.preventDefault();
-        const pasted = event.clipboardData
-          ?.getData("text")
-          .replace(/\D/g, "")
-          .slice(0, 6);
+        const pasted = normalizeOtpDigits(
+          event.clipboardData?.getData("text") ?? "",
+        );
         if (!pasted) return;
 
-        pasted.split("").forEach((char, charIndex) => {
-          const target = inputs[charIndex];
-          if (target) target.value = char;
-        });
-
-        const nextIndex = Math.min(pasted.length, inputs.length - 1);
-        inputs[nextIndex]?.focus();
-
-        if (pasted.length === 6) {
-          void app.submitVerification(pasted);
-        }
+        const code = this.applyOtpDigits(inputs, pasted);
+        const nextIndex = Math.min(code.length, OTP_CODE_LENGTH) - 1;
+        inputs[Math.max(nextIndex, 0)]?.focus();
+        maybeSubmit(code);
       });
     });
+  }
+
+  private ensureVerifyResendCountdown(): void {
+    if (this.verifyResendEndsAt == null) {
+      this.verifyResendEndsAt = Date.now() + RESEND_OTP_COOLDOWN_MS;
+    }
+    this.syncVerifyResendUi();
+    if (this.verifyResendInterval == null) {
+      this.verifyResendInterval = window.setInterval(() => {
+        this.syncVerifyResendUi();
+      }, 250);
+    }
+  }
+
+  private restartVerifyResendCountdown(): void {
+    this.verifyResendEndsAt = Date.now() + RESEND_OTP_COOLDOWN_MS;
+    this.syncVerifyResendUi();
+    if (this.verifyResendInterval == null) {
+      this.verifyResendInterval = window.setInterval(() => {
+        this.syncVerifyResendUi();
+      }, 250);
+    }
+  }
+
+  private clearVerifyResendCountdown(): void {
+    if (this.verifyResendInterval != null) {
+      window.clearInterval(this.verifyResendInterval);
+      this.verifyResendInterval = null;
+    }
+    this.verifyResendEndsAt = null;
+  }
+
+  private syncVerifyResendUi(): void {
+    const countdown = this.root.querySelector<HTMLElement>(
+      ".verify-resend-countdown",
+    );
+    const ready = this.root.querySelector<HTMLElement>(".verify-resend-ready");
+    const timer = this.root.querySelector<HTMLElement>("#verify-resend-timer");
+    if (!countdown || !ready || !timer || this.verifyResendEndsAt == null) {
+      return;
+    }
+
+    const remainingMs = this.verifyResendEndsAt - Date.now();
+    if (remainingMs <= 0) {
+      countdown.hidden = true;
+      ready.hidden = false;
+      return;
+    }
+
+    countdown.hidden = false;
+    ready.hidden = true;
+    timer.textContent = formatResendCountdown(remainingMs / 1000);
   }
 }

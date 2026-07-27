@@ -182,9 +182,52 @@
     return placements;
   }
 
-  function collectPlacementsInRange(points, fromAlongM, toAlongM, floorY) {
+  /**
+   * Density adapts to remaining distance and near-camera opening stretch so the
+   * first viewport does not fill with overlapping full-size chevrons.
+   */
+  function resolveTrailDensity(alongM, totalLen) {
     const c = cfg();
-    const spacing = c.incrementalPathSpacingM ?? c.floorArrowSpacingM ?? 1.85;
+    const remaining = Math.max(0, totalLen - alongM);
+    const horizonM = c.incrementalPathHorizonM ?? 22;
+    const nearFieldM = c.nearFieldStartM ?? 6;
+    const shortThreshold = c.shortRemainingThresholdM ?? 12;
+    const arrivalClearM = c.arrivalClearRemainingM ?? 1.8;
+
+    let spacing = c.incrementalPathSpacingM ?? c.floorArrowSpacingM ?? 4.5;
+    let revealAheadM = Math.min(horizonM, c.incrementalPathRevealAheadM ?? 6);
+    let maxVisible = c.incrementalPathMaxVisible ?? 4;
+    let nearScale = 1;
+    const clearTrail = remaining < arrivalClearM;
+
+    if (remaining <= shortThreshold) {
+      revealAheadM = Math.min(revealAheadM, c.shortRemainingRevealM ?? 4);
+      spacing = Math.max(spacing, c.nearFieldSpacingM ?? 5.5);
+      maxVisible = Math.min(maxVisible, c.nearFieldMaxArrows ?? 2);
+    }
+
+    if (alongM < nearFieldM) {
+      spacing = Math.max(spacing, c.nearFieldSpacingM ?? 5.5);
+      revealAheadM = Math.min(revealAheadM, nearFieldM);
+      maxVisible = Math.min(maxVisible, c.nearFieldMaxArrows ?? 2);
+      nearScale = c.nearFieldArrowScale ?? 0.72;
+    }
+
+    if (clearTrail) {
+      revealAheadM = 0;
+      maxVisible = 0;
+    }
+
+    return { spacing, revealAheadM, maxVisible, nearScale, remaining, clearTrail };
+  }
+
+  function collectPlacementsInRange(points, fromAlongM, toAlongM, floorY, spacingOverride) {
+    const c = cfg();
+    const spacing =
+      spacingOverride ??
+      c.incrementalPathSpacingM ??
+      c.floorArrowSpacingM ??
+      1.85;
     const bendM = c.turnCurveBendM ?? 2.2;
     const curveSpacing =
       c.turnCurveArrowSpacingM ?? Math.max(0.9, spacing * 0.55);
@@ -204,6 +247,8 @@
 
     for (const zone of curveZones) {
       if (zone.end < from || zone.start > to) continue;
+      // Skip dense curve fans when the reveal window is already tiny.
+      if (to - from < spacing * 1.25) continue;
       placements.push(
         ...curvePlacementsAtTurn(zone.turn, floorY, bendM, curveSpacing),
       );
@@ -265,7 +310,7 @@
     return mesh;
   }
 
-  function spawnPlacement(THREE, group, place, segmentIndex) {
+  function spawnPlacement(THREE, group, place, segmentIndex, density) {
     const factory = window.FplacesFloorArrows?.createTrailSegment;
     if (!factory) return null;
 
@@ -280,13 +325,60 @@
     }
 
     const fade = Math.max(0.62, 1 - (segmentIndex % 8) * 0.04);
-    const scale = 1.14 - (segmentIndex % 6) * 0.03;
+    let scale = 1.05 - (segmentIndex % 6) * 0.03;
+    const nearScale = density?.nearScale ?? 1;
+    if (nearScale < 1) {
+      scale *= nearScale;
+    }
     const mesh = factory(THREE, place, fade, scale);
     mesh.userData.spawnAt = performance.now();
     mesh.userData.targetOpacity = fade;
     mesh.userData.segmentKey = segmentKey(place);
     group.add(mesh);
     return mesh;
+  }
+
+  function pruneExcessAhead(maxVisible) {
+    if (!trailGroup || maxVisible == null || maxVisible < 0) return;
+    const arrows = trailGroup.children
+      .filter((child) => typeof child.userData?.alongM === "number")
+      .sort((a, b) => a.userData.alongM - b.userData.alongM);
+    while (arrows.length > maxVisible) {
+      const child = arrows.pop();
+      if (!child) break;
+      if (child.userData?.segmentKey) {
+        spawnedKeys.delete(child.userData.segmentKey);
+      }
+      trailGroup.remove(child);
+      child.traverse((obj) => {
+        if (obj.isMesh) {
+          obj.geometry?.dispose?.();
+          if (obj.material && !Array.isArray(obj.material)) {
+            obj.material.dispose?.();
+          }
+        }
+      });
+    }
+  }
+
+  function clearTrailMeshes() {
+    if (!trailGroup) return;
+    const toRemove = [...trailGroup.children];
+    toRemove.forEach((child) => {
+      if (child.userData?.segmentKey) {
+        spawnedKeys.delete(child.userData.segmentKey);
+      }
+      trailGroup.remove(child);
+      child.traverse((obj) => {
+        if (obj.isMesh) {
+          obj.geometry?.dispose?.();
+          if (obj.material && !Array.isArray(obj.material)) {
+            obj.material.dispose?.();
+          }
+        }
+      });
+    });
+    spawnedTurnKeys = new Set();
   }
 
   function ensureDestinationMarker(THREE, scene, destPoint, floorY) {
@@ -473,37 +565,52 @@
         ? options.alongPathM
         : (window.FplacesFloorArrows?.findAlongPathM?.(points, userX, userZ) ?? 0);
     const c = cfg();
-    const horizonM = c.incrementalPathHorizonM ?? 22;
-    const revealAheadM = Math.min(horizonM, c.incrementalPathRevealAheadM ?? 6);
-    const spawnIntervalMs = c.incrementalPathSpawnIntervalMs ?? 260;
+    const spawnIntervalMs = c.incrementalPathSpawnIntervalMs ?? 320;
     const leadGap =
       (c.leadingArrowDistanceM ?? 2.2) +
       (c.floorArrowSpacingM ?? 1.85) * 0.35;
 
     const { totalLen } = buildSegmentTable(points);
-    // Only spawn ahead of navigation progress — never from path origin when user is mid-route.
-    const spawnFrom = Math.max(furthestAlongM, findAlong + leadGap * 0.25);
-    // Progressive reveal: the path only exists a short window ahead of covered distance.
-    const spawnTo = Math.min(totalLen - 0.2, findAlong + revealAheadM);
+    const density = resolveTrailDensity(findAlong, totalLen);
+    const { revealAheadM, spacing, maxVisible, clearTrail } = density;
 
     const group = ensureTrailGroup(THREE, scene);
-    // Destination marker appears once the reveal window reaches the path end.
-    if (findAlong + revealAheadM >= totalLen - 0.2) {
+
+    // Destination pin can remain even when trail chevrons clear near arrival.
+    if (clearTrail || findAlong + Math.max(revealAheadM, 4) >= totalLen - 0.2) {
       const dest = points[points.length - 1];
       ensureDestinationMarker(THREE, scene, dest, floorY);
     }
 
-    if (spawnTo > spawnFrom + 0.3) {
+    if (clearTrail) {
+      clearTrailMeshes();
+      updateVisuals(performance.now());
+      return group;
+    }
+
+    // Only spawn ahead of navigation progress — never from path origin when user is mid-route.
+    // Extra near-field gap keeps the first chevron out of the camera crush zone.
+    const nearFieldM = c.nearFieldStartM ?? 6;
+    const openingGap =
+      findAlong < nearFieldM ? Math.max(leadGap, spacing * 0.85) : leadGap * 0.25;
+    const spawnFrom = Math.max(furthestAlongM, findAlong + openingGap);
+    // Progressive reveal: the path only exists a short window ahead of covered distance.
+    const spawnTo = Math.min(totalLen - 0.2, findAlong + revealAheadM);
+
+    if (spawnTo > spawnFrom + 0.3 && maxVisible > 0) {
       const placements = collectPlacementsInRange(
         points,
         spawnFrom,
         spawnTo,
         floorY,
+        spacing,
       );
       let added = 0;
       const now = performance.now();
 
       for (const place of placements) {
+        if (group.children.length >= maxVisible) break;
+
         if (place.kind === "bend-ribbon" && place.turnAlongM != null) {
           const tk = `turn:${round2(place.turnAlongM)}`;
           if (spawnedTurnKeys.has(tk)) continue;
@@ -516,7 +623,7 @@
         if (added > 0 || now - lastSpawnAt < spawnIntervalMs) break;
 
         spawnedKeys.add(sk);
-        spawnPlacement(THREE, group, place, group.children.length);
+        spawnPlacement(THREE, group, place, group.children.length, density);
         lastSpawnAt = now;
         if (typeof place.alongM === "number") {
           furthestAlongM = Math.max(furthestAlongM, place.alongM);
@@ -538,6 +645,9 @@
             spawnFrom: round2(spawnFrom),
             spawnTo: round2(spawnTo),
             furthestAlongM: round2(furthestAlongM),
+            spacing: round2(spacing),
+            maxVisible,
+            remaining: round2(density.remaining),
           },
           600,
           "incremental:append",
@@ -546,6 +656,7 @@
     }
 
     pruneBehind(findAlong);
+    pruneExcessAhead(maxVisible);
 
     // Drop segments spawned at wrong along (e.g. before navigator progress was wired).
     if (findAlong > furthestAlongM + 6) {

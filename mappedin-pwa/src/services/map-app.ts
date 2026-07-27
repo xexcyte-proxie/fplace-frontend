@@ -1,4 +1,4 @@
-import { getMapData, show3dMap } from '@mappedin/mappedin-js';
+import { show3dMap } from '@mappedin/mappedin-js';
 import type { MapData, MapView } from '@mappedin/mappedin-js';
 
 import { appConfig } from '../config';
@@ -18,9 +18,66 @@ import {
   warmArIframe,
   type NavigationProgressSnapshot,
 } from './ar-service';
+import { coordinateTransformationService } from '../routing/coordinate-transformation-service';
 import { navigationStateSynchronizer } from '../routing/navigation-state-synchronizer';
 import { routeLifecycleManager } from '../routing/route-lifecycle-manager';
-import { AuthApiError, registerUser, resendVerification, verifyEmail } from './auth-service';
+import { computeLiveRemainingMeters } from '../routing/route-progress';
+import {
+  AuthApiError,
+  clearStoredAuthTokens,
+  clearVenueSelection,
+  deleteCurrentAccount,
+  fetchCurrentUser,
+  hasStoredAuthTokens,
+  loadVenueSelection,
+  loginUser,
+  logoutUser,
+  onAuthSessionCleared,
+  registerUser,
+  resendVerification,
+  resolveOnboardingStep,
+  saveVenueSelection,
+  signInWithGoogle,
+  updateCurrentUser,
+  userNeedsPseudoName,
+  verifyEmail,
+  type VenueSelection,
+} from './auth-service';
+import { isCompleteOtpCode } from '../auth/domain/otp-code';
+import {
+  loadAppPreferences,
+  patchAppPreferences,
+} from './app-preferences-service';
+import {
+  createForumPost,
+  flagForumPost,
+  listAllVenues,
+  loadInitialVenueFeed,
+  loadVenueCatalog,
+  subscribeVenueLiveFeed,
+  toggleForumPostUpvote,
+  type ForumPost,
+  type VenueLiveEvent,
+  type VenueLiveSubscription,
+} from './forum-service';
+import {
+  countUnread,
+  listNotifications,
+  loadInitialNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  subscribePersonalNotifications,
+  type AppNotification,
+  type PersonalNotificationEvent,
+  type PersonalNotificationSubscription,
+} from './notifications-service';
+import {
+  getCurrentMapLanguage,
+  getSupportedMapLanguages,
+  loadPreferredMapLanguage,
+  savePreferredMapLanguage,
+} from './map-language-service';
+import { resolveMapData } from './map-offline-service';
 import { BlueDotService } from './blue-dot-service';
 import type { PositionProvider } from '../position/positionProvider';
 import { HighFrequencyMockProvider } from '../position/providers/mockProvider';
@@ -29,14 +86,36 @@ import { requestDeviceOrientationPermission } from '../position/providers/gpsPro
 import type { FplacesPositionFrame, PositionSourceType } from '../position/types';
 import { scheduleSocialMapMarkers, type LocationCardSelection, type SocialMapMarkerService } from '../map/social-map-markers';
 import { LocationService } from './location-service';
-import { RoutePlanner, ROUTE_NOT_FOUND_MESSAGE } from './route-planner';
+import {
+  LOCATION_NOT_ROUTABLE_MESSAGE,
+  toUserFacingRouteError,
+} from '../routing/constants';
+import { RoutePlanner } from './route-planner';
 import { resolveMapTarget, getLocationChips, searchVenue } from './search-service';
 import { AppStore } from '../state/app-store';
-import type { AppTab, BlueDotStatus, FloorInfo, RouteCoordinate, RoutePayload, SocialCategory, VenueFeedFilter } from '../types';
-import { isArSessionActive, markOnboardingComplete, storeAuthUser } from '../types';
+import type {
+  AppTab,
+  BlueDotStatus,
+  FloorInfo,
+  NotificationItem,
+  RegisteredUser,
+  RouteCoordinate,
+  RoutePayload,
+  SocialCategory,
+  VenueFeedFilter,
+} from '../types';
+import {
+  clearStoredAuthUser,
+  isArSessionActive,
+  storeAuthUser,
+} from '../types';
 import { inferAreaHint } from '../ui/route-summary';
 import { INITIAL_SOCIAL_POSTS, SOCIAL_CATEGORY_LABELS, SOCIAL_LOCATIONS_BY_ID, SOCIAL_QUICK_TAG_LABELS } from '../ui/social-data';
-import { INITIAL_VENUE_FEED_POSTS } from '../ui/venue-feed-data';
+import { mapForumPostToVenueFeed, mapForumPostsToVenueFeed } from '../ui/venue-feed-data';
+import {
+  generatePseudoName,
+} from '../ui/pseudo-name-data';
+import { defaultSectionId } from '../ui/venue-select-data';
 import { legInstructions } from '../utils/route-helpers';
 import { appLog, appWarn } from '../utils/logger';
 import { serializeCoordinate } from '../utils/route-helpers';
@@ -58,12 +137,37 @@ export class MapApp {
   private autoRoutePending = false;
   private locationPromptShown = false;
   private lastProgressUiAt = 0;
+  /** True while GPS/live navigation is actively tracking along the route (Begin pressed or mid-switch). */
+  private liveRouteTracking = false;
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private searchGeneration = 0;
   private authFlowBootstrapped = false;
+  private authResumeInFlight = false;
+  private venueEnterInFlight = false;
+  private handlingSessionExpiry = false;
+  /** In-memory only — used to obtain JWTs after email verification. */
+  private pendingAuthPassword: string | null = null;
   private socialMapMarkers: SocialMapMarkerService | null = null;
+  /** Receive-only venue room socket; opened right after the initial feed fetch. */
+  private venueLiveSubscription: VenueLiveSubscription | null = null;
+  /** Receive-only personal notifications socket (cross-venue, account-level). */
+  private personalNotificationsSubscription: PersonalNotificationSubscription | null =
+    null;
+  private personalNotificationsBootstrapInFlight = false;
+  private venueFeedCreateInFlight = false;
+  private readonly venueFeedUpvoteInFlight = new Set<string>();
+  private readonly venueFeedFlagInFlight = new Set<string>();
 
-  constructor(private readonly store: AppStore) {}
+  constructor(private readonly store: AppStore) {
+    const preferences = loadAppPreferences();
+    this.store.patch({
+      notificationsEnabled: preferences.notificationsEnabled,
+      simulationEnabled: preferences.simulationEnabled,
+    });
+    onAuthSessionCleared(() => {
+      this.handleAuthSessionExpired();
+    });
+  }
 
   async start(mapContainer: HTMLElement): Promise<void> {
     this.store.patch({
@@ -82,14 +186,29 @@ export class MapApp {
     }, appConfig.mapInitTimeoutMs);
 
     try {
-      this.mapData = await getMapData({
+      const preferredLanguage = loadPreferredMapLanguage();
+      const offline =
+        typeof navigator !== 'undefined' && navigator.onLine === false;
+      if (offline) {
+        this.store.patch({
+          loadingMessage: 'Loading cached map…',
+          loadingProgress: 35,
+        });
+      }
+
+      const resolved = await resolveMapData({
         key: appConfig.mappedin.key,
         secret: appConfig.mappedin.secret,
         mapId: appConfig.mappedin.mapId,
+        ...(preferredLanguage ? { language: preferredLanguage } : {}),
+        fallbackToNavigatorLanguage: true,
       });
+      this.mapData = resolved.mapData;
 
       this.store.patch({
-        loadingMessage: 'Starting 3D map…',
+        loadingMessage: resolved.fromCache
+          ? 'Starting 3D map from cache…'
+          : 'Starting 3D map…',
         loadingProgress: 55,
       });
 
@@ -107,11 +226,12 @@ export class MapApp {
         onStatus: (status) => this.handleBlueDotStatus(status),
       });
       this.blueDotService.prepare({
-        simulatorBoot: PositionProviderRegistry.resolveActiveSource() === 'simulator',
+        simulatorBoot: this.store.get().simulationEnabled,
       });
 
       this.wireMapEvents();
       this.publishFloors();
+      this.publishMapLanguages();
 
       this.socialMapMarkers = scheduleSocialMapMarkers(
         this.mapView,
@@ -235,6 +355,8 @@ export class MapApp {
     this.store.patch({
       activeTab: tab,
       profileView: 'main',
+      settingsConfirm: null,
+      notificationsOpen: false,
       socialLocation: tab === 'social' ? null : this.store.get().socialLocation,
       socialDraft: this.captureSocialDraft(),
       venueFeedDraft: this.captureVenueFeedDraft(),
@@ -242,39 +364,948 @@ export class MapApp {
   }
 
   openProfileSettings(): void {
-    this.store.patch({ activeTab: 'profile', profileView: 'settings' });
+    this.store.patch({
+      activeTab: 'profile',
+      profileView: 'settings',
+      settingsConfirm: null,
+    });
   }
 
   closeProfileSettings(): void {
-    this.store.patch({ profileView: 'main' });
+    this.store.patch({ profileView: 'main', settingsConfirm: null });
+  }
+
+  openMapLanguageSettings(): void {
+    this.store.patch({
+      activeTab: 'profile',
+      profileView: 'language',
+      settingsConfirm: null,
+    });
+  }
+
+  closeMapLanguageSettings(): void {
+    this.store.patch({ profileView: 'settings' });
+  }
+
+  openEditProfileFromSettings(): void {
+    const state = this.store.get();
+    const user = state.authUser;
+    if (!user || !hasStoredAuthTokens()) {
+      this.showLogin();
+      return;
+    }
+    const existingName =
+      user.pseudo_name?.trim() || state.pseudoNameDraft.trim() || '';
+    const interests = user.interests?.length ? [...user.interests] : [];
+    this.store.patch({
+      activeTab: 'profile',
+      profileView: 'edit-profile',
+      settingsConfirm: null,
+      authFieldErrors: {},
+      pseudoNameDraft: existingName,
+      pseudoNameHint: state.pseudoNameHint || generatePseudoName(),
+      selectedInterests: interests,
+    });
+  }
+
+  closeEditProfileSettings(): void {
+    this.store.patch({
+      profileView: 'settings',
+      authFieldErrors: {},
+      authLoading: false,
+    });
+  }
+
+  async submitProfileEditFromSettings(pseudoName: string): Promise<void> {
+    const trimmed = pseudoName.trim();
+    if (!trimmed) {
+      this.store.patch({
+        authFieldErrors: { pseudo_name: 'Pick a pseudo-name to continue.' },
+        pseudoNameDraft: trimmed,
+      });
+      return;
+    }
+    if (trimmed.length < 3) {
+      this.store.patch({
+        authFieldErrors: {
+          pseudo_name: 'Pseudo-name must be at least 3 characters.',
+        },
+        pseudoNameDraft: trimmed,
+      });
+      return;
+    }
+    if (trimmed.length > 50) {
+      this.store.patch({
+        authFieldErrors: {
+          pseudo_name: 'Pseudo-name must be 50 characters or fewer.',
+        },
+        pseudoNameDraft: trimmed,
+      });
+      return;
+    }
+    if (!hasStoredAuthTokens()) {
+      this.store.patch({
+        authFieldErrors: {
+          _form: 'Your session expired. Please log in to continue.',
+        },
+      });
+      this.showLogin();
+      return;
+    }
+
+    const interests = this.store.get().selectedInterests;
+    this.store.patch({
+      authLoading: true,
+      authFieldErrors: {},
+      pseudoNameDraft: trimmed,
+    });
+
+    try {
+      const user = await updateCurrentUser({
+        pseudo_name: trimmed,
+        interests: interests.length > 0 ? interests : null,
+      });
+      const refreshed = await this.refreshProfileQuietly(user);
+      this.store.patch({
+        authLoading: false,
+        authUser: refreshed,
+        pseudoNameDraft: refreshed.pseudo_name?.trim() || trimmed,
+        selectedInterests: refreshed.interests?.length
+          ? [...refreshed.interests]
+          : interests,
+        authFieldErrors: {},
+        profileView: 'settings',
+      });
+      this.showToast('Profile updated.');
+    } catch (error) {
+      this.handleAuthFailure(error, 'Could not update your profile. Please try again.');
+    }
+  }
+
+  openAboutSettings(): void {
+    this.store.patch({
+      activeTab: 'profile',
+      profileView: 'about',
+      settingsConfirm: null,
+    });
+  }
+
+  openPrivacySettings(): void {
+    this.store.patch({
+      activeTab: 'profile',
+      profileView: 'privacy',
+      settingsConfirm: null,
+    });
+  }
+
+  openTermsSettings(): void {
+    this.store.patch({
+      activeTab: 'profile',
+      profileView: 'settings',
+      settingsConfirm: null,
+      legalWebView: 'terms',
+    });
+  }
+
+  closeSecondarySettings(): void {
+    this.store.patch({
+      profileView: 'settings',
+      settingsConfirm: null,
+      legalWebView: null,
+    });
+  }
+
+  dismissLegalWebView(): void {
+    this.store.patch({ legalWebView: null });
+  }
+
+  requestLogoutConfirm(): void {
+    this.store.patch({ settingsConfirm: 'logout' });
+  }
+
+  requestDeleteAccountConfirm(): void {
+    this.store.patch({ settingsConfirm: 'delete-account' });
+  }
+
+  dismissSettingsConfirm(): void {
+    if (this.store.get().authLoading) return;
+    this.store.patch({ settingsConfirm: null });
+  }
+
+  async setMapLanguage(code: string): Promise<void> {
+    if (!this.mapData) return;
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    if (this.store.get().mapLanguageCode === trimmed) {
+      this.store.patch({ profileView: 'settings' });
+      return;
+    }
+
+    this.store.patch({ mapLanguageChanging: true });
+    try {
+      await this.mapData.changeLanguage(trimmed);
+      savePreferredMapLanguage(trimmed);
+      this.store.patch({ profileView: 'settings' });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Could not change map language.';
+      this.showToast(message);
+      appWarn('Map', 'Language change failed', error);
+    } finally {
+      this.store.patch({ mapLanguageChanging: false });
+    }
   }
 
   toggleNotifications(): void {
-    const enabled = this.store.get().notificationsEnabled;
-    this.store.patch({ notificationsEnabled: !enabled });
+    const enabled = !this.store.get().notificationsEnabled;
+    patchAppPreferences({ notificationsEnabled: enabled });
+    this.store.patch({ notificationsEnabled: enabled });
+    if (enabled) {
+      void this.bootstrapPersonalNotifications();
+    } else {
+      this.disconnectPersonalNotifications();
+    }
+  }
+
+  openNotifications(): void {
+    this.store.patch({
+      activeTab: 'social',
+      notificationsOpen: true,
+    });
+    void this.refreshNotificationsInbox();
+  }
+
+  closeNotifications(): void {
+    this.store.patch({ notificationsOpen: false });
+  }
+
+  async refreshNotificationsInbox(): Promise<void> {
+    if (!hasStoredAuthTokens()) return;
+    if (this.store.get().notificationsLoading) return;
+
+    this.store.patch({ notificationsLoading: true });
+    try {
+      const page = await loadInitialNotifications();
+      const notifications = page.results.map(mapNotificationToItem);
+      this.store.patch({
+        notifications,
+        notificationsNext: page.next,
+        notificationsUnreadCount: countUnread(page.results),
+        notificationsLoading: false,
+      });
+    } catch (error) {
+      this.store.patch({ notificationsLoading: false });
+      appWarn('Notifications', 'Could not load notification inbox', error);
+      this.showToast('Could not load notifications.');
+    }
+  }
+
+  async loadMoreNotifications(): Promise<void> {
+    const state = this.store.get();
+    if (!state.notificationsNext || state.notificationsLoading) return;
+    if (!hasStoredAuthTokens()) return;
+
+    const nextUrl = state.notificationsNext;
+    const pageMatch = /[?&]page=(\d+)/.exec(nextUrl);
+    const page = pageMatch ? Number(pageMatch[1]) : 2;
+    if (!Number.isFinite(page) || page < 2) return;
+
+    this.store.patch({ notificationsLoading: true });
+    try {
+      const response = await listNotifications(page);
+      const existingIds = new Set(state.notifications.map((item) => item.id));
+      const appended = response.results
+        .map(mapNotificationToItem)
+        .filter((item) => !existingIds.has(item.id));
+      const mergedDomain = [
+        ...state.notifications.map(notificationItemToDomain),
+        ...response.results,
+      ];
+      this.store.patch({
+        notifications: [...state.notifications, ...appended],
+        notificationsNext: response.next,
+        notificationsUnreadCount: countUnread(mergedDomain),
+        notificationsLoading: false,
+      });
+    } catch (error) {
+      this.store.patch({ notificationsLoading: false });
+      appWarn('Notifications', 'Could not load more notifications', error);
+      this.showToast('Could not load more notifications.');
+    }
+  }
+
+  async markNotificationAsRead(notificationId: string): Promise<void> {
+    const id = Number(notificationId);
+    if (!Number.isFinite(id)) return;
+
+    const state = this.store.get();
+    const current = state.notifications.find((item) => item.id === id);
+    if (!current || current.isRead) return;
+
+    this.store.patch({
+      notifications: state.notifications.map((item) =>
+        item.id === id ? { ...item, isRead: true } : item,
+      ),
+      notificationsUnreadCount: Math.max(0, state.notificationsUnreadCount - 1),
+    });
+
+    try {
+      const updated = await markNotificationRead(id);
+      if (updated) {
+        const mapped = mapNotificationToItem(updated);
+        const latest = this.store.get();
+        this.store.patch({
+          notifications: latest.notifications.map((item) =>
+            item.id === id ? mapped : item,
+          ),
+        });
+      }
+    } catch (error) {
+      const latest = this.store.get();
+      this.store.patch({
+        notifications: latest.notifications.map((item) =>
+          item.id === id ? { ...item, isRead: false } : item,
+        ),
+        notificationsUnreadCount: latest.notificationsUnreadCount + 1,
+      });
+      appWarn('Notifications', 'Mark read failed', error);
+      this.showToast('Could not mark notification as read.');
+    }
+  }
+
+  async markAllNotificationsAsRead(): Promise<void> {
+    if (!hasStoredAuthTokens()) return;
+    const state = this.store.get();
+    if (state.notificationsUnreadCount <= 0 || state.notificationsMarkingAll) {
+      return;
+    }
+
+    const previous = state.notifications;
+    const previousUnread = state.notificationsUnreadCount;
+    this.store.patch({
+      notificationsMarkingAll: true,
+      notifications: previous.map((item) => ({ ...item, isRead: true })),
+      notificationsUnreadCount: 0,
+    });
+
+    try {
+      await markAllNotificationsRead();
+      this.store.patch({ notificationsMarkingAll: false });
+    } catch (error) {
+      this.store.patch({
+        notificationsMarkingAll: false,
+        notifications: previous,
+        notificationsUnreadCount: previousUnread,
+      });
+      appWarn('Notifications', 'Mark all read failed', error);
+      this.showToast('Could not mark all notifications as read.');
+    }
+  }
+
+  toggleSimulation(): void {
+    const enabled = !this.store.get().simulationEnabled;
+    const wasNavigating =
+      this.store.get().routeSimulating || this.liveRouteTracking;
+    const progressMeters = this.store.get().routeTraveledMeters;
+
+    patchAppPreferences({ simulationEnabled: enabled });
+    this.store.patch({ simulationEnabled: enabled });
+
+    const path = this.store.get().route?.pathCoordinates;
+    if (!path?.length) {
+      if (!enabled) {
+        this.liveRouteTracking = false;
+      }
+      return;
+    }
+
+    this.applyNavigationPositionMode({
+      path,
+      resumeNavigating: wasNavigating,
+      alongPathMeters: progressMeters,
+    });
   }
 
   completeOnboarding(): void {
-    markOnboardingComplete();
     this.store.patch({ onboardingComplete: true, authStep: 'none' });
+  }
+
+  showPseudoNameSetup(): void {
+    const state = this.store.get();
+    if (state.onboardingComplete) return;
+    const existingName =
+      state.authUser?.pseudo_name?.trim() ||
+      state.pseudoNameDraft.trim() ||
+      '';
+    const existingInterests = state.authUser?.interests?.length
+      ? [...state.authUser.interests]
+      : state.selectedInterests;
+    this.store.patch({
+      authStep: 'pseudo-name',
+      onboardingComplete: false,
+      authFieldErrors: {},
+      pseudoNameDraft: existingName,
+      pseudoNameHint: state.pseudoNameHint || generatePseudoName(),
+      selectedInterests: existingInterests,
+    });
+  }
+
+  dismissPseudoNameSetup(): void {
+    // Authenticated users must finish pseudo-name; send them to login instead of verify.
+    if (hasStoredAuthTokens()) {
+      return;
+    }
+    this.store.patch({ authStep: 'login', authFieldErrors: {} });
+  }
+
+  shufflePseudoName(): void {
+    const state = this.store.get();
+    const next = generatePseudoName(
+      state.pseudoNameDraft.trim() || state.pseudoNameHint,
+    );
+    this.store.patch({
+      pseudoNameDraft: next,
+      pseudoNameHint: next,
+      authFieldErrors: {
+        ...state.authFieldErrors,
+        pseudo_name: '',
+      },
+    });
+  }
+
+  toggleInterest(interest: string): void {
+    const selected = this.store.get().selectedInterests;
+    const next = selected.includes(interest)
+      ? selected.filter((item) => item !== interest)
+      : [...selected, interest];
+    this.store.patch({ selectedInterests: next });
+  }
+
+  async submitPseudoNameSetup(pseudoName: string): Promise<void> {
+    const trimmed = pseudoName.trim();
+    if (!trimmed) {
+      this.store.patch({
+        authFieldErrors: { pseudo_name: 'Pick a pseudo-name to continue.' },
+        pseudoNameDraft: trimmed,
+      });
+      return;
+    }
+
+    if (trimmed.length < 3) {
+      this.store.patch({
+        authFieldErrors: {
+          pseudo_name: 'Pseudo-name must be at least 3 characters.',
+        },
+        pseudoNameDraft: trimmed,
+      });
+      return;
+    }
+
+    if (trimmed.length > 50) {
+      this.store.patch({
+        authFieldErrors: {
+          pseudo_name: 'Pseudo-name must be 50 characters or fewer.',
+        },
+        pseudoNameDraft: trimmed,
+      });
+      return;
+    }
+
+    if (!hasStoredAuthTokens()) {
+      this.store.patch({
+        authFieldErrors: {
+          _form: 'Your session expired. Please log in to continue.',
+        },
+        authStep: 'login',
+        pseudoNameDraft: trimmed,
+      });
+      return;
+    }
+
+    const interests = this.store.get().selectedInterests;
+
+    this.store.patch({
+      authLoading: true,
+      authFieldErrors: {},
+      pseudoNameDraft: trimmed,
+    });
+
+    try {
+      const user = await updateCurrentUser({
+        pseudo_name: trimmed,
+        interests: interests.length > 0 ? interests : null,
+      });
+      const refreshed = await this.refreshProfileQuietly(user);
+      this.store.patch({
+        authLoading: false,
+        authUser: refreshed,
+        pseudoNameDraft: refreshed.pseudo_name?.trim() || trimmed,
+        selectedInterests: refreshed.interests?.length
+          ? [...refreshed.interests]
+          : interests,
+        authFieldErrors: {},
+      });
+      this.showVenueSelect();
+    } catch (error) {
+      this.handleAuthFailure(error, 'Could not save your profile. Please try again.');
+    }
+  }
+
+  showVenueSelect(): void {
+    this.store.patch({
+      authStep: 'venue-select',
+      onboardingComplete: false,
+      authFieldErrors: {},
+    });
+    void this.loadOnboardingVenues();
+  }
+
+  /** Re-open venue picker from settings without clearing the saved preference until submit. */
+  openVenueSelectFromSettings(): void {
+    const state = this.store.get();
+    if (!state.authUser || !hasStoredAuthTokens()) {
+      this.showLogin();
+      return;
+    }
+    this.store.patch({
+      profileView: 'main',
+      activeTab: 'map',
+      settingsConfirm: null,
+    });
+    this.showVenueSelect();
+  }
+
+  dismissVenueSelect(): void {
+    const state = this.store.get();
+    const user = state.authUser;
+    const selection = user ? loadVenueSelection(user.id) : null;
+    if (user && resolveOnboardingStep(user, selection) === 'home' && selection) {
+      this.store.patch({
+        selectedVenueId: selection.venueId,
+        selectedGateId: selection.sectionId,
+        authFieldErrors: {},
+      });
+      this.completeOnboarding();
+      return;
+    }
+    this.showPseudoNameSetup();
+  }
+
+  setVenueSearchQuery(query: string): void {
+    this.store.patch({ venueSearchQuery: query });
+  }
+
+  selectOnboardingVenue(venueId: string): void {
+    this.store.patch({
+      selectedVenueId: venueId,
+      selectedGateId: null,
+      forumSections: [],
+      authFieldErrors: {},
+    });
+    void this.loadOnboardingSections(venueId);
+  }
+
+  selectOnboardingGate(gateId: string): void {
+    this.store.patch({
+      selectedGateId: gateId,
+      authFieldErrors: {},
+    });
+  }
+
+  submitVenueSelect(): void {
+    void this.enterSelectedVenue();
+  }
+
+  private async loadOnboardingVenues(): Promise<void> {
+    this.store.patch({ authLoading: true, authFieldErrors: {} });
+    try {
+      const venues = await listAllVenues();
+      const state = this.store.get();
+      const existingStillValid = venues.some(
+        (venue) => String(venue.id) === state.selectedVenueId,
+      );
+      const selectedVenueId = existingStillValid
+        ? state.selectedVenueId
+        : venues[0]
+          ? String(venues[0].id)
+          : null;
+
+      this.store.patch({
+        forumVenues: venues.map((venue) => ({
+          id: venue.id,
+          name: venue.name,
+          location: venue.location,
+        })),
+        selectedVenueId,
+        selectedGateId: existingStillValid ? state.selectedGateId : null,
+        forumSections: existingStillValid ? state.forumSections : [],
+        authLoading: false,
+        authFieldErrors: venues.length
+          ? {}
+          : { _form: 'No venues are available right now.' },
+      });
+
+      if (selectedVenueId) {
+        await this.loadOnboardingSections(selectedVenueId);
+      }
+    } catch (error) {
+      this.handleAuthFailure(
+        error,
+        'Could not load venues. Please try again.',
+      );
+    }
+  }
+
+  private async loadOnboardingSections(venueId: string): Promise<void> {
+    const numericId = Number(venueId);
+    if (!Number.isFinite(numericId)) return;
+
+    this.store.patch({ authLoading: true, authFieldErrors: {} });
+    try {
+      const { sections, categories } = await loadVenueCatalog(numericId);
+      const state = this.store.get();
+      if (state.selectedVenueId !== venueId) return;
+
+      const sectionStillValid = sections.some(
+        (section) => String(section.id) === state.selectedGateId,
+      );
+
+      this.store.patch({
+        forumSections: sections.map((section) => ({
+          id: section.id,
+          venue: section.venue,
+          name: section.name,
+          code: section.code,
+          is_active: section.is_active,
+        })),
+        forumCategories: categories.map((category) => ({
+          id: category.id,
+          name: category.name,
+          slug: category.slug,
+          description: category.description,
+          disclaimer: category.disclaimer,
+          order: category.order,
+          is_active: category.is_active,
+        })),
+        selectedGateId: sectionStillValid
+          ? state.selectedGateId
+          : defaultSectionId(sections),
+        authLoading: false,
+        authFieldErrors: sections.length
+          ? {}
+          : { _form: 'This venue has no sections yet.' },
+      });
+    } catch (error) {
+      this.handleAuthFailure(
+        error,
+        'Could not load sections for this venue.',
+      );
+    }
+  }
+
+  private async enterSelectedVenue(options?: {
+    welcomeToast?: boolean;
+  }): Promise<void> {
+    if (this.venueEnterInFlight) return;
+
+    const state = this.store.get();
+    if (!state.selectedVenueId || !state.selectedGateId) {
+      this.store.patch({
+        authFieldErrors: {
+          _form: 'Select a venue and section to continue.',
+        },
+      });
+      return;
+    }
+
+    const venueId = Number(state.selectedVenueId);
+    if (!Number.isFinite(venueId)) {
+      this.store.patch({
+        authFieldErrors: { _form: 'Invalid venue selection.' },
+      });
+      return;
+    }
+
+    const selection: VenueSelection = {
+      venueId: state.selectedVenueId,
+      sectionId: state.selectedGateId,
+    };
+    const venue = state.forumVenues.find(
+      (item) => String(item.id) === state.selectedVenueId,
+    );
+
+    this.venueEnterInFlight = true;
+    this.store.patch({ authLoading: true, authFieldErrors: {} });
+    try {
+      let sections = state.forumSections;
+      let categories = state.forumCategories;
+      if (sections.length === 0 || categories.length === 0) {
+        const catalog = await loadVenueCatalog(venueId);
+        sections = catalog.sections.map((section) => ({
+          id: section.id,
+          venue: section.venue,
+          name: section.name,
+          code: section.code,
+          is_active: section.is_active,
+        }));
+        categories = catalog.categories.map((category) => ({
+          id: category.id,
+          name: category.name,
+          slug: category.slug,
+          description: category.description,
+          disclaimer: category.disclaimer,
+          order: category.order,
+          is_active: category.is_active,
+        }));
+      }
+
+      const feed = await loadInitialVenueFeed(venueId);
+      const venueFeedPosts = mapForumPostsToVenueFeed(
+        feed.results,
+        sections,
+        categories,
+      );
+      const upvotedPostIds = venueFeedPosts
+        .filter((post) => post.hasUpvoted)
+        .map((post) => post.id);
+
+      const user = state.authUser;
+      if (user) {
+        saveVenueSelection(user.id, selection);
+      }
+
+      const refreshedUser = user
+        ? await this.refreshProfileQuietly(user)
+        : null;
+
+      this.store.patch({
+        authUser: refreshedUser ?? user,
+        forumSections: sections,
+        forumCategories: categories,
+        selectedVenueId: selection.venueId,
+        selectedGateId: selection.sectionId,
+        venueFeedPosts,
+        forumFeedNext: feed.next,
+        forumFeedCount: feed.count,
+        upvotedPostIds,
+        venueFeedFilter: 'all',
+        sectionHeatmap: [],
+        sectionHeatmapActive: false,
+        venueLiveStatus: 'idle',
+        authLoading: false,
+        authFieldErrors: {},
+      });
+      this.completeOnboarding();
+      this.connectVenueLiveFeed(venueId);
+      void this.bootstrapPersonalNotifications();
+      if (options?.welcomeToast !== false) {
+        this.showToast(
+          venue ? `Welcome to ${venue.name}. You're in.` : 'Welcome to fplaces!',
+        );
+      }
+    } catch (error) {
+      this.handleAuthFailure(
+        error,
+        'Could not load the venue feed. Please try again.',
+      );
+    } finally {
+      this.venueEnterInFlight = false;
+    }
+  }
+
+  private connectVenueLiveFeed(venueId: number): void {
+    this.disconnectVenueLiveFeed();
+    this.store.patch({ venueLiveStatus: 'connecting' });
+    this.venueLiveSubscription = subscribeVenueLiveFeed(
+      venueId,
+      (event) => {
+        this.applyVenueLiveEvent(event);
+      },
+      (status) => {
+        this.store.patch({ venueLiveStatus: status });
+      },
+    );
+  }
+
+  private disconnectVenueLiveFeed(): void {
+    this.venueLiveSubscription?.disconnect();
+    this.venueLiveSubscription = null;
+    this.store.patch({ venueLiveStatus: 'idle' });
+  }
+
+  private async bootstrapPersonalNotifications(): Promise<void> {
+    if (!hasStoredAuthTokens()) return;
+    if (!this.store.get().notificationsEnabled) return;
+    if (this.personalNotificationsBootstrapInFlight) return;
+
+    this.personalNotificationsBootstrapInFlight = true;
+    try {
+      const page = await loadInitialNotifications();
+      const notifications = page.results.map(mapNotificationToItem);
+      this.store.patch({
+        notifications,
+        notificationsNext: page.next,
+        notificationsUnreadCount: countUnread(page.results),
+      });
+      this.connectPersonalNotifications();
+    } catch (error) {
+      appWarn('Notifications', 'Initial inbox fetch failed', error);
+      // Still open the socket so live badge updates can arrive.
+      this.connectPersonalNotifications();
+    } finally {
+      this.personalNotificationsBootstrapInFlight = false;
+    }
+  }
+
+  private connectPersonalNotifications(): void {
+    if (this.personalNotificationsSubscription) return;
+    if (!hasStoredAuthTokens()) return;
+    if (!this.store.get().notificationsEnabled) return;
+
+    this.personalNotificationsSubscription = subscribePersonalNotifications(
+      (event) => {
+        this.applyPersonalNotificationEvent(event);
+      },
+    );
+    appLog('NotificationsWS', 'Connected to personal notifications room');
+  }
+
+  private disconnectPersonalNotifications(): void {
+    this.personalNotificationsSubscription?.disconnect();
+    this.personalNotificationsSubscription = null;
+  }
+
+  private applyPersonalNotificationEvent(
+    event: PersonalNotificationEvent,
+  ): void {
+    if (!this.store.get().notificationsEnabled) return;
+    if (event.type !== 'new_notification') return;
+
+    const mapped = mapNotificationToItem(event.notification);
+    const state = this.store.get();
+    if (state.notifications.some((item) => item.id === mapped.id)) return;
+
+    this.store.patch({
+      notifications: [mapped, ...state.notifications],
+      notificationsUnreadCount: mapped.isRead
+        ? state.notificationsUnreadCount
+        : state.notificationsUnreadCount + 1,
+    });
+  }
+
+  private applyVenueLiveEvent(event: VenueLiveEvent): void {
+    switch (event.type) {
+      case 'new_post': {
+        this.mergeForumPostIntoFeed(event.post);
+        return;
+      }
+      case 'upvote_update': {
+        const state = this.store.get();
+        const postId = String(event.update.postId);
+        const upvoted = event.update.upvoted;
+        const venueFeedPosts = state.venueFeedPosts.map((post) =>
+          post.id === postId
+            ? {
+                ...post,
+                upvotes: event.update.upvotesCount,
+                ...(typeof upvoted === 'boolean'
+                  ? { hasUpvoted: upvoted }
+                  : {}),
+              }
+            : post,
+        );
+        let upvotedPostIds = state.upvotedPostIds;
+        if (typeof upvoted === 'boolean') {
+          upvotedPostIds = upvoted
+            ? [...new Set([...state.upvotedPostIds, postId])]
+            : state.upvotedPostIds.filter((id) => id !== postId);
+        }
+        this.store.patch({ venueFeedPosts, upvotedPostIds });
+        return;
+      }
+      case 'post_hidden': {
+        this.removeVenueFeedPost(String(event.postId));
+        return;
+      }
+      case 'section_heat_update': {
+        this.store.patch({
+          sectionHeatmap: event.heatmap.map((entry) => ({
+            sectionId: entry.sectionId,
+            postCount: entry.postCount,
+            priority: entry.priority,
+          })),
+          sectionHeatmapActive: true,
+        });
+        return;
+      }
+      default:
+        return;
+    }
   }
 
   private bootstrapAuthFlow(): void {
     if (this.authFlowBootstrapped) return;
     this.authFlowBootstrapped = true;
 
+    if (hasStoredAuthTokens()) {
+      // Keep marketing UI hidden while profile restore runs.
+      this.store.patch({ authLoading: true, authFieldErrors: {} });
+    } else {
+      // Show welcome/onboarding until the user chooses create or login.
+      this.store.patch({ authStep: 'none', authFieldErrors: {} });
+    }
+
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        const state = this.store.get();
-        if (
-          state.mapStatus === 'ready' &&
-          !state.onboardingComplete &&
-          state.authStep === 'none'
-        ) {
-          this.showCreateAccount();
-        }
+        void this.resumeAuthSession();
       });
     });
+  }
+
+  private async resumeAuthSession(): Promise<void> {
+    if (this.authResumeInFlight) return;
+
+    const state = this.store.get();
+    if (state.mapStatus !== 'ready' || state.onboardingComplete) {
+      return;
+    }
+
+    if (!hasStoredAuthTokens()) {
+      // Stay on welcome/onboarding when there is no stored session.
+      return;
+    }
+
+    // Only auto-route from the idle gate; leave in-progress auth forms alone.
+    if (state.authStep !== 'none') {
+      return;
+    }
+
+    this.authResumeInFlight = true;
+    this.store.patch({ authLoading: true, authFieldErrors: {} });
+    try {
+      const user = await fetchCurrentUser();
+      this.persistSessionUser(user);
+      this.store.patch({
+        authUser: user,
+        authEmail: user.email,
+        selectedInterests: user.interests?.length
+          ? [...user.interests]
+          : state.selectedInterests,
+      });
+      await this.continueAfterAuthenticated(user, { welcomeToast: false });
+    } catch (error) {
+      clearStoredAuthTokens();
+      clearStoredAuthUser();
+      this.store.patch({
+        authLoading: false,
+        authUser: null,
+        authFieldErrors: {},
+      });
+      appWarn('Auth', 'Stored session expired', error);
+      this.store.patch({ authStep: 'none' });
+    } finally {
+      this.authResumeInFlight = false;
+    }
   }
 
   showCreateAccount(): void {
@@ -282,13 +1313,49 @@ export class MapApp {
   }
 
   dismissCreateAccount(): void {
-    this.store.patch({ authStep: 'none', authFieldErrors: {} });
+    this.store.patch({
+      authStep: 'none',
+      authFieldErrors: {},
+      authLegalDocument: null,
+      legalWebView: null,
+    });
+  }
+
+  showLogin(): void {
+    this.store.patch({
+      authStep: 'login',
+      authFieldErrors: {},
+      authLegalDocument: null,
+      legalWebView: null,
+    });
+  }
+
+  dismissLogin(): void {
+    this.store.patch({
+      authStep: 'none',
+      authFieldErrors: {},
+      authLegalDocument: null,
+      legalWebView: null,
+    });
+  }
+
+  openAuthTerms(): void {
+    this.store.patch({ legalWebView: 'terms' });
+  }
+
+  openAuthPrivacy(): void {
+    this.store.patch({ authLegalDocument: 'privacy' });
+  }
+
+  dismissAuthLegal(): void {
+    this.store.patch({ authLegalDocument: null, legalWebView: null });
   }
 
   async submitRegistration(
     email: string,
     password: string,
     passwordConfirm: string,
+    termsAccepted: boolean,
   ): Promise<void> {
     const fieldErrors: Record<string, string> = {};
     const trimmedEmail = email.trim();
@@ -311,6 +1378,10 @@ export class MapApp {
       fieldErrors.password_confirm = 'Passwords must match.';
     }
 
+    if (!termsAccepted) {
+      fieldErrors.terms = 'Please agree to the Terms of Service and Privacy Policy.';
+    }
+
     if (Object.keys(fieldErrors).length > 0) {
       this.store.patch({
         authEmail: trimmedEmail,
@@ -331,38 +1402,23 @@ export class MapApp {
         password,
         password_confirm: passwordConfirm,
       });
-      storeAuthUser(user);
+      this.pendingAuthPassword = password;
+      this.persistSessionUser(user);
       this.store.patch({
         authLoading: false,
         authUser: user,
         authEmail: trimmedEmail,
-        authStep: 'check-email',
+        authStep: 'verify',
         authFieldErrors: {},
       });
     } catch (error) {
-      if (error instanceof AuthApiError) {
-        this.store.patch({
-          authLoading: false,
-          authFieldErrors: {
-            ...error.fieldErrors,
-            ...(Object.keys(error.fieldErrors).length === 0
-              ? { _form: error.summary }
-              : {}),
-          },
-        });
-        return;
-      }
-
-      this.store.patch({
-        authLoading: false,
-        authFieldErrors: {
-          _form:
-            error instanceof TypeError
-              ? 'Cannot reach the registration service. Restart the dev server and try again.'
-              : 'Could not create your account. Please try again.',
-        },
-      });
-      appWarn('Auth', 'Registration failed', error);
+      this.pendingAuthPassword = null;
+      this.handleAuthFailure(
+        error,
+        error instanceof TypeError
+          ? 'Cannot reach the registration service. Restart the dev server and try again.'
+          : 'Could not create your account. Please try again.',
+      );
     }
   }
 
@@ -370,12 +1426,8 @@ export class MapApp {
     this.store.patch({ authStep: 'create', authFieldErrors: {} });
   }
 
-  proceedToVerifyEmail(): void {
-    this.store.patch({ authStep: 'verify', authFieldErrors: {} });
-  }
-
   dismissVerifyEmail(): void {
-    this.store.patch({ authStep: 'check-email', authFieldErrors: {} });
+    this.store.patch({ authStep: 'create', authFieldErrors: {} });
   }
 
   async submitVerification(otp: string): Promise<void> {
@@ -384,7 +1436,7 @@ export class MapApp {
     const trimmedOtp = otp.trim();
     const fieldErrors: Record<string, string> = {};
 
-    if (!/^\d{6}$/.test(trimmedOtp)) {
+    if (!isCompleteOtpCode(trimmedOtp)) {
       fieldErrors.otp = 'Enter the 6-digit code from your email.';
     }
 
@@ -400,8 +1452,8 @@ export class MapApp {
     this.store.patch({ authLoading: true, authFieldErrors: {} });
 
     try {
-      const user = await verifyEmail(email, trimmedOtp);
-      if (!user.is_email_verified) {
+      const verifiedUser = await verifyEmail(email, trimmedOtp);
+      if (!verifiedUser.is_email_verified) {
         this.store.patch({
           authLoading: false,
           authFieldErrors: {
@@ -410,52 +1462,383 @@ export class MapApp {
         });
         return;
       }
-      storeAuthUser(user);
+
+      let user = verifiedUser;
+      const password = this.pendingAuthPassword;
+      this.pendingAuthPassword = null;
+
+      if (password) {
+        try {
+          const session = await loginUser({ email, password });
+          user = session.user;
+        } catch (loginError) {
+          this.persistSessionUser(verifiedUser);
+          this.store.patch({
+            authLoading: false,
+            authUser: verifiedUser,
+            authEmail: email,
+            authStep: 'login',
+            authFieldErrors: {
+              _form:
+                loginError instanceof AuthApiError
+                  ? 'Email verified. Please log in to continue setup.'
+                  : 'Email verified. Log in to finish setting up your profile.',
+            },
+          });
+          this.showToast('Email verified. Please log in to continue.');
+          return;
+        }
+      } else if (!hasStoredAuthTokens()) {
+        this.persistSessionUser(verifiedUser);
+        this.store.patch({
+          authLoading: false,
+          authUser: verifiedUser,
+          authEmail: email,
+          authStep: 'login',
+          authFieldErrors: {
+            _form: 'Email verified. Please log in to continue setup.',
+          },
+        });
+        this.showToast('Email verified. Please log in to continue.');
+        return;
+      }
+
+      this.persistSessionUser(user);
       this.store.patch({
         authLoading: false,
         authUser: user,
+        authEmail: user.email,
         authFieldErrors: {},
       });
-      this.completeOnboarding();
-      this.showToast('Email verified. Welcome to fplaces!');
+      await this.continueAfterAuthenticated(user);
+      this.showToast(
+        userNeedsPseudoName(user)
+          ? 'Email verified. Pick a name to continue.'
+          : 'Email verified.',
+      );
     } catch (error) {
-      if (error instanceof AuthApiError) {
+      this.handleAuthFailure(
+        error,
+        error instanceof TypeError
+          ? 'Cannot reach the verification service. Try again.'
+          : 'Could not verify your email. Please try again.',
+      );
+    }
+  }
+
+  async submitLogin(email: string, password: string): Promise<void> {
+    const fieldErrors: Record<string, string> = {};
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail) {
+      fieldErrors.email = 'Email is required.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      fieldErrors.email = 'Enter a valid email address.';
+    }
+
+    if (!password) {
+      fieldErrors.password = 'Password is required.';
+    }
+
+    if (Object.keys(fieldErrors).length > 0) {
+      this.store.patch({
+        authEmail: trimmedEmail,
+        authFieldErrors: fieldErrors,
+      });
+      return;
+    }
+
+    this.store.patch({
+      authEmail: trimmedEmail,
+      authLoading: true,
+      authFieldErrors: {},
+    });
+
+    try {
+      const session = await loginUser({
+        email: trimmedEmail,
+        password,
+      });
+      this.pendingAuthPassword = null;
+      this.persistSessionUser(session.user);
+      this.store.patch({
+        authUser: session.user,
+        authEmail: session.user.email,
+        selectedInterests: session.user.interests?.length
+          ? [...session.user.interests]
+          : this.store.get().selectedInterests,
+        authFieldErrors: {},
+      });
+      await this.continueAfterAuthenticated(session.user);
+    } catch (error) {
+      this.handleAuthFailure(
+        error,
+        error instanceof TypeError
+          ? 'Cannot reach the login service. Try again.'
+          : 'Could not log in. Check your email and password.',
+      );
+    }
+  }
+
+  async submitGoogleSignIn(): Promise<void> {
+    this.store.patch({ authLoading: true, authFieldErrors: {} });
+
+    try {
+      const session = await signInWithGoogle();
+      this.pendingAuthPassword = null;
+      this.persistSessionUser(session.user);
+      this.store.patch({
+        authUser: session.user,
+        authEmail: session.user.email,
+        selectedInterests: session.user.interests?.length
+          ? [...session.user.interests]
+          : this.store.get().selectedInterests,
+        authFieldErrors: {},
+      });
+      await this.continueAfterAuthenticated(session.user);
+    } catch (error) {
+      const message =
+        error instanceof AuthApiError
+          ? error.summary
+          : error instanceof Error
+            ? error.message
+            : 'Google sign-in failed. Please try again.';
+      this.store.patch({
+        authLoading: false,
+        authFieldErrors: { _form: message },
+      });
+      appWarn('Auth', 'Google sign-in failed', error);
+    }
+  }
+
+  async logout(): Promise<void> {
+    this.store.patch({ authLoading: true, settingsConfirm: 'logout' });
+    this.disconnectVenueLiveFeed();
+    this.disconnectPersonalNotifications();
+    try {
+      await logoutUser();
+    } catch (error) {
+      clearStoredAuthTokens();
+      appWarn('Auth', 'Logout request failed; cleared local session', error);
+    }
+    this.resetAuthState({ showCreate: true, toast: 'Logged out.' });
+  }
+
+  async deleteAccount(): Promise<void> {
+    const userId = this.store.get().authUser?.id;
+    this.store.patch({ authLoading: true, settingsConfirm: 'delete-account' });
+    this.disconnectVenueLiveFeed();
+    this.disconnectPersonalNotifications();
+
+    try {
+      await deleteCurrentAccount();
+      if (typeof userId === 'number') {
+        clearVenueSelection(userId);
+      }
+      this.resetAuthState({
+        showCreate: true,
+        toast: 'Your account has been deleted.',
+      });
+    } catch (error) {
+      this.store.patch({ authLoading: false, settingsConfirm: null });
+      const message =
+        error instanceof AuthApiError
+          ? error.summary
+          : error instanceof Error
+            ? error.message
+            : 'Could not delete your account.';
+      this.showToast(message);
+      appWarn('Auth', 'Delete account failed', error);
+    }
+  }
+
+  private resetAuthState(options?: {
+    showCreate?: boolean;
+    showLogin?: boolean;
+    formError?: string;
+    toast?: string;
+  }): void {
+    this.pendingAuthPassword = null;
+    clearStoredAuthUser();
+    this.disconnectVenueLiveFeed();
+    this.disconnectPersonalNotifications();
+    this.store.patch({
+      authUser: null,
+      authEmail: '',
+      authLoading: false,
+      authFieldErrors: options?.formError
+        ? { _form: options.formError }
+        : {},
+      authStep: 'none',
+      onboardingComplete: false,
+      pseudoNameDraft: '',
+      pseudoNameHint: '',
+      selectedInterests: [],
+      selectedVenueId: null,
+      selectedGateId: null,
+      forumVenues: [],
+      forumSections: [],
+      forumCategories: [],
+      forumFeedNext: null,
+      forumFeedCount: 0,
+      sectionHeatmap: [],
+      sectionHeatmapActive: false,
+      venueLiveStatus: 'idle',
+      venueFeedPosts: [],
+      venueFeedFilter: 'all',
+      upvotedPostIds: [],
+      notificationsOpen: false,
+      notifications: [],
+      notificationsUnreadCount: 0,
+      notificationsNext: null,
+      notificationsLoading: false,
+      notificationsMarkingAll: false,
+      profileView: 'main',
+      settingsConfirm: null,
+    });
+    if (options?.showLogin) {
+      this.showLogin();
+    } else if (options?.showCreate !== false) {
+      this.showCreateAccount();
+    }
+    if (options?.toast) {
+      this.showToast(options.toast);
+    }
+  }
+
+  private handleAuthSessionExpired(): void {
+    if (this.handlingSessionExpiry) return;
+    if (!this.store.get().authUser && !this.store.get().onboardingComplete) {
+      return;
+    }
+    this.handlingSessionExpiry = true;
+    try {
+      this.disconnectVenueLiveFeed();
+      this.resetAuthState({
+        showLogin: true,
+        formError: 'Your session expired. Please log in again.',
+        toast: 'Session expired. Please log in again.',
+      });
+    } finally {
+      this.handlingSessionExpiry = false;
+    }
+  }
+
+  private persistSessionUser(user: RegisteredUser): void {
+    storeAuthUser(user);
+  }
+
+  private async refreshProfileQuietly(
+    fallback: RegisteredUser,
+  ): Promise<RegisteredUser> {
+    try {
+      const user = await fetchCurrentUser();
+      this.persistSessionUser(user);
+      return user;
+    } catch (error) {
+      appWarn('Auth', 'Could not refresh profile after onboarding step', error);
+      this.persistSessionUser(fallback);
+      return fallback;
+    }
+  }
+
+  private async continueAfterAuthenticated(
+    user: RegisteredUser,
+    options?: { welcomeToast?: boolean },
+  ): Promise<void> {
+    const selection = loadVenueSelection(user.id);
+    const step = resolveOnboardingStep(user, selection);
+
+    if (step === 'pseudo-name') {
+      this.store.patch({ authLoading: false });
+      this.showPseudoNameSetup();
+      return;
+    }
+
+    if (step === 'venue-select') {
+      if (selection?.venueId) {
         this.store.patch({
-          authLoading: false,
-          authFieldErrors: {
-            ...error.fieldErrors,
-            ...(Object.keys(error.fieldErrors).length === 0
-              ? { _form: error.summary }
-              : {}),
-          },
+          selectedVenueId: selection.venueId,
+          selectedGateId: selection.sectionId ?? null,
         });
-        return;
+      }
+      this.store.patch({ authLoading: false });
+      this.showVenueSelect();
+      return;
+    }
+
+    this.store.patch({
+      selectedVenueId: selection!.venueId,
+      selectedGateId: selection!.sectionId,
+      authLoading: true,
+      authStep: 'none',
+    });
+    await this.enterSelectedVenue({
+      welcomeToast: options?.welcomeToast !== false,
+    });
+
+    if (!this.store.get().onboardingComplete) {
+      // Feed restore failed — keep the user in venue onboarding instead of a blank gate.
+      this.showVenueSelect();
+    }
+  }
+
+  private handleAuthFailure(error: unknown, fallbackMessage: string): void {
+    if (error instanceof AuthApiError) {
+      const knownFields = new Set([
+        'email',
+        'password',
+        'password_confirm',
+        'otp',
+        'pseudo_name',
+        'id_token',
+        '_form',
+      ]);
+      const fieldErrors: Record<string, string> = {};
+      const orphanMessages: string[] = [];
+
+      for (const [key, message] of Object.entries(error.fieldErrors)) {
+        if (knownFields.has(key)) {
+          fieldErrors[key] = message;
+        } else if (message.trim()) {
+          orphanMessages.push(message);
+        }
+      }
+
+      if (
+        Object.keys(fieldErrors).length === 0 ||
+        orphanMessages.length > 0
+      ) {
+        fieldErrors._form =
+          fieldErrors._form || orphanMessages[0] || error.summary;
       }
 
       this.store.patch({
         authLoading: false,
-        authFieldErrors: {
-          _form:
-            error instanceof TypeError
-              ? 'Cannot reach the verification service. Try again.'
-              : 'Could not verify your email. Please try again.',
-        },
+        authFieldErrors: fieldErrors,
       });
-      appWarn('Auth', 'Verification failed', error);
+      return;
     }
+
+    this.store.patch({
+      authLoading: false,
+      authFieldErrors: { _form: fallbackMessage },
+    });
+    appWarn('Auth', fallbackMessage, error);
   }
 
-  async resendVerificationCode(): Promise<void> {
+  async resendVerificationCode(): Promise<boolean> {
     const state = this.store.get();
     const email = state.authEmail || state.authUser?.email || '';
     if (!email) {
       this.showToast('Missing email for verification.');
-      return;
+      return false;
     }
 
     try {
-      const message = await resendVerification(email);
-      this.showToast(message);
+      await resendVerification(email);
+      this.showToast('Code sent. Check your email.');
+      return true;
     } catch (error) {
       const message =
         error instanceof AuthApiError
@@ -463,6 +1846,7 @@ export class MapApp {
           : 'Could not resend the verification code.';
       this.showToast(message);
       appWarn('Auth', 'Resend verification failed', error);
+      return false;
     }
   }
 
@@ -544,7 +1928,7 @@ export class MapApp {
       }
     } catch (error) {
       this.showToast(
-        error instanceof Error ? error.message : 'Could not set start point.',
+        toUserFacingRouteError(error, 'Could not set start point.'),
       );
     }
   }
@@ -581,7 +1965,7 @@ export class MapApp {
       this.scheduleAutoRoute();
     } catch (error) {
       this.showToast(
-        error instanceof Error ? error.message : 'Could not set destination.',
+        toUserFacingRouteError(error, 'Could not set destination.'),
       );
     }
   }
@@ -601,59 +1985,225 @@ export class MapApp {
     this.store.patch({ venueFeedDraft: text });
   }
 
-  toggleVenueFeedUpvote(postId: string): void {
-    const state = this.store.get();
-    const posts = state.venueFeedPosts.length
-      ? [...state.venueFeedPosts]
-      : [...INITIAL_VENUE_FEED_POSTS];
-    const post = posts.find((entry) => entry.id === postId);
-    if (!post) return;
-
-    const upvoted = state.upvotedPostIds.includes(postId);
-    if (upvoted) {
-      post.upvotes = Math.max(0, post.upvotes - 1);
-      this.store.patch({
-        venueFeedPosts: posts,
-        upvotedPostIds: state.upvotedPostIds.filter((id) => id !== postId),
-        venueFeedDraft: this.captureVenueFeedDraft(),
-      });
+  async toggleVenueFeedUpvote(postId: string): Promise<void> {
+    const numericId = Number(postId);
+    if (!Number.isFinite(numericId) || numericId <= 0) return;
+    if (this.venueFeedUpvoteInFlight.has(postId)) return;
+    if (!hasStoredAuthTokens()) {
+      this.showToast('Sign in to upvote posts.');
       return;
     }
 
-    post.upvotes += 1;
+    const state = this.store.get();
+    const post = state.venueFeedPosts.find((entry) => entry.id === postId);
+    if (!post) return;
+
+    const wasUpvoted =
+      state.upvotedPostIds.includes(postId) || Boolean(post.hasUpvoted);
+    const nextUpvoted = !wasUpvoted;
+    const previousUpvotes = post.upvotes;
+    this.applyOptimisticVenueFeedUpvote(postId, nextUpvoted);
+
+    this.venueFeedUpvoteInFlight.add(postId);
+    try {
+      const updated = await toggleForumPostUpvote(numericId, {
+        hasUpvotedFallback: nextUpvoted,
+      });
+      this.mergeForumPostIntoFeed({
+        ...updated,
+        // Keep the toggled state even if the API omits / mishandles has_upvoted.
+        has_upvoted: nextUpvoted,
+        upvotes_count: Number.isFinite(updated.upvotes_count)
+          ? updated.upvotes_count
+          : nextUpvoted
+            ? previousUpvotes + 1
+            : Math.max(0, previousUpvotes - 1),
+      });
+    } catch (error) {
+      this.applyOptimisticVenueFeedUpvote(postId, wasUpvoted, previousUpvotes);
+      const message =
+        error instanceof AuthApiError
+          ? error.summary
+          : 'Could not update upvote. Please try again.';
+      this.showToast(message);
+      appWarn('Forum', 'Upvote toggle failed', error);
+    } finally {
+      this.venueFeedUpvoteInFlight.delete(postId);
+    }
+  }
+
+  async flagVenueFeedPost(postId: string, reason?: string): Promise<void> {
+    const numericId = Number(postId);
+    if (!Number.isFinite(numericId) || numericId <= 0) return;
+    if (this.venueFeedFlagInFlight.has(postId)) return;
+    if (!hasStoredAuthTokens()) {
+      this.showToast('Sign in to report posts.');
+      return;
+    }
+
+    this.venueFeedFlagInFlight.add(postId);
+    try {
+      const updated = await flagForumPost(
+        numericId,
+        reason?.trim() ? { reason: reason.trim() } : undefined,
+      );
+      if (updated.status === 'hidden') {
+        this.removeVenueFeedPost(String(updated.id));
+        this.showToast('Post reported and removed.');
+      } else {
+        this.mergeForumPostIntoFeed(updated);
+        this.showToast('Thanks — post reported.');
+      }
+    } catch (error) {
+      const message =
+        error instanceof AuthApiError
+          ? error.summary
+          : 'Could not report this post. Please try again.';
+      this.showToast(message);
+      appWarn('Forum', 'Flag post failed', error);
+    } finally {
+      this.venueFeedFlagInFlight.delete(postId);
+    }
+  }
+
+  async submitVenueFeedPost(): Promise<void> {
+    if (this.venueFeedCreateInFlight) return;
+    if (!hasStoredAuthTokens()) {
+      this.showToast('Sign in to post.');
+      return;
+    }
+
+    const state = this.store.get();
+    const content = this.captureVenueFeedDraft().trim().slice(0, 140);
+    if (!content) return;
+
+    const venueId = Number(state.selectedVenueId);
+    if (!Number.isFinite(venueId) || venueId <= 0) {
+      this.showToast('Select a venue before posting.');
+      return;
+    }
+
+    const section =
+      state.forumSections.find(
+        (item) => String(item.id) === state.selectedGateId,
+      ) ?? null;
+
+    const filterCategory =
+      state.venueFeedFilter !== 'all'
+        ? state.forumCategories.find(
+            (item) => String(item.id) === state.venueFeedFilter,
+          )
+        : undefined;
+    const category =
+      filterCategory ??
+      state.forumCategories.find((item) => item.slug === 'fan-vibe') ??
+      state.forumCategories[0];
+
+    if (!category) {
+      this.showToast('Categories are still loading. Try again in a moment.');
+      return;
+    }
+
+    this.venueFeedCreateInFlight = true;
+    this.store.patch({ venueFeedDraft: '' });
+
+    try {
+      const created = await createForumPost({
+        venue: venueId,
+        category: category.id,
+        content,
+        section: section?.id ?? null,
+      });
+      this.mergeForumPostIntoFeed(created);
+    } catch (error) {
+      this.store.patch({ venueFeedDraft: content });
+      const message =
+        error instanceof AuthApiError
+          ? error.summary
+          : 'Could not post. Please try again.';
+      this.showToast(message);
+      appWarn('Forum', 'Create post failed', error);
+    } finally {
+      this.venueFeedCreateInFlight = false;
+    }
+  }
+
+  private applyOptimisticVenueFeedUpvote(
+    postId: string,
+    upvoted: boolean,
+    upvotesOverride?: number,
+  ): void {
+    const state = this.store.get();
+    const posts = state.venueFeedPosts.map((entry) => {
+      if (entry.id !== postId) return entry;
+      const nextUpvotes =
+        typeof upvotesOverride === 'number'
+          ? upvotesOverride
+          : upvoted
+            ? entry.upvotes + 1
+            : Math.max(0, entry.upvotes - 1);
+      return { ...entry, upvotes: nextUpvotes, hasUpvoted: upvoted };
+    });
     this.store.patch({
       venueFeedPosts: posts,
-      upvotedPostIds: [...state.upvotedPostIds, postId],
+      upvotedPostIds: upvoted
+        ? [...new Set([...state.upvotedPostIds, postId])]
+        : state.upvotedPostIds.filter((id) => id !== postId),
       venueFeedDraft: this.captureVenueFeedDraft(),
     });
   }
 
-  submitVenueFeedPost(): void {
+  /** Merge a REST `Post` into the feed (create / upvote / flag). WS events also dedupe by id. */
+  private mergeForumPostIntoFeed(post: ForumPost): void {
+    if (post.status === 'hidden') {
+      this.removeVenueFeedPost(String(post.id));
+      return;
+    }
+
     const state = this.store.get();
-    const content = this.captureVenueFeedDraft().trim();
-    if (!content) return;
+    const postId = String(post.id);
+    const existing = state.venueFeedPosts.find((entry) => entry.id === postId);
+    const sectionById = new Map(
+      state.forumSections.map((section) => [section.id, section]),
+    );
+    const categoryById = new Map(
+      state.forumCategories.map((category) => [category.id, category]),
+    );
+    const mapped = mapForumPostToVenueFeed(post, sectionById, categoryById);
+    const isPartial = !post.content || post.user.id <= 0;
 
-    const posts = state.venueFeedPosts.length
-      ? [...state.venueFeedPosts]
-      : [...INITIAL_VENUE_FEED_POSTS];
+    const merged = existing && isPartial
+      ? {
+          ...existing,
+          upvotes: mapped.upvotes,
+          hasUpvoted: mapped.hasUpvoted,
+        }
+      : mapped;
 
-    posts.unshift({
-      id: `venue-post-${Date.now()}`,
-      author: 'You',
-      initials: 'YO',
-      avatarColor: '#3b5998',
-      location: 'LA Stadium',
-      locationId: state.socialLocation ?? 'section-118',
-      timeAgo: 'just now',
-      feedType: 'hype',
-      content,
-      upvotes: 0,
-      comments: 0,
-    });
+    const venueFeedPosts = existing
+      ? state.venueFeedPosts.map((entry) =>
+          entry.id === postId ? merged : entry,
+        )
+      : [merged, ...state.venueFeedPosts];
+    const upvotedPostIds = merged.hasUpvoted
+      ? [...new Set([...state.upvotedPostIds, postId])]
+      : state.upvotedPostIds.filter((id) => id !== postId);
 
     this.store.patch({
-      venueFeedPosts: posts,
-      venueFeedDraft: '',
+      venueFeedPosts,
+      forumFeedCount: existing ? state.forumFeedCount : state.forumFeedCount + 1,
+      upvotedPostIds,
+    });
+  }
+
+  private removeVenueFeedPost(postId: string): void {
+    const state = this.store.get();
+    const nextPosts = state.venueFeedPosts.filter((post) => post.id !== postId);
+    if (nextPosts.length === state.venueFeedPosts.length) return;
+    this.store.patch({
+      venueFeedPosts: nextPosts,
+      forumFeedCount: Math.max(0, state.forumFeedCount - 1),
+      upvotedPostIds: state.upvotedPostIds.filter((id) => id !== postId),
     });
   }
 
@@ -754,24 +2304,32 @@ export class MapApp {
   ): Promise<void> {
     if (!this.mapData || !this.routePlanner) return;
 
-    const target = resolveMapTarget(this.mapData, locationId);
-    if (!target) {
-      this.showToast('Could not focus that location.');
-      return;
-    }
+    try {
+      const target = resolveMapTarget(this.mapData, locationId);
+      if (!target) {
+        this.showToast(LOCATION_NOT_ROUTABLE_MESSAGE);
+        return;
+      }
 
-    await this.routePlanner.setDestinationFromLocation(target, name, {
-      floorName,
-      areaHint: inferAreaHint(name),
-    });
-    this.routePlanner.clearHighlights();
-    this.store.patch({
-      searchResults: [],
-      searchQuery: '',
-      markers: this.routePlanner.markersState,
-      showRouteSheet: true,
-    });
-    this.scheduleAutoRoute();
+      await this.routePlanner.setDestinationFromLocation(target, name, {
+        floorName,
+        areaHint: inferAreaHint(name),
+      });
+      this.routePlanner.clearHighlights();
+      this.store.patch({
+        searchResults: [],
+        searchQuery: '',
+        markers: this.routePlanner.markersState,
+        showRouteSheet: true,
+        route: null,
+        routeNotFound: false,
+      });
+      this.scheduleAutoRoute();
+    } catch (error) {
+      this.showToast(
+        toUserFacingRouteError(error, 'Could not set destination.'),
+      );
+    }
   }
 
   async selectFloor(floorId: string): Promise<void> {
@@ -863,9 +2421,7 @@ export class MapApp {
       const message =
         error instanceof GeolocationPositionError
           ? this.locationService.geolocationErrorMessage(error)
-          : error instanceof Error
-            ? error.message
-            : 'Could not get your location.';
+          : toUserFacingRouteError(error, 'Could not get your location.');
       this.showToast(message);
     }
   }
@@ -881,6 +2437,15 @@ export class MapApp {
       showRouteSheet: false,
       blueDotFollowing: false,
     });
+  }
+
+  /** Close the route sheet; if routing failed, fully reset so planning can restart. */
+  async dismissRouteSheet(): Promise<void> {
+    if (this.store.get().routeNotFound) {
+      await this.clearRoutePoints();
+      return;
+    }
+    await this.clearRoute();
   }
 
   async clearRoute(): Promise<void> {
@@ -994,6 +2559,12 @@ export class MapApp {
     this.store.patch({ arPresentation: 'closed' });
   }
 
+  /** Exit AR and clear the active route (Figma “End navigation”). */
+  async endArNavigation(): Promise<void> {
+    this.closeAr();
+    await this.clearRoutePoints();
+  }
+
   focusRouteStart(): void {
     this.routePlanner?.focusRoutePoint('start');
     this.startRouteMovement({ alongPathMeters: 0, resetProgress: true });
@@ -1018,6 +2589,112 @@ export class MapApp {
     return provider as HighFrequencyMockProvider;
   }
 
+  private resolveNavigationSource(): PositionSourceType {
+    return PositionProviderRegistry.resolveNavigationSource(
+      this.store.get().simulationEnabled,
+    );
+  }
+
+  private isSimulationNavigation(): boolean {
+    return this.resolveNavigationSource() === 'simulator';
+  }
+
+  /**
+   * Switch or (re)start the position provider for the active route without
+   * wiping navigation progress. Used by applyRoute, Begin, and Simulation toggle.
+   */
+  private applyNavigationPositionMode(options: {
+    path: RoutePayload['pathCoordinates'];
+    resumeNavigating?: boolean;
+    alongPathMeters?: number;
+  }): void {
+    const resumeNavigating = options.resumeNavigating === true;
+    const alongPathMeters = options.alongPathMeters ?? this.store.get().routeTraveledMeters;
+    const remainingHint =
+      this.store.get().routeRemainingMeters ??
+      this.store.get().route?.distanceMeters ??
+      null;
+
+    this.stopPositionProvider({ preserveProgress: true });
+    this.startPositionProvider(options.path);
+
+    if (this.isSimulationNavigation()) {
+      this.liveRouteTracking = false;
+      const provider = this.getSimulatorProvider();
+      provider?.seekAlongPath(alongPathMeters);
+      if (resumeNavigating) {
+        provider?.startSimulationMove();
+        this.blueDotService?.follow();
+        const traveled = provider?.getMetersAlongPath() ?? alongPathMeters;
+        const total = provider?.getTotalPathMeters() ?? this.store.get().route?.distanceMeters ?? traveled;
+        const atEnd = provider?.isAtPathEnd() ?? false;
+        this.store.patch({
+          blueDotFollowing: true,
+          routeSimulating: Boolean(provider?.moving && !atEnd),
+          routeSimulationComplete: atEnd && traveled > 0,
+          routeTraveledMeters: traveled,
+          routeRemainingMeters: Math.max(0, total - traveled),
+        });
+        if (isArSessionActive(this.store.get().arPresentation)) {
+          const snapshot = this.getNavigationProgressSnapshot();
+          notifyArSimulatorStarted({
+            alongPathMeters: snapshot.alongPathMeters,
+            pathPoints: options.path.length,
+          });
+          syncNavigationToAr(snapshot);
+        }
+      } else {
+        this.store.patch({
+          routeTraveledMeters: alongPathMeters,
+          routeRemainingMeters: remainingHint,
+          routeSimulating: false,
+          routeSimulationComplete: false,
+        });
+      }
+      return;
+    }
+
+    // Live indoor positioning (GPS / beacons / IPS) projected onto the route.
+    this.liveRouteTracking = true;
+    this.blueDotService?.follow();
+    this.store.patch({
+      blueDotFollowing: true,
+      routeSimulating: true,
+      routeSimulationComplete: false,
+      routeTraveledMeters: alongPathMeters,
+      routeRemainingMeters: remainingHint,
+    });
+    if (isArSessionActive(this.store.get().arPresentation)) {
+      syncNavigationToAr(this.getNavigationProgressSnapshot());
+    }
+  }
+
+  private projectFrameOntoRoute(frame: FplacesPositionFrame): FplacesPositionFrame {
+    const path = this.store.get().route?.pathCoordinates;
+    if (!path?.length) return frame;
+
+    const snapped = coordinateTransformationService.snapToRoute(
+      path,
+      frame.latitude,
+      frame.longitude,
+      {
+        preferVenue: true,
+        floorId: frame.floorId ?? this.store.get().currentFloorId,
+        currentLegIndex: this.store.get().currentLegIndex,
+      },
+    );
+    if (!snapped) return frame;
+
+    return {
+      ...frame,
+      latitude: snapped.latitude,
+      longitude: snapped.longitude,
+      floorId: snapped.floorId ?? frame.floorId,
+      alongPathMeters: snapped.distanceAlongPathMeters,
+      offRouteMeters: snapped.offRouteMeters ?? 0,
+    };
+  }
+
   private getNavigationProgressSnapshot(): NavigationProgressSnapshot {
     const state = this.store.get();
     const provider = this.getSimulatorProvider();
@@ -1028,10 +2705,12 @@ export class MapApp {
     let routeSimulating = state.routeSimulating;
     let routeSimulationComplete = state.routeSimulationComplete;
     let source: NavigationProgressSnapshot['source'] = state.routeSimulating
-      ? 'simulator'
+      ? this.activePositionSource === 'simulator'
+        ? 'simulator'
+        : this.activePositionSource
       : undefined;
 
-    if (provider) {
+    if (provider && this.isSimulationNavigation()) {
       alongPathMeters = provider.getMetersAlongPath();
       routeTraveledMeters = alongPathMeters;
       const total = provider.getTotalPathMeters();
@@ -1047,6 +2726,12 @@ export class MapApp {
         0,
         state.route.distanceMeters - routeTraveledMeters,
       );
+    }
+
+    if (!this.isSimulationNavigation() && (state.routeSimulating || this.liveRouteTracking)) {
+      source = PositionProviderRegistry.isLiveHardwareSource(this.activePositionSource)
+        ? this.activePositionSource
+        : 'gps';
     }
 
     const providerFrame = provider?.buildCurrentFrame?.() ?? null;
@@ -1077,13 +2762,19 @@ export class MapApp {
     };
   }
 
-  /** Continue or start simulator at the current map progress when AR opens. */
+  /** Continue or start navigation at the current map progress when AR opens. */
   private resumeRouteNavigation(progress: NavigationProgressSnapshot): void {
     const state = this.store.get();
     if (!state.route?.pathCoordinates?.length) return;
 
-    const provider = this.getSimulatorProvider();
-    if (provider?.moving) {
+    if (this.isSimulationNavigation()) {
+      const provider = this.getSimulatorProvider();
+      if (provider?.moving) {
+        this.syncRouteProgress(true);
+        syncNavigationToAr(this.getNavigationProgressSnapshot());
+        return;
+      }
+    } else if (this.liveRouteTracking || state.routeSimulating) {
       this.syncRouteProgress(true);
       syncNavigationToAr(this.getNavigationProgressSnapshot());
       return;
@@ -1101,7 +2792,7 @@ export class MapApp {
     this.startRouteMovement();
   }
 
-  /** Kick simulator walk along the active route (2D “Start” and AR calibrate). */
+  /** Kick simulated walk or live GPS tracking along the active route. */
   startRouteMovement(options?: {
     alongPathMeters?: number;
     resetProgress?: boolean;
@@ -1115,6 +2806,38 @@ export class MapApp {
 
     if (state.isCalculatingRoute) {
       this.showToast('Route is still calculating…');
+      return;
+    }
+
+    const currentProgress = this.getNavigationProgressSnapshot();
+    const resetProgress = options?.resetProgress === true;
+    let targetAlong: number;
+    if (typeof options?.alongPathMeters === 'number') {
+      targetAlong = options.alongPathMeters;
+    } else if (
+      !resetProgress &&
+      (currentProgress.routeSimulating || currentProgress.alongPathMeters > 0.05)
+    ) {
+      targetAlong = currentProgress.alongPathMeters;
+    } else {
+      targetAlong = 0;
+    }
+
+    if (!this.isSimulationNavigation()) {
+      this.applyNavigationPositionMode({
+        path: state.route.pathCoordinates,
+        resumeNavigating: true,
+        alongPathMeters: targetAlong,
+      });
+      this.lastProgressUiAt = 0;
+      appLog('Position', 'Live IPS route tracking armed', {
+        alongPathMeters: targetAlong,
+        pathPoints: state.route.pathCoordinates.length,
+        source: this.resolveNavigationSource(),
+      });
+      if (isArSessionActive(this.store.get().arPresentation)) {
+        syncNavigationToAr(this.getNavigationProgressSnapshot());
+      }
       return;
     }
 
@@ -1133,20 +2856,7 @@ export class MapApp {
       return;
     }
 
-    const currentProgress = this.getNavigationProgressSnapshot();
-    const resetProgress = options?.resetProgress === true;
-    let targetAlong: number;
-    if (typeof options?.alongPathMeters === 'number') {
-      targetAlong = options.alongPathMeters;
-    } else if (
-      !resetProgress &&
-      (currentProgress.routeSimulating || currentProgress.alongPathMeters > 0.05)
-    ) {
-      targetAlong = currentProgress.alongPathMeters;
-    } else {
-      targetAlong = 0;
-    }
-
+    this.liveRouteTracking = false;
     provider.seekAlongPath(targetAlong);
     provider.startSimulationMove();
     this.blueDotService?.follow();
@@ -1193,6 +2903,7 @@ export class MapApp {
     const provider = this.getSimulatorProvider();
     provider?.seekAlongPath(0);
     provider?.stopSimulationMove();
+    this.liveRouteTracking = false;
     this.routePlanner?.clearTravelledPathTracking();
 
     this.lastProgressUiAt = 0;
@@ -1207,6 +2918,17 @@ export class MapApp {
   private syncRouteProgress(force = false): void {
     const state = this.store.get();
     if (!state.route) return;
+
+    if (!this.isSimulationNavigation()) {
+      if (!force && !state.routeSimulating && !this.liveRouteTracking && !state.routeSimulationComplete) {
+        return;
+      }
+      const now = performance.now();
+      if (!force && !state.routeSimulationComplete && now - this.lastProgressUiAt < 200) return;
+      this.lastProgressUiAt = now;
+      // Live progress is patched in handleProviderFrame from snapped meters.
+      return;
+    }
 
     const provider = this.getSimulatorProvider();
     if (!provider) return;
@@ -1237,6 +2959,43 @@ export class MapApp {
     });
   }
 
+  private syncLiveRouteProgress(
+    alongPathMeters: number,
+    options?: { offRouteMeters?: number; force?: boolean },
+  ): void {
+    const state = this.store.get();
+    if (!state.route) return;
+    const force = options?.force === true;
+    if (!this.liveRouteTracking && !state.routeSimulating && !force) return;
+
+    const now = performance.now();
+    if (!force && now - this.lastProgressUiAt < 200) return;
+    this.lastProgressUiAt = now;
+
+    const total =
+      state.route.distanceMeters ??
+      coordinateTransformationService.totalPathLengthMeters(state.route.pathCoordinates);
+    const traveled = Math.max(0, Math.min(total, alongPathMeters));
+    const remaining = computeLiveRemainingMeters({
+      totalPathMeters: total,
+      alongPathMeters: traveled,
+      offRouteMeters: options?.offRouteMeters,
+    });
+    // Arrived only when on/near the path end — not while still off-route.
+    const atEnd =
+      total > 0 &&
+      traveled >= total - 0.75 &&
+      (options?.offRouteMeters ?? 0) <= 4;
+
+    this.liveRouteTracking = !atEnd;
+    this.store.patch({
+      routeTraveledMeters: traveled,
+      routeRemainingMeters: remaining,
+      routeSimulating: !atEnd,
+      routeSimulationComplete: atEnd && traveled > 0,
+    });
+  }
+
   private suppressNativeMapBlueDot(): void {
     const nativeBlueDot = (
       this.mapView as { BlueDot?: { disable?: () => void } } | null
@@ -1256,7 +3015,7 @@ export class MapApp {
         this.scheduleAutoRoute();
       } catch (error) {
         this.showToast(
-          error instanceof Error ? error.message : 'Could not set route point.',
+          toUserFacingRouteError(error, 'Could not set route point.'),
         );
       }
     });
@@ -1267,6 +3026,35 @@ export class MapApp {
         this.mapView?.currentFloor?.id;
       if (floorId) this.store.patch({ currentFloorId: floorId });
     });
+
+    this.mapData?.on('language-change', ({ code, name }) => {
+      appLog('Map', `Language changed to ${name} (${code})`);
+      savePreferredMapLanguage(code);
+      this.handleMapLanguageChanged(code, name);
+    });
+  }
+
+  private publishMapLanguages(): void {
+    if (!this.mapData) return;
+    const languages = getSupportedMapLanguages(this.mapData);
+    const current = getCurrentMapLanguage(this.mapData);
+    this.store.patch({
+      mapLanguages: languages,
+      mapLanguageCode: current?.code ?? null,
+      mapLanguageName: current?.name ?? null,
+    });
+  }
+
+  private handleMapLanguageChanged(code: string, name: string): void {
+    if (!this.mapData) return;
+    this.publishFloors();
+    this.store.patch({
+      mapLanguageCode: code,
+      mapLanguageName: name,
+      mapLanguages: getSupportedMapLanguages(this.mapData),
+      searchChips: getLocationChips(this.mapData),
+    });
+    this.socialMapMarkers?.refreshForLanguageChange(this.store.get());
   }
 
   private publishFloors(): void {
@@ -1310,21 +3098,25 @@ export class MapApp {
       const route = await this.routePlanner.generateRoute();
       this.applyRoute(route);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Route generation failed.';
+      const message = toUserFacingRouteError(
+        error,
+        'Could not build a route. Try different points.',
+      );
       this.showToast(message);
-      if (message === ROUTE_NOT_FOUND_MESSAGE) {
-        this.stopPositionProvider();
-        this.store.patch({
-          route: null,
-          routeNotFound: true,
-          routeInstructions: '',
-          routeTraveledMeters: 0,
-          routeRemainingMeters: null,
-          routeSimulating: false,
-          routeSimulationComplete: false,
-        });
-      }
+      // Keep the sheet open with Reset available so the user can start over.
+      this.routePlanner.setRoutePlanningPaused(false);
+      this.stopPositionProvider();
+      this.store.patch({
+        route: null,
+        routeNotFound: true,
+        showRouteSheet: true,
+        markers: this.routePlanner.markersState,
+        routeInstructions: '',
+        routeTraveledMeters: 0,
+        routeRemainingMeters: null,
+        routeSimulating: false,
+        routeSimulationComplete: false,
+      });
     } finally {
       this.store.patch({ isCalculatingRoute: false });
     }
@@ -1337,6 +3129,7 @@ export class MapApp {
     const wasArOpen = isArSessionActive(this.store.get().arPresentation);
 
     routeLifecycleManager.transition('recalculating');
+    this.liveRouteTracking = false;
 
     this.store.patch({
       route,
@@ -1351,9 +3144,7 @@ export class MapApp {
       routeNotFound: false,
     });
 
-    if (PositionProviderRegistry.resolveActiveSource() === 'simulator') {
-      this.startPositionProvider(route.pathCoordinates);
-    }
+    this.startPositionProvider(route.pathCoordinates);
     warmArIframe();
 
     if (wasArOpen) {
@@ -1465,13 +3256,16 @@ export class MapApp {
   }
 
   private startPositionProvider(path: RoutePayload['pathCoordinates']): void {
-    this.stopPositionProvider();
-    this.activePositionSource = PositionProviderRegistry.resolveActiveSource();
+    this.stopPositionProvider({ preserveProgress: true });
+    this.activePositionSource = this.resolveNavigationSource();
     positionTelemetry.setActiveSource(this.activePositionSource);
     this.floorOrchestrator.reset();
     positionTelemetry.setOrchestratorState(this.floorOrchestrator.getState());
-    const simulatorMode = this.activePositionSource === 'simulator';
-    this.blueDotService?.setSimulatorParallelMode(simulatorMode);
+    // Inject provider frames into Blue Dot (sim walk or live IPS snapped onto route).
+    const drivesAvatar =
+      this.activePositionSource === 'simulator' ||
+      PositionProviderRegistry.isLiveHardwareSource(this.activePositionSource);
+    this.blueDotService?.setSimulatorParallelMode(drivesAvatar);
 
     const originFloorId = path[0]?.floorId ?? this.store.get().currentFloorId;
     if (originFloorId) {
@@ -1480,7 +3274,7 @@ export class MapApp {
       this.applyOrchestratedFloor(originFloorId);
     }
 
-    if (simulatorMode && path[0]) {
+    if (this.activePositionSource === 'simulator' && path[0]) {
       this.snapBlueDotToPathOrigin(path[0]);
     }
 
@@ -1501,7 +3295,19 @@ export class MapApp {
       source: this.activePositionSource,
       pathPoints: path.length,
       originFloorId,
+      simulationEnabled: this.store.get().simulationEnabled,
     });
+
+    if (this.activePositionSource !== 'simulator') {
+      // Live IPS: project hardware fixes onto the route and track as they arrive.
+      this.liveRouteTracking = true;
+      this.blueDotService?.follow();
+      this.store.patch({
+        blueDotFollowing: true,
+        routeSimulating: true,
+        routeSimulationComplete: false,
+      });
+    }
   }
 
   private snapBlueDotToPathOrigin(origin: RoutePayload['pathCoordinates'][number]): void {
@@ -1518,7 +3324,7 @@ export class MapApp {
     });
   }
 
-  private stopPositionProvider(): void {
+  private stopPositionProvider(options?: { preserveProgress?: boolean }): void {
     this.positionProvider?.stop();
     this.positionProvider = null;
     this.blueDotService?.setSimulatorParallelMode(false);
@@ -1527,13 +3333,19 @@ export class MapApp {
     this.floorOrchestrator.reset();
     positionTelemetry.setOrchestratorState(this.floorOrchestrator.getState());
     positionTelemetry.setActiveSource('none');
-    if (this.store.get().routeSimulating || this.store.get().routeSimulationComplete) {
-      this.store.patch({
-        routeSimulating: false,
-        routeSimulationComplete: false,
-        routeTraveledMeters: 0,
-        routeRemainingMeters: null,
-      });
+    if (!options?.preserveProgress) {
+      this.liveRouteTracking = false;
+      if (
+        this.store.get().routeSimulating ||
+        this.store.get().routeSimulationComplete
+      ) {
+        this.store.patch({
+          routeSimulating: false,
+          routeSimulationComplete: false,
+          routeTraveledMeters: 0,
+          routeRemainingMeters: null,
+        });
+      }
     }
   }
 
@@ -1582,33 +3394,61 @@ export class MapApp {
   }
 
   private handleProviderFrame(frame: FplacesPositionFrame): void {
-    this.ingestPositionFrame(frame);
+    const projected =
+      frame.source === 'simulator'
+        ? frame
+        : this.projectFrameOntoRoute(frame);
+
+    this.ingestPositionFrame(projected);
 
     if (isArFrameVisible() || isArSessionActive(this.store.get().arPresentation)) {
-      if (frame.source === 'simulator') {
+      if (projected.source === 'simulator') {
         // Full simulator clock at 10 Hz — single source of truth for AR.
         syncNavigationToAr(this.getNavigationProgressSnapshot());
+      } else if (this.liveRouteTracking || this.store.get().routeSimulating) {
+        const now = performance.now();
+        if (now - this.lastArProviderStreamAt >= 90) {
+          this.lastArProviderStreamAt = now;
+          syncNavigationToAr(this.getNavigationProgressSnapshot());
+          dispatchPositionToAr(projected);
+        }
       } else {
         const now = performance.now();
         if (now - this.lastArProviderStreamAt >= 90) {
           this.lastArProviderStreamAt = now;
-          dispatchPositionToAr(frame);
+          dispatchPositionToAr(projected);
         }
       }
     }
 
-    if (this.activePositionSource === 'simulator') {
-      this.blueDotService?.applySimulatorFrame(frame);
-      if (this.store.get().routeSimulating || this.store.get().routeSimulationComplete) {
+    const drivesMapAvatar =
+      this.activePositionSource === 'simulator' ||
+      PositionProviderRegistry.isLiveHardwareSource(this.activePositionSource);
+
+    if (drivesMapAvatar) {
+      this.blueDotService?.applySimulatorFrame(projected);
+      const tracking =
+        this.activePositionSource === 'simulator'
+          ? this.store.get().routeSimulating || this.store.get().routeSimulationComplete
+          : this.liveRouteTracking ||
+            this.store.get().routeSimulating ||
+            this.store.get().routeSimulationComplete;
+      if (tracking) {
         this.routePlanner?.updateTravelledPath({
-          latitude: frame.latitude,
-          longitude: frame.longitude,
-          floorId: frame.floorId ?? 'unknown',
+          latitude: projected.latitude,
+          longitude: projected.longitude,
+          floorId: projected.floorId ?? 'unknown',
         });
       }
-      this.syncRouteProgress();
+      if (this.activePositionSource === 'simulator') {
+        this.syncRouteProgress();
+      } else if (typeof projected.alongPathMeters === 'number') {
+        this.syncLiveRouteProgress(projected.alongPathMeters, {
+          offRouteMeters: projected.offRouteMeters,
+        });
+      }
     } else if (isArSessionActive(this.store.get().arPresentation)) {
-      this.blueDotService?.applyProviderFrame(frame);
+      this.blueDotService?.applyProviderFrame(projected);
     }
   }
 
@@ -1623,7 +3463,7 @@ export class MapApp {
     if (
       !this.blueDotService ||
       !navigator.permissions?.query ||
-      PositionProviderRegistry.resolveActiveSource() === 'simulator'
+      this.store.get().simulationEnabled
     ) {
       return;
     }
@@ -1683,4 +3523,34 @@ export class MapApp {
       }
     }, 5000);
   }
+}
+
+function mapNotificationToItem(
+  notification: AppNotification,
+): NotificationItem {
+  return {
+    id: notification.id,
+    title: notification.title,
+    body: notification.body,
+    isRead: notification.is_read,
+    notificationType: notification.notification_type,
+    venueId: notification.venue,
+    createdAt: notification.created_at,
+    updatedAt: notification.updated_at,
+  };
+}
+
+function notificationItemToDomain(
+  item: NotificationItem,
+): AppNotification {
+  return {
+    id: item.id,
+    title: item.title,
+    body: item.body,
+    is_read: item.isRead,
+    notification_type: item.notificationType,
+    venue: item.venueId,
+    created_at: item.createdAt,
+    updated_at: item.updatedAt,
+  };
 }

@@ -1,6 +1,8 @@
+import { estimateLiveWalkSeconds } from '../routing/route-progress';
+import { WALKING_SPEED_MPS as ROUTING_WALKING_SPEED_MPS } from '../routing/constants';
 import type { AppState, FloorInfo } from '../types';
 
-export const WALKING_SPEED_MPS = 1.4;
+export const WALKING_SPEED_MPS = ROUTING_WALKING_SPEED_MPS;
 
 export function inferAreaHint(locationName: string): string {
   const name = locationName.toLowerCase();
@@ -76,6 +78,8 @@ export interface RouteSheetSummary {
   walkTime: string;
   walkDistance: string;
   isCalculating: boolean;
+  /** True when the current points cannot produce a route — user should Reset. */
+  needsReset: boolean;
 }
 
 export function buildRouteSheetSummary(state: AppState): RouteSheetSummary {
@@ -99,11 +103,30 @@ export function buildRouteSheetSummary(state: AppState): RouteSheetSummary {
       ? inferAreaHint(title)
       : '');
 
+  const needsReset =
+    state.routeNotFound &&
+    !state.isCalculatingRoute &&
+    !route &&
+    Boolean(markers.origin && markers.destination);
+
+  if (needsReset) {
+    return {
+      title,
+      locationLine:
+        'No route between these points. Reset to start again, or pick a different place.',
+      walkTime: '—',
+      walkDistance: 'NO ROUTE',
+      isCalculating: false,
+      needsReset: true,
+    };
+  }
+
   const totalDistance = route?.distanceMeters ?? null;
   const useLiveProgress =
     state.routeSimulating ||
     state.routeSimulationComplete ||
-    state.routeTraveledMeters > 0;
+    state.routeTraveledMeters > 0 ||
+    state.routeRemainingMeters != null;
   const remainingDistance = useLiveProgress
     ? Math.max(
         0,
@@ -114,7 +137,11 @@ export function buildRouteSheetSummary(state: AppState): RouteSheetSummary {
       )
     : totalDistance;
 
-  const remainingSeconds = estimateWalkSeconds(remainingDistance, null);
+  const remainingSeconds = estimateLiveWalkSeconds({
+    remainingMeters: remainingDistance,
+    totalPathMeters: totalDistance,
+    routeDurationSeconds: route?.durationSeconds ?? null,
+  });
 
   return {
     title,
@@ -130,5 +157,6 @@ export function buildRouteSheetSummary(state: AppState): RouteSheetSummary {
         ? '0 M WALK'
         : formatWalkDistance(remainingDistance),
     isCalculating: state.isCalculatingRoute,
+    needsReset: false,
   };
 }

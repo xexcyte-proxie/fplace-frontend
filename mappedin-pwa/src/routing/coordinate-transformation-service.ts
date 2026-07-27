@@ -35,8 +35,12 @@ export class CoordinateTransformationService {
   serializeCoordinate(target: unknown): RouteCoordinate | null {
     if (!target || typeof target !== 'object') return null;
     const t = target as Record<string, unknown>;
-    const lat = Number(t.latitude ?? (t.center as Record<string, unknown>)?.latitude);
-    const lng = Number(t.longitude ?? (t.center as Record<string, unknown>)?.longitude);
+    const center =
+      t.center && typeof t.center === 'object'
+        ? (t.center as Record<string, unknown>)
+        : null;
+    const lat = Number(t.latitude ?? t.lat ?? center?.latitude ?? center?.lat);
+    const lng = Number(t.longitude ?? t.lng ?? center?.longitude ?? center?.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
     const floor = t.floor as Record<string, unknown> | string | undefined;
@@ -171,6 +175,7 @@ export class CoordinateTransformationService {
     }
 
     let best: RichNavPoint | null = null;
+    let bestScore = Infinity;
     let cumulative = 0;
 
     for (let i = 0; i < normalized.length - 1; i++) {
@@ -201,14 +206,16 @@ export class CoordinateTransformationService {
 
       const adjustedDist = proj.distToSegment + penalty;
 
-      if (!best || adjustedDist < (best.offRouteMeters ?? Infinity)) {
+      if (adjustedDist < bestScore) {
+        bestScore = adjustedDist;
+        // Store geometric off-route distance (not floor/leg penalties) for live ETA.
         best = this.enrichPoint(
           { latitude: proj.latitude, longitude: proj.longitude, floorId: proj.floorId, legId: proj.legId },
           {
             segmentIndex: i,
             t: proj.t,
             distanceAlongPathMeters: cumulative + proj.t * segLen,
-            offRouteMeters: adjustedDist,
+            offRouteMeters: proj.distToSegment,
           },
         );
       }

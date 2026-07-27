@@ -15,9 +15,10 @@ function floorName(mapData: MapData, floorRef: unknown): string | undefined {
 
 function locationFromEntity(
   mapData: MapData,
-  item: { id: string; name?: string; floor?: unknown; center?: unknown },
+  item: { id: string; name?: string; floor?: unknown; center?: unknown; spaces?: unknown[]; points?: unknown[]; mapObjects?: unknown[] },
 ): LocationResult {
-  const serialized = serializeCoordinate(item);
+  const anchor = profileAnchor(item) ?? item;
+  const serialized = serializeCoordinate(anchor) ?? serializeCoordinate(item);
   return {
     id: item.id,
     name: item.name ?? 'Unknown',
@@ -43,23 +44,25 @@ function profileAnchor(profile: {
 }
 
 const CHIP_TAG_COLORS: Record<string, string> = {
-  food: '#f97316',
-  'food stall': '#f97316',
-  retail: '#2d4a7a',
-  store: '#2d4a7a',
-  entrance: '#22c55e',
-  restroom: '#a855f7',
-  washroom: '#a855f7',
-  bathroom: '#a855f7',
+  food: '#e07a33',
+  'food stall': '#e07a33',
+  retail: '#3a5ba0',
+  store: '#3a5ba0',
+  merch: '#3a5ba0',
+  entrance: '#2e9e68',
+  exit: '#2e9e68',
+  restroom: '#3a5ba0',
+  washroom: '#3a5ba0',
+  bathroom: '#3a5ba0',
 };
 
 const CHIP_DEFAULT_COLORS = [
-  '#f97316',
-  '#2d4a7a',
-  '#22c55e',
-  '#a855f7',
-  '#ec4899',
-  '#06b6d4',
+  '#e07a33',
+  '#3a5ba0',
+  '#2e9e68',
+  '#7c5cbf',
+  '#c2410c',
+  '#5c5f69',
 ];
 
 function formatChipLabel(value: string): string {
@@ -242,11 +245,27 @@ export async function searchVenue(
   return locations.slice(0, limit);
 }
 
+/**
+ * Resolves a search/location id to a map object with usable coordinates.
+ * Prefers space/point anchors over bare location-profiles (which often lack lat/lng).
+ */
 export function resolveMapTarget(mapData: MapData, locationId: string): unknown {
-  return (
-    mapData.getById('space', locationId) ??
-    mapData.getById('location-profile', locationId) ??
-    mapData.getById('object', locationId) ??
-    null
-  );
+  const space = mapData.getById('space', locationId);
+  if (space && serializeCoordinate(space)) return space;
+
+  const profile = mapData.getById('location-profile', locationId);
+  if (profile) {
+    const anchor = profileAnchor(
+      profile as { spaces?: unknown[]; points?: unknown[]; mapObjects?: unknown[] },
+    );
+    if (anchor && serializeCoordinate(anchor)) return anchor;
+    if (serializeCoordinate(profile)) return profile;
+    return null;
+  }
+
+  const object = mapData.getById('object', locationId);
+  if (object && serializeCoordinate(object)) return object;
+
+  // Fall back to space even without serializable coords so callers can show a clear error.
+  return space ?? object ?? null;
 }

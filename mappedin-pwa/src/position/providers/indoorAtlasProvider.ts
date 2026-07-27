@@ -1,6 +1,6 @@
 import type { FplacesPositionFrame } from '../types';
 import { PositionProvider, type PositionProviderStartOptions } from '../positionProvider';
-import { HighFrequencyMockProvider } from './mockProvider';
+import { GpsPositionProvider } from './gpsProvider';
 import { IndoorAtlasFloorFilter } from './indoorAtlasFloorFilter';
 import {
   getIndoorAtlasSdk,
@@ -13,7 +13,7 @@ import { positionTelemetry } from '../debug/telemetryLogger';
 export class IndoorAtlasProvider extends PositionProvider {
   readonly source: FplacesPositionFrame['source'] = 'indoor_atlas';
 
-  private fallback: HighFrequencyMockProvider | null = null;
+  private fallback: GpsPositionProvider | null = null;
   private floorFilter: IndoorAtlasFloorFilter | null = null;
   private sdkWatchActive = false;
   private floorPlanWatchActive = false;
@@ -46,9 +46,9 @@ export class IndoorAtlasProvider extends PositionProvider {
 
   private startFallback(options?: PositionProviderStartOptions, reason?: string): void {
     if (reason) {
-      appWarn('IndoorAtlas', `Falling back to simulator (${reason})`);
+      appWarn('IndoorAtlas', `Falling back to GPS (${reason})`);
     }
-    this.fallback = new HighFrequencyMockProvider();
+    this.fallback = new GpsPositionProvider();
     this.fallback.start((frame) => this.emit({ ...frame, source: 'indoor_atlas' }), options);
   }
 

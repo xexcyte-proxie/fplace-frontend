@@ -1,5 +1,6 @@
 import { PositionProvider, type PositionProviderStartOptions } from '../positionProvider';
 import type { FplacesPositionFrame } from '../types';
+import { appWarn } from '../../utils/logger';
 
 export class GpsPositionProvider extends PositionProvider {
   readonly source: FplacesPositionFrame['source'] = 'gps';
@@ -27,7 +28,13 @@ export class GpsPositionProvider extends PositionProvider {
           accuracy: this.lastAccuracy,
         });
       },
-      () => undefined,
+      (error) => {
+        // Surface why live tracking is silent (permission denied, timeout…).
+        appWarn('GPS', 'watchPosition error', {
+          code: error.code,
+          message: error.message,
+        });
+      },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 },
     );
 

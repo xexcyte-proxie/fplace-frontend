@@ -3,23 +3,29 @@
    ───────────────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* Brand & surfaces */
-  --sm-ink: #12121a;
-  --sm-ink-soft: rgba(18, 18, 26, 0.72);
-  --sm-muted: #8e8e93;
+  /* Brand & surfaces — aligned with app theme */
+  --sm-ink: #15151f;
+  --sm-ink-soft: rgba(21, 21, 31, 0.72);
+  --sm-muted: #5c5f69;
   --sm-surface: #ffffff;
   --sm-surface-glass: rgba(255, 255, 255, 0.92);
-  --sm-map-floor: #eceae6;
-  --sm-map-line: rgba(18, 18, 26, 0.06);
+  --sm-map-floor: #f0ece7;
+  --sm-map-line: rgba(21, 21, 31, 0.06);
 
-  /* Category accents (matches social feed) */
-  --sm-vibe: #ef4444;
-  --sm-lines: #3b82f6;
-  --sm-food: #f97316;
-  --sm-live: #f97316;
-  --sm-trending: #f59e0b;
-  --sm-new: #2563eb;
-  --sm-viewed: #c7c7cc;
+  /* Category accents (matches social feed / app tokens) */
+  --sm-vibe: #c2410c;
+  --sm-lines: #3a5ba0;
+  --sm-food: #e07a33;
+  --sm-live: #e07a33;
+  --sm-trending: #e07a33;
+  --sm-new: #3a5ba0;
+  --sm-viewed: #c7cad1;
+
+  /* Section heatmap priorities (section_heat_update) */
+  --sm-heat-high: #ef4444;
+  --sm-heat-medium: #f97316;
+  --sm-heat-low: #fbbf24;
+  --sm-heat-neutral: #c7c7cc;
 
   /* Geometry */
   --sm-pill-radius: 999px;
@@ -87,7 +93,7 @@
 .social-map-marker:focus-visible .social-map-marker__card {
   box-shadow:
     var(--sm-shadow-rest),
-    0 0 0 3px rgba(37, 99, 235, 0.45);
+    0 0 0 3px rgba(58, 91, 160, 0.4);
 }
 
 /* Stage — gives the halo room to render outside the pill bounds */
@@ -451,15 +457,68 @@
   animation: sm-halo-breathe 2.4s ease-in-out infinite;
 }
 
+/* Live section heatmap glow */
+.social-map-marker--heat-high {
+  --sm-halo-tint: #fecaca;
+  --sm-status-color: var(--sm-heat-high);
+  --sm-secondary-color: var(--sm-heat-high);
+}
+
+.social-map-marker--heat-high .social-map-marker__status-dot {
+  animation: sm-live-pulse 1.4s ease-in-out infinite;
+}
+
+.social-map-marker--heat-high .social-map-marker__halo {
+  animation: sm-halo-breathe 2s ease-in-out infinite;
+  background: rgba(239, 68, 68, 0.5) !important;
+}
+
+.social-map-marker--heat-medium {
+  --sm-halo-tint: #fed7aa;
+  --sm-status-color: var(--sm-heat-medium);
+  --sm-secondary-color: var(--sm-heat-medium);
+}
+
+.social-map-marker--heat-medium .social-map-marker__status-dot {
+  animation: sm-live-pulse 2s ease-in-out infinite;
+}
+
+.social-map-marker--heat-medium .social-map-marker__halo {
+  animation: sm-halo-breathe 2.4s ease-in-out infinite;
+  background: rgba(249, 115, 22, 0.45) !important;
+}
+
+.social-map-marker--heat-low {
+  --sm-halo-tint: #fef3c7;
+  --sm-status-color: var(--sm-heat-low);
+  --sm-secondary-color: var(--sm-heat-low);
+}
+
+.social-map-marker--heat-low .social-map-marker__halo {
+  background: rgba(251, 191, 36, 0.36) !important;
+}
+
+.social-map-marker--heat-neutral {
+  --sm-halo-tint: #e5e5ea;
+  --sm-status-color: var(--sm-heat-neutral);
+  --sm-secondary-color: var(--sm-muted);
+}
+
+.social-map-marker--heat-neutral .social-map-marker__halo {
+  opacity: 0.35;
+  background: rgba(199, 199, 204, 0.28) !important;
+  animation: none;
+}
+
 @keyframes sm-halo-breathe {
   0%,
   100% {
-    opacity: 0.88;
+    opacity: 0.9;
     transform: translate(-50%, -50%) scale(1);
   }
   50% {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1.06);
+    opacity: 0.9;
+    transform: translate(-50%, -50%) scale(1.08);
   }
 }
 
@@ -567,11 +626,11 @@
   0%,
   100% {
     transform: scale(1);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--sm-live) 25%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--sm-status-color, var(--sm-live)) 25%, transparent);
   }
   50% {
-    transform: scale(1.18);
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--sm-live) 12%, transparent);
+    transform: scale(1.12);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--sm-status-color, var(--sm-live)) 25%, transparent);
   }
 }
 
@@ -579,6 +638,10 @@
 @media (prefers-reduced-motion: reduce) {
   .social-map-marker--live .social-map-marker__status-dot,
   .social-map-marker--live .social-map-marker__halo,
+  .social-map-marker--heat-high .social-map-marker__status-dot,
+  .social-map-marker--heat-high .social-map-marker__halo,
+  .social-map-marker--heat-medium .social-map-marker__status-dot,
+  .social-map-marker--heat-medium .social-map-marker__halo,
   .social-map-marker--new .social-map-marker__card {
     animation: none;
   }

@@ -31,6 +31,24 @@ const HEADING_CONE = {
   displayWhenInactive: true,
 } as const;
 
+/** Blue Dot appearance while navigation frames are injected (sim walk or live IPS). */
+const NAV_BLUE_DOT_STATE = {
+  visible: true,
+  color: '#2266ff',
+  heading: { ...HEADING_CONE },
+  accuracyRing: { visible: true, opacity: 0.22, color: '#3b82f6' },
+  inactiveColor: '#64748b',
+  timeout: 30_000,
+};
+
+/**
+ * Injected live frames are already snapped onto the route, so raw GPS accuracy
+ * (often 50–500 m indoors) is display noise. Capping it keeps the accuracy ring
+ * sane and keeps fixes under the blue-dot accuracy threshold, which silently
+ * drops any update above ~50 m — the reason live positions never applied.
+ */
+const MAX_INJECTED_ACCURACY_METERS = 30;
+
 export class MapMarkerService {
   private readonly blueDot: BlueDot;
   private tracking = false;
@@ -83,18 +101,19 @@ export class MapMarkerService {
   }
 
   private enableSimulatorBlueDot(): void {
-    if (!this.blueDot.isEnabled) {
-      this.blueDot.enable({
-        watchDevicePosition: false,
-        visible: true,
-        initialState: 'hidden',
-        color: '#2266ff',
-        heading: { visible: true, opacity: 0.7, color: '#2266ff' },
-        accuracyRing: { visible: true, opacity: 0.22, color: '#3b82f6' },
-        inactiveColor: '#64748b',
-        timeout: 30_000,
-      });
+    if (this.blueDot.isEnabled) {
+      // prepare() may have booted an ambient dot (transparent core, hidden
+      // cone). Without restoring the navigation appearance here, the avatar
+      // and directional glow stay invisible for live (non-simulated) routes.
+      this.blueDot.updateState({ ...NAV_BLUE_DOT_STATE });
+      return;
     }
+
+    this.blueDot.enable({
+      watchDevicePosition: false,
+      initialState: 'hidden',
+      ...NAV_BLUE_DOT_STATE,
+    });
   }
 
   setSimulatorParallelMode(active: boolean): void {
@@ -137,7 +156,10 @@ export class MapMarkerService {
           ...(useCompassGlow
             ? { heading: 'device' as const }
             : { heading: frame.heading ?? undefined }),
-          accuracy: frame.accuracy,
+          accuracy: Math.min(
+            frame.accuracy ?? MAX_INJECTED_ACCURACY_METERS,
+            MAX_INJECTED_ACCURACY_METERS,
+          ),
           floorOrFloorId: frame.floorId,
         },
         { animate: true },
@@ -236,15 +258,26 @@ export class MapMarkerService {
       return;
     }
 
-    const orientation = this.blueDot.Sensors.get('deviceorientation');
-    await orientation?.enable();
-    await this.blueDot.watchDeviceOrientation(true);
-    this.deviceHeadingActive = true;
-
+    // Make the cone visible before touching sensors so a compass permission
+    // failure still leaves the glow driven by provider frame headings.
     if (this.blueDot.isEnabled) {
       this.blueDot.updateState({ heading: { ...HEADING_CONE } });
-      // Prefer live compass over GPS / simulated path bearing for the cone.
-      this.blueDot.update({ heading: 'device' });
+    }
+
+    try {
+      const orientation = this.blueDot.Sensors.get('deviceorientation');
+      await orientation?.enable();
+      await this.blueDot.watchDeviceOrientation(true);
+      this.deviceHeadingActive = true;
+
+      if (this.blueDot.isEnabled) {
+        // Prefer live compass over GPS / simulated path bearing for the cone.
+        this.blueDot.update({ heading: 'device' });
+      }
+    } catch (error) {
+      this.deviceHeadingActive = false;
+      appWarn('MapMarker', 'Compass unavailable — cone follows provider heading', error);
+      return;
     }
 
     if (this.overlayArrow) {

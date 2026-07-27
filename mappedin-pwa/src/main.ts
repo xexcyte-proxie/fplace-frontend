@@ -10,9 +10,26 @@ import './styles.css';
 import './styles/social-map-markers.css';
 import './styles/profile-screen.css';
 import './styles/settings-screen.css';
+import './styles/legal-webview-sheet.css';
 import './styles/venue-feed.css';
+import './styles/notifications-screen.css';
+import './styles/ar-navigation-screen.css';
 
-registerSW({ immediate: true });
+// Check for a new deploy immediately + periodically; autoUpdate reloads when SW changes.
+registerSW({
+  immediate: true,
+  onRegisteredSW(_swUrl, registration) {
+    if (!registration) return;
+    const checkForUpdate = () => {
+      void registration.update();
+    };
+    // Re-check when the tab becomes visible again (common after a deploy).
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') checkForUpdate();
+    });
+    window.setInterval(checkForUpdate, 60_000);
+  },
+});
 
 const mapContainer = document.querySelector('#mappedin-map') as HTMLDivElement;
 const uiContainer = document.querySelector('#ui-root') as HTMLDivElement;

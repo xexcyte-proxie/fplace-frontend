@@ -9,6 +9,20 @@
   let attached = false;
   let ribbonBuilt = false;
   let lastFloorId = null;
+  let clearedForArrival = false;
+
+  function clearTrailForArrival() {
+    if (!sceneRef || clearedForArrival) return;
+    // Trail + leading marker are parented on the XR scene (not rootGroup),
+    // so hiding rootGroup alone leaves the clogged chevrons on screen.
+    window.FplacesIncrementalPath?.dispose?.(sceneRef);
+    window.FplacesFloorArrows?.disposeFloorArrows?.(sceneRef);
+    clearedForArrival = true;
+    window.FplacesArDebug?.log?.(
+      "WorldRoute",
+      "Trail cleared on arrival",
+    );
+  }
 
   window.FplacesWorldRoute = {
     attach({ THREE, scene, camera }) {
@@ -23,6 +37,7 @@
       attached = true;
       ribbonBuilt = false;
       lastFloorId = null;
+      clearedForArrival = false;
       window.FplacesPathArrows?.setWebGlActive?.(true);
       window.FplacesOrientationCompass?.setWebGlActive?.(true);
       window.FplacesArDebug?.log(
@@ -41,6 +56,7 @@
       attached = false;
       ribbonBuilt = false;
       lastFloorId = null;
+      clearedForArrival = false;
       window.FplacesPathArrows?.setWebGlActive?.(false);
       window.FplacesOrientationCompass?.setWebGlActive?.(false);
     },
@@ -84,6 +100,8 @@
         path[0]?.floorId ||
         null;
 
+      clearedForArrival = false;
+
       if (window.FplacesAnchorEngine?.isCalibrated && sceneRef) {
         window.FplacesPathGeometry?.generateWorldMeshPath?.(
           sceneRef,
@@ -108,12 +126,14 @@
       const state = navigator.getState?.() || {};
       if (state.arrived) {
         rootGroup.visible = false;
+        clearTrailForArrival();
         return;
       }
 
       const path = navigator.route?.pathCoordinates || [];
       if (!path.length) return;
 
+      clearedForArrival = false;
       rootGroup.visible = true;
       rootGroup.position.set(0, 0, 0);
 

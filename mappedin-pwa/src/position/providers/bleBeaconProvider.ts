@@ -2,7 +2,7 @@ import beaconMatrixData from '../config/beacon-venue-matrix.json';
 import { appConfig } from '../../config';
 import type { FplacesPositionFrame } from '../types';
 import { PositionProvider, type PositionProviderStartOptions } from '../positionProvider';
-import { HighFrequencyMockProvider } from './mockProvider';
+import { GpsPositionProvider } from './gpsProvider';
 import { parseAdvertisementEvent } from './bleBeaconParser';
 import {
   selectNearestBeacon,
@@ -23,7 +23,7 @@ type BluetoothNavigator = Navigator & {
 export class BleBeaconProvider extends PositionProvider {
   readonly source: FplacesPositionFrame['source'] = 'ble_beacon';
 
-  private fallback: HighFrequencyMockProvider | null = null;
+  private fallback: GpsPositionProvider | null = null;
   private scanTimer: ReturnType<typeof setInterval> | null = null;
   private lescan: BluetoothLEScan | null = null;
   private scanAbort: AbortController | null = null;
@@ -79,9 +79,9 @@ export class BleBeaconProvider extends PositionProvider {
 
   private startFallback(options?: PositionProviderStartOptions, reason?: string): void {
     if (reason) {
-      appWarn('BleBeacon', `Falling back to simulator (${reason})`);
+      appWarn('BleBeacon', `Falling back to GPS (${reason})`);
     }
-    this.fallback = new HighFrequencyMockProvider();
+    this.fallback = new GpsPositionProvider();
     this.fallback.start((frame) => this.emit({ ...frame, source: 'ble_beacon' }), options);
   }
 

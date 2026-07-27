@@ -137,39 +137,127 @@ export type BlueDotStatus = 'off' | 'starting' | 'active' | 'inactive' | 'error'
 
 export type AppTab = 'map' | 'social' | 'profile';
 
-export type ProfileView = 'main' | 'settings';
+export type ProfileView =
+  | 'main'
+  | 'settings'
+  | 'language'
+  | 'edit-profile'
+  | 'about'
+  | 'privacy';
 
-export type AuthStep = 'none' | 'create' | 'check-email' | 'verify';
+/** Destructive confirm dialog shown over Settings. */
+export type SettingsConfirm = null | 'logout' | 'delete-account';
+
+/** In-app legal WebView bottom sheet (Terms). */
+export type LegalWebViewDocument = 'terms';
+
+/** Personal notification list row (mapped from domain for UI). */
+export interface NotificationItem {
+  id: number;
+  title: string;
+  body: string;
+  isRead: boolean;
+  notificationType: string;
+  venueId: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MapLanguageOption {
+  code: string;
+  name: string;
+}
+
+export type AuthStep =
+  | 'none'
+  | 'create'
+  | 'login'
+  | 'check-email'
+  | 'verify'
+  | 'pseudo-name'
+  | 'venue-select';
 
 export interface RegisteredUser {
   id: number;
   email: string;
   pseudo_name: string | null;
+  first_name?: string;
+  last_name?: string;
+  bio?: string;
+  avatar_url?: string | null;
+  user_type?: 'regular_user' | 'admin';
   is_email_verified: boolean;
+  interests?: string[] | null;
   created_at: string;
   updated_at: string;
 }
 
 export type SocialCategory = 'all' | 'lines' | 'food' | 'vibe';
 
-export type VenueFeedFilter = 'all' | 'hype' | 'help' | 'food';
-
-export type VenueFeedType = Exclude<VenueFeedFilter, 'all'>;
+/** `'all'` or a forum category id string from GET /api/forum/categories/. */
+export type VenueFeedFilter = 'all' | (string & {});
 
 export interface VenueFeedPost {
   id: string;
   author: string;
+  /** Forum user id — used for distinct “fans live”, not post volume. */
+  authorId: number;
   initials: string;
   avatarColor: string;
   location: string;
   locationId: string;
   timeAgo: string;
-  feedType: VenueFeedType;
+  /** Category slug from the forum API (e.g. `fan-vibe`, `help`). */
+  feedType: string;
+  categoryId: string;
   content: string;
   upvotes: number;
   comments: number;
   helpCard?: boolean;
+  hasUpvoted?: boolean;
 }
+
+export interface ForumVenueSummary {
+  id: number;
+  name: string;
+  location: string;
+}
+
+export interface ForumSectionSummary {
+  id: number;
+  venue: number;
+  name: string;
+  code: string;
+  is_active: boolean;
+}
+
+export interface ForumCategorySummary {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  disclaimer: string;
+  order: number;
+  is_active: boolean;
+}
+
+export type SectionHeatPriority = 'high' | 'medium' | 'low';
+
+/** Live section heatmap row from `section_heat_update`. */
+export interface SectionHeatEntry {
+  sectionId: number;
+  postCount: number;
+  priority: SectionHeatPriority;
+}
+
+/** Venue-room WebSocket lifecycle for live feed + heatmap. */
+export type VenueLiveConnectionStatus =
+  | 'idle'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'disconnected'
+  | 'auth_missing';
 
 export interface SocialPost {
   id: string;
@@ -184,21 +272,6 @@ export interface SocialPost {
   content: string;
   upvotes: number;
   comments: number;
-}
-
-const ONBOARDING_COMPLETE_KEY = 'fplaces_onboarding_complete';
-
-/** Session-only flag; onboarding/auth flow always runs on each app open. */
-export function isOnboardingComplete(): boolean {
-  return false;
-}
-
-export function markOnboardingComplete(): void {
-  try {
-    localStorage.removeItem(ONBOARDING_COMPLETE_KEY);
-  } catch {
-    /* storage unavailable */
-  }
 }
 
 const AUTH_USER_KEY = 'fplaces_auth_user';
@@ -221,13 +294,52 @@ export function storeAuthUser(user: RegisteredUser): void {
   }
 }
 
+export function clearStoredAuthUser(): void {
+  try {
+    localStorage.removeItem(AUTH_USER_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export {
+  DEFAULT_DISPLAY_NAME,
+  resolveDisplayName,
+  userNeedsPseudoName,
+} from './auth/domain/entities';
+
+export type AuthLegalDocument = 'terms' | 'privacy';
+
 export interface AppState {
   onboardingComplete: boolean;
   authStep: AuthStep;
+  /** Legal document overlay shown during the auth/onboarding flow. */
+  authLegalDocument: AuthLegalDocument | null;
+  /** In-app WebView bottom sheet for Terms (settings + auth). */
+  legalWebView: LegalWebViewDocument | null;
   authEmail: string;
   authLoading: boolean;
   authFieldErrors: Record<string, string>;
   authUser: RegisteredUser | null;
+  pseudoNameDraft: string;
+  /** Placeholder suggestion for the pseudo-name field (not the committed value). */
+  pseudoNameHint: string;
+  selectedInterests: string[];
+  venueSearchQuery: string;
+  selectedVenueId: string | null;
+  /** Selected forum section id (entry zone within the venue). */
+  selectedGateId: string | null;
+  forumVenues: ForumVenueSummary[];
+  forumSections: ForumSectionSummary[];
+  forumCategories: ForumCategorySummary[];
+  forumFeedNext: string | null;
+  forumFeedCount: number;
+  /** Live section heatmap from the venue WebSocket (`section_heat_update`). */
+  sectionHeatmap: SectionHeatEntry[];
+  /** True after the first `section_heat_update` (empty array ⇒ all sections neutral). */
+  sectionHeatmapActive: boolean;
+  /** Venue-room WebSocket lifecycle for live feed + heatmap. */
+  venueLiveStatus: VenueLiveConnectionStatus;
   mapStatus: MapStatus;
   mapError?: string;
   loadingMessage: string;
@@ -257,7 +369,23 @@ export interface AppState {
   toast?: string;
   activeTab: AppTab;
   profileView: ProfileView;
+  settingsConfirm: SettingsConfirm;
   notificationsEnabled: boolean;
+  /** Personal notifications inbox overlay (opened from the venue-feed bell). */
+  notificationsOpen: boolean;
+  notifications: NotificationItem[];
+  notificationsUnreadCount: number;
+  notificationsNext: string | null;
+  notificationsLoading: boolean;
+  notificationsMarkingAll: boolean;
+  /** Location/route simulation; on by default until the user turns it off. */
+  simulationEnabled: boolean;
+  /** Languages available from the Mappedin enterprise venue. */
+  mapLanguages: MapLanguageOption[];
+  /** Active Mappedin map language code (ISO 639-1). */
+  mapLanguageCode: string | null;
+  mapLanguageName: string | null;
+  mapLanguageChanging: boolean;
   socialCategory: SocialCategory;
   socialLocation: string | null;
   socialTag: string | null;
@@ -283,12 +411,29 @@ export function isArSessionActive(presentation: ArPresentation): boolean {
 }
 
 export const initialAppState = (): AppState => ({
-  onboardingComplete: isOnboardingComplete(),
+  /** Resolved after session restore from profile + venue preference. */
+  onboardingComplete: false,
   authStep: 'none',
+  authLegalDocument: null,
+  legalWebView: null,
   authEmail: '',
   authLoading: false,
   authFieldErrors: {},
   authUser: loadStoredUser(),
+  pseudoNameDraft: '',
+  pseudoNameHint: '',
+  selectedInterests: [],
+  venueSearchQuery: '',
+  selectedVenueId: null,
+  selectedGateId: null,
+  forumVenues: [],
+  forumSections: [],
+  forumCategories: [],
+  forumFeedNext: null,
+  forumFeedCount: 0,
+  sectionHeatmap: [],
+  sectionHeatmapActive: false,
+  venueLiveStatus: 'idle',
   mapStatus: 'initial',
   loadingMessage: 'Loading map SDK…',
   loadingProgress: 12,
@@ -314,7 +459,19 @@ export const initialAppState = (): AppState => ({
   arPresentation: 'closed',
   activeTab: 'map',
   profileView: 'main',
+  settingsConfirm: null,
   notificationsEnabled: true,
+  notificationsOpen: false,
+  notifications: [],
+  notificationsUnreadCount: 0,
+  notificationsNext: null,
+  notificationsLoading: false,
+  notificationsMarkingAll: false,
+  simulationEnabled: true,
+  mapLanguages: [],
+  mapLanguageCode: null,
+  mapLanguageName: null,
+  mapLanguageChanging: false,
   socialCategory: 'all',
   socialLocation: null,
   socialTag: null,
@@ -323,6 +480,6 @@ export const initialAppState = (): AppState => ({
   venueFeedFilter: 'all',
   venueFeedDraft: '',
   venueFeedPosts: [],
-  upvotedPostIds: ['venue-post-1'],
+  upvotedPostIds: [],
   locationActionPrompt: null,
 });

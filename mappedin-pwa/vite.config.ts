@@ -97,6 +97,10 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Activate new SW immediately so deploys aren't stuck behind an old tab.
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,json,woff2}'],
         navigateFallbackDenylist: [/^\/ar\//],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
@@ -125,6 +129,13 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
       },
+      '/ws': {
+        // Dev-only fallback. Production must set VITE_WS_URL (see netlify.toml).
+        target: BACKEND_ORIGIN,
+        changeOrigin: true,
+        secure: true,
+        ws: true,
+      },
     },
   },
   preview: {
@@ -138,6 +149,13 @@ export default defineConfig({
         target: BACKEND_ORIGIN,
         changeOrigin: true,
         secure: true,
+      },
+      '/ws': {
+        // Dev-only fallback. Production must set VITE_WS_URL (see netlify.toml).
+        target: BACKEND_ORIGIN,
+        changeOrigin: true,
+        secure: true,
+        ws: true,
       },
     },
   },

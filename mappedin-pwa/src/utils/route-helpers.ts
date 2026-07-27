@@ -15,12 +15,9 @@ export { haversineMeters } from './geo-math';
 export { computeGeometryHash, pathGeometryHash } from '../routing/geometry-hash-service';
 
 export function coordLatLng(target: unknown): { lat: number; lng: number } | null {
-  if (!target || typeof target !== 'object') return null;
-  const t = target as Record<string, unknown>;
-  const lat = Number(t.latitude ?? (t.center as Record<string, unknown>)?.latitude);
-  const lng = Number(t.longitude ?? (t.center as Record<string, unknown>)?.longitude);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  return { lat, lng };
+  const serialized = serializeCoordinate(target);
+  if (!serialized) return null;
+  return { lat: serialized.latitude, lng: serialized.longitude };
 }
 
 export function serializeCoordinate(target: unknown): RouteCoordinate | null {

@@ -1,18 +1,16 @@
-/* Profile screen — Frame-10 Figma spec */
+/* Profile screen — Figma 115:645 */
 .profile-screen {
-  --profile-bg: #f2f3f5;
-  --profile-text: #1a1a1a;
-  --profile-text-muted: #707070;
-  --profile-accent-purple: #8b63d4;
-  --profile-accent-green: #34a853;
-  --profile-accent-blue: #3b5998;
+  --profile-bg: #f0ede8;
+  --profile-text: #15151f;
+  --profile-text-muted: #5c5f69;
+  --profile-accent-purple: #7c5cbf;
+  --profile-accent-green: #2e9e68;
+  --profile-accent-blue: #3a5ba0;
   --profile-surface: #ffffff;
-  --profile-border: #dcdcdc;
-  --profile-border-light: #e8e8e8;
+  --profile-border: #c7cad1;
   --profile-padding-x: 24px;
-  --profile-settings-bg: rgba(58, 58, 60, 0.92);
-  --profile-avatar-size: 72px;
-  --profile-avatar-radius: 16px;
+  --profile-avatar-size: 96px;
+  --profile-avatar-radius: 28px;
   --profile-card-radius: 16px;
 
   position: absolute;
@@ -26,32 +24,24 @@
     system-ui,
     -apple-system,
     BlinkMacSystemFont,
-    "SF Pro Text",
     "Segoe UI",
     sans-serif;
   -webkit-overflow-scrolling: touch;
 }
 
-.profile-header {
-  padding: max(8px, env(safe-area-inset-top)) var(--profile-padding-x) 0;
-}
-
-.profile-header-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  min-height: 44px;
-}
-
 .profile-settings-btn {
+  position: absolute;
+  top: max(16px, calc(env(safe-area-inset-top) + 12px));
+  right: var(--profile-padding-x);
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 44px;
   height: 44px;
   border: 0;
-  border-radius: 12px;
-  background: var(--profile-settings-bg);
+  border-radius: 14px;
+  background: #5c5f69;
   color: #ffffff;
   cursor: pointer;
 }
@@ -60,11 +50,15 @@
   display: block;
 }
 
+.profile-body {
+  position: relative;
+  padding: max(72px, calc(env(safe-area-inset-top) + 56px)) var(--profile-padding-x) 28px;
+}
+
 .profile-identity {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  margin-top: 44px;
   text-align: left;
 }
 
@@ -74,20 +68,21 @@
   justify-content: center;
   width: var(--profile-avatar-size);
   height: var(--profile-avatar-size);
+  border: 0;
   border-radius: var(--profile-avatar-radius);
   background: var(--profile-accent-purple);
   color: #ffffff;
-  font-size: 24px;
+  font-size: 34px;
   font-weight: 700;
   line-height: 1;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
 }
 
 .profile-username {
-  margin: 12px 0 0;
+  margin: 14px 0 0;
   font-size: 28px;
   font-weight: 700;
-  line-height: 1.12;
+  line-height: 1.15;
   letter-spacing: -0.02em;
   color: var(--profile-text);
 }
@@ -95,7 +90,7 @@
 .profile-location {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 7px;
   margin: 8px 0 0;
   font-size: 14px;
   font-weight: 400;
@@ -112,12 +107,12 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
-  margin-top: 24px;
-  padding: 0 var(--profile-padding-x);
+  margin-top: 20px;
 }
 
 .profile-stat-card {
-  padding: 16px 8px;
+  padding: 15px 8px;
+  border: 1px solid var(--profile-border);
   border-radius: var(--profile-card-radius);
   background: var(--profile-surface);
   text-align: center;
@@ -145,19 +140,14 @@
 
 .profile-section {
   margin-top: 28px;
-  padding: 0 var(--profile-padding-x) 0;
-}
-
-.profile-section:last-child {
-  padding-bottom: 24px;
 }
 
 .profile-section-title {
   margin: 0 0 12px;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   line-height: 1.2;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--profile-text-muted);
 }
@@ -169,9 +159,9 @@
 }
 
 .profile-interest-tag {
-  padding: 10px 16px;
+  padding: 9px 15px;
   border: 1px solid var(--profile-border);
-  border-radius: 999px;
+  border-radius: 14px;
   background: var(--profile-surface);
   font-size: 14px;
   font-weight: 500;
@@ -180,16 +170,17 @@
 }
 
 .profile-post-card {
-  padding: 16px;
+  padding: 14px 15px;
+  border: 1px solid var(--profile-border);
   border-radius: var(--profile-card-radius);
   background: var(--profile-surface);
 }
 
 .profile-post-content {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 400;
-  line-height: 1.45;
+  line-height: 1.4;
   color: var(--profile-text);
 }
 
@@ -197,8 +188,8 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 12px;
+  gap: 14px;
+  margin-top: 10px;
 }
 
 .profile-post-meta {
@@ -211,7 +202,7 @@
 .profile-post-upvotes {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   font-size: 13px;
   font-weight: 600;
   line-height: 1;
@@ -221,4 +212,28 @@
 .profile-post-upvotes svg {
   display: block;
   flex-shrink: 0;
+}
+
+@media (min-width: 768px) {
+  .profile-screen {
+    --profile-padding-x: max(24px, calc((100% - var(--content-max, 520px)) / 2));
+  }
+
+  .profile-username {
+    font-size: 30px;
+  }
+
+  .profile-settings-btn {
+    right: max(24px, calc((100% - var(--content-max, 520px)) / 2));
+  }
+}
+
+@media (min-width: 1100px) {
+  .profile-screen {
+    --profile-padding-x: max(32px, calc((100% - var(--content-max, 580px)) / 2));
+  }
+
+  .profile-settings-btn {
+    right: max(32px, calc((100% - var(--content-max, 580px)) / 2));
+  }
 }

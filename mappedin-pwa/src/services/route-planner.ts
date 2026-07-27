@@ -1,5 +1,12 @@
 import type { MapData, MapView, TNavigationTarget } from '@mappedin/mappedin-js';
 
+import {
+  END_TOO_CLOSE_MESSAGE,
+  LOCATION_NOT_ROUTABLE_MESSAGE,
+  ROUTE_NOT_FOUND_MESSAGE,
+  ROUTE_POINTS_REQUIRED_MESSAGE,
+  START_TOO_CLOSE_MESSAGE,
+} from '../routing/constants';
 import type { RouteCoordinate, RoutePayload } from '../types';
 import { appLog } from '../utils/logger';
 import {
@@ -21,8 +28,7 @@ const END_MARKER =
   '<div style="width:26px;height:17px;background:#ef4444;border:2px solid #fff;border-radius:2px 3px 3px 0;margin-bottom:4px;"></div>' +
   '</div></div>';
 
-export const ROUTE_NOT_FOUND_MESSAGE =
-  'No route found between the selected points.';
+export { ROUTE_NOT_FOUND_MESSAGE, LOCATION_NOT_ROUTABLE_MESSAGE };
 
 export class RoutePlanner {
   private originMarker: MarkerHandle = null;
@@ -103,10 +109,11 @@ export class RoutePlanner {
   }
 
   async focusLocation(target: unknown): Promise<void> {
-    const coord = this.canonicalCoordinate(target) ?? target;
+    const coord = this.canonicalCoordinate(target);
     if (!coord) return;
     const floor = this.resolveFloor(
-      (coord as { floor?: { id?: string } | string }).floor,
+      (coord as { floor?: { id?: string } | string }).floor ??
+        (coord as { floorId?: string }).floorId,
     );
     if (floor?.id) this.mapView.setFloor(floor.id);
     this.mapView.Camera?.focusOn?.(coord as never, { maxZoomLevel: 20 });
@@ -125,19 +132,11 @@ export class RoutePlanner {
   }
 
   setOrigin(coordinate: unknown, source = 'map tap'): void {
-    const canonical = this.canonicalCoordinate(coordinate);
-    if (!canonical) return;
-
-    if (
-      this.destinationCoord &&
-      haversineMeters(
-        serializeCoordinate(canonical)!,
-        serializeCoordinate(this.destinationCoord)!,
-      ) < 3
-    ) {
-      throw new Error(
-        'Start point is too close to the end point. Tap farther apart on the map.',
-      );
+    const canonical = this.requireRoutableCoordinate(coordinate);
+    const origin = serializeCoordinate(canonical);
+    const destination = serializeCoordinate(this.destinationCoord);
+    if (origin && destination && haversineMeters(origin, destination) < 3) {
+      throw new Error(START_TOO_CLOSE_MESSAGE);
     }
 
     this.originCoord = canonical;
@@ -152,25 +151,18 @@ export class RoutePlanner {
     label = 'End point',
     meta?: { floorName?: string; areaHint?: string },
   ): void {
-    const canonical = this.canonicalCoordinate(coordinate);
-    if (!canonical) return;
-
-    if (
-      this.originCoord &&
-      haversineMeters(
-        serializeCoordinate(canonical)!,
-        serializeCoordinate(this.originCoord)!,
-      ) < 3
-    ) {
-      throw new Error(
-        'End point is too close to the start point. Tap farther apart on the map.',
-      );
+    const canonical = this.requireRoutableCoordinate(coordinate);
+    const destination = serializeCoordinate(canonical);
+    const origin = serializeCoordinate(this.originCoord);
+    if (origin && destination && haversineMeters(destination, origin) < 3) {
+      throw new Error(END_TOO_CLOSE_MESSAGE);
     }
 
     this.destinationCoord = canonical;
     this.destinationLabel = label;
     const resolvedFloor = this.resolveFloor(
-      (canonical as { floor?: { id?: string } | string }).floor,
+      (canonical as { floor?: { id?: string } | string }).floor ??
+        (canonical as { floorId?: string }).floorId,
     );
     this.destinationFloorName =
       meta?.floorName ??
@@ -187,8 +179,7 @@ export class RoutePlanner {
     label: string,
     meta?: { floorName?: string; areaHint?: string },
   ): Promise<void> {
-    const coord = this.canonicalCoordinate(target) ?? target;
-    if (!coord) return;
+    const coord = this.requireRoutableCoordinate(target);
     await this.focusLocation(coord);
     this.setDestination(coord, 'search', label, meta);
   }
@@ -197,8 +188,7 @@ export class RoutePlanner {
     target: unknown,
     label?: string,
   ): Promise<void> {
-    const coord = this.canonicalCoordinate(target) ?? target;
-    if (!coord) return;
+    const coord = this.requireRoutableCoordinate(target);
     await this.focusLocation(coord);
     this.setOrigin(coord, label ? `location: ${label}` : 'location');
   }
@@ -216,7 +206,7 @@ export class RoutePlanner {
 
   async generateRoute(): Promise<RoutePayload> {
     if (!this.originCoord || !this.destinationCoord) {
-      throw new Error('Set both start and end points before routing.');
+      throw new Error(ROUTE_POINTS_REQUIRED_MESSAGE);
     }
 
     const originTargets = await this.routableTargetsNear(this.originCoord);
@@ -228,10 +218,16 @@ export class RoutePlanner {
     this.mapView.Navigation?.clear?.();
     this.mapView.Paths?.removeAll?.();
 
-    const directions = await this.mapData.getDirections(
-      from as TNavigationTarget | TNavigationTarget[],
-      to as TNavigationTarget | TNavigationTarget[],
-    );
+    let directions;
+    try {
+      directions = await this.mapData.getDirections(
+        from as TNavigationTarget | TNavigationTarget[],
+        to as TNavigationTarget | TNavigationTarget[],
+      );
+    } catch (error) {
+      appLog('Route', 'getDirections failed', error);
+      throw new Error(ROUTE_NOT_FOUND_MESSAGE);
+    }
     if (!directions) {
       throw new Error(ROUTE_NOT_FOUND_MESSAGE);
     }
@@ -334,26 +330,35 @@ export class RoutePlanner {
     html: string,
   ): void {
     if (!this.mapView.Markers?.add) return;
-    if (which === 'origin') {
-      try {
-        this.originMarker?.remove?.();
-      } catch {
-        /* ignore */
+    if (!serializeCoordinate(coordinate)) {
+      throw new Error(LOCATION_NOT_ROUTABLE_MESSAGE);
+    }
+
+    try {
+      if (which === 'origin') {
+        try {
+          this.originMarker?.remove?.();
+        } catch {
+          /* ignore */
+        }
+        this.originMarker = this.mapView.Markers.add(
+          coordinate as never,
+          html,
+        ) as MarkerHandle;
+      } else {
+        try {
+          this.destinationMarker?.remove?.();
+        } catch {
+          /* ignore */
+        }
+        this.destinationMarker = this.mapView.Markers.add(
+          coordinate as never,
+          html,
+        ) as MarkerHandle;
       }
-      this.originMarker = this.mapView.Markers.add(
-        coordinate as never,
-        html,
-      ) as MarkerHandle;
-    } else {
-      try {
-        this.destinationMarker?.remove?.();
-      } catch {
-        /* ignore */
-      }
-      this.destinationMarker = this.mapView.Markers.add(
-        coordinate as never,
-        html,
-      ) as MarkerHandle;
+    } catch (error) {
+      appLog('Route', `Failed to place ${which} marker`, error);
+      throw new Error(LOCATION_NOT_ROUTABLE_MESSAGE);
     }
   }
 
@@ -377,22 +382,39 @@ export class RoutePlanner {
     return this.mapData.getById('floor', id) ?? null;
   }
 
+  private requireRoutableCoordinate(target: unknown): unknown {
+    const canonical = this.canonicalCoordinate(target);
+    if (!canonical) {
+      throw new Error(LOCATION_NOT_ROUTABLE_MESSAGE);
+    }
+    return canonical;
+  }
+
   private canonicalCoordinate(target: unknown): unknown {
     if (!target) return null;
     const serialized = serializeCoordinate(target);
-    if (serialized && this.mapView.createCoordinate) {
-      const floor = serialized.floorId
-        ? this.mapData.getById('floor', serialized.floorId)
-        : this.mapView.currentFloor;
-      return (
-        this.mapView.createCoordinate(
-          serialized.latitude,
-          serialized.longitude,
-          floor ?? undefined,
-        ) ?? target
-      );
+    if (!serialized) return null;
+
+    if (this.mapView.createCoordinate) {
+      const floor =
+        serialized.floorId && serialized.floorId !== 'unknown'
+          ? this.mapData.getById('floor', serialized.floorId)
+          : this.mapView.currentFloor;
+      try {
+        return (
+          this.mapView.createCoordinate(
+            serialized.latitude,
+            serialized.longitude,
+            floor ?? undefined,
+          ) ?? serialized
+        );
+      } catch (error) {
+        appLog('Route', 'createCoordinate failed; using serialized point', error);
+        return serialized;
+      }
     }
-    return target;
+
+    return serialized;
   }
 
   private async routableTargetsNear(coordinate: unknown): Promise<unknown[]> {

@@ -439,9 +439,9 @@
    * optionally truncating just before a turn, then add the junction L-arrow.
    */
   function walkPathPlacements(points, options) {
-    const spacing = options.spacingM ?? 2.15;
+    let spacing = options.spacingM ?? 2.15;
     const leadIn = options.leadInM ?? 1.35;
-    const maxArrows = options.maxArrows ?? 7;
+    let maxArrows = options.maxArrows ?? 7;
     const floorY = options.floorY ?? 0.03;
     const placements = [];
 
@@ -458,10 +458,28 @@
     startAlong = Math.max(0, Math.min(startAlong, Math.max(0, totalLen - 0.5)));
 
     const cfg = window.FPLACES_AR_CONFIG || {};
+    const remaining = Math.max(0, totalLen - startAlong);
+    const nearFieldM = cfg.nearFieldStartM ?? 6;
+    const shortThreshold = cfg.shortRemainingThresholdM ?? 12;
+    const arrivalClearM = cfg.arrivalClearRemainingM ?? 1.8;
+
+    // Arrival-imminent: no trail chevrons.
+    if (remaining < arrivalClearM) return placements;
+
+    if (startAlong < nearFieldM || remaining <= shortThreshold) {
+      spacing = Math.max(spacing, cfg.nearFieldSpacingM ?? 5.5);
+      maxArrows = Math.min(maxArrows, cfg.nearFieldMaxArrows ?? 2);
+    }
+
     const leadGap = options.trailOnly
       ? (cfg.leadingArrowDistanceM ?? 2.5) + (cfg.floorArrowSpacingM ?? 1.85) * 0.35
       : 0;
-    const trailStartAlong = startAlong + leadGap;
+    // Opening stretch: push first breadcrumb farther from the camera.
+    const openingBoost =
+      options.trailOnly && startAlong < nearFieldM
+        ? Math.max(0, spacing * 0.35)
+        : 0;
+    const trailStartAlong = startAlong + leadGap + openingBoost;
 
     const nextTurn = findNextTurn(points, segments, trailStartAlong);
     const straightHorizon = nextTurn
@@ -490,6 +508,7 @@
             z: seg.a.z + seg.dz * Math.max(0, Math.min(1, t)),
             rotationY: seg.yaw,
             alongM: nextMark,
+            nearField: startAlong < nearFieldM,
           });
           placed++;
         }
@@ -502,7 +521,7 @@
       while (mark < trailStartAlong) mark += spacing;
       for (const seg of segments) {
         if (seg.endAlong < mark) continue;
-        while (mark <= seg.endAlong && placements.length < Math.min(3, maxArrows)) {
+        while (mark <= seg.endAlong && placements.length < Math.min(2, maxArrows)) {
           const t = (mark - seg.startAlong) / seg.segLen;
           if (t >= 0 && t <= 1) {
             placements.push({
@@ -512,6 +531,7 @@
               z: seg.a.z + seg.dz * t,
               rotationY: seg.yaw,
               alongM: mark,
+              nearField: startAlong < nearFieldM,
             });
           }
           mark += spacing;
@@ -693,6 +713,13 @@
         ? options.alongPathM
         : findAlongPathM(points, userX, userZ);
     const { totalLen } = buildSegmentTable(points);
+    const remaining = Math.max(0, totalLen - userAlong);
+    const arrivalClearM = cfg.arrivalClearRemainingM ?? 1.8;
+    if (remaining < arrivalClearM) {
+      disposeLeadingArrow(scene);
+      return null;
+    }
+
     const posAlong = Math.min(totalLen - 0.1, userAlong + leadM);
     const pos = align.pointAtAlongM(points, posAlong);
     if (!pos) {
@@ -900,8 +927,12 @@
 
       placements.forEach((place, index) => {
         const fade = Math.max(0.55, 1 - index * 0.08);
+        const cfgNear = window.FPLACES_AR_CONFIG || {};
+        const nearScale = place.nearField
+          ? (cfgNear.nearFieldArrowScale ?? 0.72)
+          : 1;
         if (place.kind === "turn") {
-          const scale = 1.2 * (place.emphasize || 1.15);
+          const scale = 1.1 * (place.emphasize || 1.15) * nearScale;
           const arrow = createTurnArrowInstance(
             THREE,
             place.side,
@@ -913,7 +944,7 @@
           arrow.renderOrder = 525;
           group.add(arrow);
         } else {
-          const scale = 1.18 - index * 0.07;
+          const scale = (1.05 - index * 0.06) * nearScale;
           const arrow = createArrowInstance(THREE, fade, scale);
           arrow.position.set(place.x, place.y, place.z);
           arrow.rotation.y = place.rotationY;

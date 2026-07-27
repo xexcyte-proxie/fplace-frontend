@@ -1,7 +1,24 @@
 import type { AppState } from '../types';
+import { isGoogleSignInConfigured } from '../services/auth-service';
+
+const AUTH_ASSETS = {
+  back: '/auth/back-chevron.svg',
+  eye: '/auth/eye.svg',
+  checkGreen: '/auth/check-green.svg',
+  checkWhite: '/auth/check-white.svg',
+  google: '/auth/google.svg',
+} as const;
 
 function fieldError(errors: Record<string, string>, key: string): string {
   return errors[key] ?? '';
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
 }
 
 export function renderCreateAccountScreen(
@@ -13,20 +30,27 @@ export function renderCreateAccountScreen(
     state.authFieldErrors,
     'password_confirm',
   );
+  const termsError = fieldError(state.authFieldErrors, 'terms');
   const generalError = fieldError(state.authFieldErrors, '_form');
+  const googleEnabled = isGoogleSignInConfigured();
 
   return `
-    <div class="auth-screen">
+    <div class="auth-screen auth-screen--create">
       <button type="button" id="auth-back-btn" class="auth-back-btn" aria-label="Back">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M15 6L9 12L15 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+        <img
+          class="auth-back-icon"
+          src="${AUTH_ASSETS.back}"
+          alt=""
+          width="22"
+          height="22"
+          decoding="async"
+        />
       </button>
 
       <div class="auth-header">
         <h1 class="auth-title">Create your account</h1>
         <p class="auth-subtitle">
-          Just the basics for now. You can fill out the rest later.
+          You will stay anonymous inside the venue.
         </p>
       </div>
 
@@ -44,7 +68,7 @@ export function renderCreateAccountScreen(
             name="email"
             type="email"
             class="auth-input${emailError ? ' auth-input--error' : ''}"
-            placeholder="you@email.com"
+            placeholder="fan@email.com"
             autocomplete="email"
             inputmode="email"
             value="${escapeHtml(state.authEmail)}"
@@ -56,59 +80,143 @@ export function renderCreateAccountScreen(
 
         <label class="auth-field">
           <span class="auth-label">Password</span>
-          <input
-            id="auth-password"
-            name="password"
-            type="password"
-            class="auth-input${passwordError ? ' auth-input--error' : ''}"
-            placeholder="••••••••"
-            autocomplete="new-password"
-            ${state.authLoading ? 'disabled' : ''}
-            required
-          />
+          <div class="auth-input-wrap">
+            <input
+              id="auth-password"
+              name="password"
+              type="password"
+              class="auth-input auth-input--with-toggle${passwordError ? ' auth-input--error' : ''}"
+              placeholder="••••••••"
+              autocomplete="new-password"
+              ${state.authLoading ? 'disabled' : ''}
+              required
+            />
+            <button
+              type="button"
+              class="auth-password-toggle"
+              data-password-toggle="auth-password"
+              aria-label="Show password"
+              ${state.authLoading ? 'disabled' : ''}
+            >
+              <img
+                class="auth-password-toggle-icon"
+                src="${AUTH_ASSETS.eye}"
+                alt=""
+                width="24"
+                height="24"
+                decoding="async"
+              />
+            </button>
+          </div>
           ${passwordError ? `<span class="auth-field-error" role="alert">${escapeHtml(passwordError)}</span>` : ''}
         </label>
 
         <label class="auth-field">
           <span class="auth-label">Confirm password</span>
-          <input
-            id="auth-password-confirm"
-            name="password_confirm"
-            type="password"
-            class="auth-input${passwordConfirmError ? ' auth-input--error' : ''}"
-            placeholder="••••••••"
-            autocomplete="new-password"
-            ${state.authLoading ? 'disabled' : ''}
-            required
-          />
+          <div class="auth-input-wrap">
+            <input
+              id="auth-password-confirm"
+              name="password_confirm"
+              type="password"
+              class="auth-input auth-input--with-toggle${passwordConfirmError ? ' auth-input--error' : ''}"
+              placeholder="••••••••"
+              autocomplete="new-password"
+              ${state.authLoading ? 'disabled' : ''}
+              required
+            />
+            <button
+              type="button"
+              class="auth-password-toggle"
+              data-password-toggle="auth-password-confirm"
+              aria-label="Show password"
+              ${state.authLoading ? 'disabled' : ''}
+            >
+              <img
+                class="auth-password-toggle-icon"
+                src="${AUTH_ASSETS.eye}"
+                alt=""
+                width="24"
+                height="24"
+                decoding="async"
+              />
+            </button>
+          </div>
+          <span
+            id="auth-password-strength"
+            class="auth-password-strength"
+            hidden
+          >
+            <img
+              class="auth-password-strength-icon"
+              src="${AUTH_ASSETS.checkGreen}"
+              alt=""
+              width="14"
+              height="14"
+              decoding="async"
+            />
+            Strong password
+          </span>
           ${passwordConfirmError ? `<span class="auth-field-error" role="alert">${escapeHtml(passwordConfirmError)}</span>` : ''}
         </label>
+
+        <label class="auth-terms">
+          <span class="auth-terms-box">
+            <input
+              id="auth-terms"
+              name="terms"
+              type="checkbox"
+              class="auth-terms-input"
+              ${state.authLoading ? 'disabled' : ''}
+            />
+            <span class="auth-terms-check" aria-hidden="true">
+              <img
+                src="${AUTH_ASSETS.checkWhite}"
+                alt=""
+                width="14"
+                height="14"
+                decoding="async"
+              />
+            </span>
+          </span>
+          <span class="auth-terms-copy">
+            I agree to the
+            <button type="button" id="auth-terms-link" class="auth-legal-link">Terms of Service</button>
+            and
+            <button type="button" id="auth-privacy-link" class="auth-legal-link">Privacy Policy</button>.
+          </span>
+        </label>
+        ${termsError ? `<span class="auth-field-error auth-terms-error" role="alert">${escapeHtml(termsError)}</span>` : ''}
 
         <div class="auth-actions">
           <button
             type="submit"
             id="auth-continue-btn"
-            class="onboarding-primary-btn auth-submit-btn"
+            class="auth-cta-primary auth-submit-btn"
             ${state.authLoading ? 'disabled' : ''}
           >
             ${state.authLoading ? 'Creating account…' : 'Continue'}
           </button>
-          <p class="auth-footer-text">
-            Already have an account?
-            <button type="button" id="auth-login-link" class="auth-inline-link">
-              Log in
+
+          ${
+            googleEnabled
+              ? `
+            <div class="auth-divider" role="separator" aria-label="or">
+              <span>or</span>
+            </div>
+            <button
+              type="button"
+              id="auth-google-btn"
+              class="auth-google-btn"
+              ${state.authLoading ? 'disabled' : ''}
+            >
+              <img src="${AUTH_ASSETS.google}" alt="" width="18" height="18" aria-hidden="true" />
+              Continue with Google
             </button>
-          </p>
+          `
+              : ''
+          }
         </div>
       </form>
     </div>
   `;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
 }
