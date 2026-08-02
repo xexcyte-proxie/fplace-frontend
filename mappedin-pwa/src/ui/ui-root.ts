@@ -50,6 +50,9 @@ export class UiRoot {
   private readonly root: HTMLElement;
   private authEmailDraft = "";
   private authPasswordDraft = "";
+  private createPasswordDraft = "";
+  private createPasswordConfirmDraft = "";
+  private createTermsAcceptedDraft = false;
   private pseudoNameDraft: string | null = null;
   private venueSearchDraft: string | null = null;
   private otpDraft = "";
@@ -139,9 +142,34 @@ export class UiRoot {
       focusedVenueSearch?.selectionStart ?? null;
     const venueSearchSelectionEnd = focusedVenueSearch?.selectionEnd ?? null;
 
-    if (!showCreateAccount && !showCheckEmail && !showVerifyEmail && !showLogin) {
+    // Capture create-account fields before the DOM is replaced so terms/privacy
+    // (and validation re-renders) do not wipe in-progress input.
+    const createPasswordInput =
+      this.root.querySelector<HTMLInputElement>("#auth-password");
+    if (createPasswordInput) {
+      this.createPasswordDraft = createPasswordInput.value;
+      this.createPasswordConfirmDraft =
+        this.root.querySelector<HTMLInputElement>("#auth-password-confirm")
+          ?.value ?? "";
+      this.createTermsAcceptedDraft =
+        this.root.querySelector<HTMLInputElement>("#auth-terms")?.checked ??
+        false;
+    } else if (state.authStep !== "create") {
+      this.createPasswordDraft = "";
+      this.createPasswordConfirmDraft = "";
+      this.createTermsAcceptedDraft = false;
+    }
+
+    const preserveAuthEmailDraft =
+      showCreateAccount ||
+      showCheckEmail ||
+      showVerifyEmail ||
+      showLogin ||
+      (showOnboardingFlow &&
+        state.authStep === "create" &&
+        showAuthPrivacy);
+    if (!preserveAuthEmailDraft) {
       this.authEmailDraft = "";
-      this.authPasswordDraft = "";
     }
     if (showLogin) {
       const livePassword =
@@ -260,6 +288,7 @@ export class UiRoot {
     this.bindEvents(app);
     this.bindOtpInputs(app, focusedOtpIndex);
     this.restoreLoginPasswordDraft(showLogin);
+    this.restoreCreateAccountDrafts(showCreateAccount);
 
     if (focusedPseudoName && (showPseudoName || onProfileEditProfile)) {
       const pseudoInput =
@@ -831,6 +860,30 @@ export class UiRoot {
       });
 
     this.root
+      .querySelector("#auth-password")
+      ?.addEventListener("input", (event) => {
+        this.createPasswordDraft = (
+          event.currentTarget as HTMLInputElement
+        ).value;
+      });
+
+    this.root
+      .querySelector("#auth-password-confirm")
+      ?.addEventListener("input", (event) => {
+        this.createPasswordConfirmDraft = (
+          event.currentTarget as HTMLInputElement
+        ).value;
+      });
+
+    this.root
+      .querySelector("#auth-terms")
+      ?.addEventListener("change", (event) => {
+        this.createTermsAcceptedDraft = (
+          event.currentTarget as HTMLInputElement
+        ).checked;
+      });
+
+    this.root
       .querySelector("#create-account-form")
       ?.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -842,6 +895,9 @@ export class UiRoot {
           form.querySelector<HTMLInputElement>("#auth-password-confirm")?.value ?? "";
         const termsAccepted =
           form.querySelector<HTMLInputElement>("#auth-terms")?.checked ?? false;
+        this.createPasswordDraft = password;
+        this.createPasswordConfirmDraft = passwordConfirm;
+        this.createTermsAcceptedDraft = termsAccepted;
         void app.submitRegistration(
           email,
           password,
@@ -1315,6 +1371,35 @@ export class UiRoot {
       this.root.querySelector<HTMLInputElement>("#login-password");
     if (passwordInput && !passwordInput.value) {
       passwordInput.value = this.authPasswordDraft;
+    }
+  }
+
+  private restoreCreateAccountDrafts(showCreateAccount: boolean): void {
+    if (!showCreateAccount) return;
+
+    const passwordInput =
+      this.root.querySelector<HTMLInputElement>("#auth-password");
+    const confirmInput = this.root.querySelector<HTMLInputElement>(
+      "#auth-password-confirm",
+    );
+    const termsInput =
+      this.root.querySelector<HTMLInputElement>("#auth-terms");
+    const strengthHint = this.root.querySelector<HTMLElement>(
+      "#auth-password-strength",
+    );
+
+    if (passwordInput) {
+      passwordInput.value = this.createPasswordDraft;
+    }
+    if (confirmInput) {
+      confirmInput.value = this.createPasswordConfirmDraft;
+    }
+    if (termsInput) {
+      termsInput.checked = this.createTermsAcceptedDraft;
+    }
+    if (passwordInput && strengthHint) {
+      strengthHint.hidden =
+        evaluatePasswordStrength(passwordInput.value) !== "strong";
     }
   }
 

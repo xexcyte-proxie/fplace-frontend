@@ -1621,7 +1621,7 @@ export class MapApp {
       clearStoredAuthTokens();
       appWarn('Auth', 'Logout request failed; cleared local session', error);
     }
-    this.resetAuthState({ showCreate: true, toast: 'Logged out.' });
+    this.resetAuthState({ showLogin: true, toast: 'Logged out.' });
   }
 
   async deleteAccount(): Promise<void> {
