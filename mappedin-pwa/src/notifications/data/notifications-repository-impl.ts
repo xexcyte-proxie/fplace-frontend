@@ -13,6 +13,14 @@ export class NotificationsRepositoryImpl implements NotificationsRepository {
     return notificationsRemoteDatasource.listNotifications(page);
   }
 
+  getNotification(notificationId: number): Promise<AppNotification> {
+    return notificationsRemoteDatasource.getNotification(notificationId);
+  }
+
+  getUnreadCount(): Promise<number> {
+    return notificationsRemoteDatasource.getUnreadCount();
+  }
+
   markRead(notificationId: number): Promise<AppNotification | void> {
     return notificationsRemoteDatasource.markRead(notificationId);
   }

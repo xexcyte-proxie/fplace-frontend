@@ -23,6 +23,16 @@ export async function listNotifications(
   return notificationsRepository.listNotifications(page);
 }
 
+export async function getNotification(
+  notificationId: number,
+): Promise<AppNotification> {
+  return notificationsRepository.getNotification(notificationId);
+}
+
+export async function fetchUnreadNotificationCount(): Promise<number> {
+  return notificationsRepository.getUnreadCount();
+}
+
 /** Initial paginated inbox fetch after auth / venue entry. */
 export async function loadInitialNotifications(): Promise<
   PaginatedList<AppNotification>

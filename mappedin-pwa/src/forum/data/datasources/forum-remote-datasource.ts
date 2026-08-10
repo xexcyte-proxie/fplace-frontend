@@ -1,18 +1,27 @@
 import { apiRequest } from '../../../auth/data/datasources/api-client';
 import type {
+  CreateCommentPayload,
   CreatePostPayload,
   FlagPostPayload,
   ForumCategory,
+  ForumComment,
   ForumPost,
   ForumSection,
   ForumVenue,
+  ListCommentsParams,
   ListPostsParams,
   PaginatedList,
+  UpdateCommentPayload,
+  UpdatePostPayload,
 } from '../../domain/entities';
 import {
   coerceForumPost,
   coerceForumPostList,
 } from '../mappers/forum-post-mapper';
+import {
+  coerceForumComment,
+  coerceForumCommentList,
+} from '../mappers/forum-comment-mapper';
 
 function withQuery(
   path: string,
@@ -39,6 +48,17 @@ function requireForumPost(
   return post;
 }
 
+function requireForumComment(
+  raw: unknown,
+  fallbackError: string,
+): ForumComment {
+  const comment = coerceForumComment(raw);
+  if (!comment) {
+    throw new Error(fallbackError);
+  }
+  return comment;
+}
+
 export class ForumRemoteDatasource {
   listVenues(page = 1): Promise<PaginatedList<ForumVenue>> {
     return apiRequest<PaginatedList<ForumVenue>>(
@@ -47,6 +67,12 @@ export class ForumRemoteDatasource {
         fallbackError: 'Could not load venues. Please try again.',
       },
     );
+  }
+
+  getVenue(venueId: number): Promise<ForumVenue> {
+    return apiRequest<ForumVenue>(`/api/forum/venues/${venueId}/`, {
+      fallbackError: 'Could not load that venue.',
+    });
   }
 
   listSections(venueId: number, page = 1): Promise<PaginatedList<ForumSection>> {
@@ -62,6 +88,12 @@ export class ForumRemoteDatasource {
     );
   }
 
+  getSection(sectionId: number): Promise<ForumSection> {
+    return apiRequest<ForumSection>(`/api/forum/sections/${sectionId}/`, {
+      fallbackError: 'Could not load that section.',
+    });
+  }
+
   listCategories(page = 1): Promise<PaginatedList<ForumCategory>> {
     return apiRequest<PaginatedList<ForumCategory>>(
       withQuery('/api/forum/categories/', {
@@ -73,6 +105,12 @@ export class ForumRemoteDatasource {
         fallbackError: 'Could not load categories. Please try again.',
       },
     );
+  }
+
+  getCategory(categoryId: number): Promise<ForumCategory> {
+    return apiRequest<ForumCategory>(`/api/forum/categories/${categoryId}/`, {
+      fallbackError: 'Could not load that category.',
+    });
   }
 
   async listPosts(params: ListPostsParams): Promise<PaginatedList<ForumPost>> {
@@ -93,6 +131,14 @@ export class ForumRemoteDatasource {
     return coerceForumPostList(raw);
   }
 
+  async getPost(postId: number): Promise<ForumPost> {
+    const raw = await apiRequest<unknown>(`/api/forum/posts/${postId}/`, {
+      auth: true,
+      fallbackError: 'Could not load that post.',
+    });
+    return requireForumPost(raw, 'Could not load that post.');
+  }
+
   async createPost(payload: CreatePostPayload): Promise<ForumPost> {
     const body: Record<string, unknown> = {
       venue: payload.venue,
@@ -111,6 +157,60 @@ export class ForumRemoteDatasource {
     return requireForumPost(raw, 'Could not post. Please try again.');
   }
 
+  async updatePost(
+    postId: number,
+    payload: UpdatePostPayload,
+  ): Promise<ForumPost> {
+    const raw = await apiRequest<unknown>(`/api/forum/posts/${postId}/`, {
+      method: 'PATCH',
+      auth: true,
+      body: payload,
+      fallbackError: 'Could not update that post.',
+    });
+    return requireForumPost(raw, 'Could not update that post.');
+  }
+
+  async replacePost(
+    postId: number,
+    payload: CreatePostPayload,
+  ): Promise<ForumPost> {
+    const body: Record<string, unknown> = {
+      venue: payload.venue,
+      category: payload.category,
+      content: payload.content,
+    };
+    if (payload.section != null) {
+      body.section = payload.section;
+    }
+    const raw = await apiRequest<unknown>(`/api/forum/posts/${postId}/`, {
+      method: 'PUT',
+      auth: true,
+      body,
+      fallbackError: 'Could not replace that post.',
+    });
+    return requireForumPost(raw, 'Could not replace that post.');
+  }
+
+  async deletePost(postId: number): Promise<void> {
+    await apiRequest(`/api/forum/posts/${postId}/`, {
+      method: 'DELETE',
+      auth: true,
+      fallbackError: 'Could not delete that post.',
+    });
+  }
+
+  async restorePost(postId: number): Promise<ForumPost> {
+    const raw = await apiRequest<unknown>(
+      `/api/forum/posts/${postId}/restore/`,
+      {
+        method: 'POST',
+        auth: true,
+        fallbackError: 'Could not restore that post.',
+      },
+    );
+    return requireForumPost(raw, 'Could not restore that post.');
+  }
+
   async toggleUpvote(
     postId: number,
     options?: { hasUpvotedFallback?: boolean },
@@ -123,7 +223,6 @@ export class ForumRemoteDatasource {
     const coerced = coerceForumPost(raw, options);
     if (coerced) return coerced;
 
-    // Some backends return a partial upvote payload instead of a full post.
     if (raw && typeof raw === 'object') {
       const dto = raw as Record<string, unknown>;
       const nested =
@@ -172,6 +271,89 @@ export class ForumRemoteDatasource {
       fallbackError: 'Could not report this post. Please try again.',
     });
     return requireForumPost(raw, 'Could not report this post. Please try again.');
+  }
+
+  async listComments(
+    params: ListCommentsParams = {},
+  ): Promise<PaginatedList<ForumComment>> {
+    const raw = await apiRequest<unknown>(
+      withQuery('/api/forum/comments/', {
+        post: params.post,
+        page: params.page,
+        ordering: params.ordering,
+        created_after: params.created_after,
+        created_before: params.created_before,
+      }),
+      {
+        auth: true,
+        fallbackError: 'Could not load comments.',
+      },
+    );
+    return coerceForumCommentList(raw);
+  }
+
+  async getComment(commentId: number): Promise<ForumComment> {
+    const raw = await apiRequest<unknown>(`/api/forum/comments/${commentId}/`, {
+      auth: true,
+      fallbackError: 'Could not load that comment.',
+    });
+    return requireForumComment(raw, 'Could not load that comment.');
+  }
+
+  async createComment(payload: CreateCommentPayload): Promise<ForumComment> {
+    const raw = await apiRequest<unknown>('/api/forum/comments/', {
+      method: 'POST',
+      auth: true,
+      body: payload,
+      fallbackError: 'Could not post that comment.',
+    });
+    return requireForumComment(raw, 'Could not post that comment.');
+  }
+
+  async updateComment(
+    commentId: number,
+    payload: UpdateCommentPayload,
+  ): Promise<ForumComment> {
+    const raw = await apiRequest<unknown>(`/api/forum/comments/${commentId}/`, {
+      method: 'PATCH',
+      auth: true,
+      body: payload,
+      fallbackError: 'Could not update that comment.',
+    });
+    return requireForumComment(raw, 'Could not update that comment.');
+  }
+
+  async replaceComment(
+    commentId: number,
+    payload: CreateCommentPayload,
+  ): Promise<ForumComment> {
+    const raw = await apiRequest<unknown>(`/api/forum/comments/${commentId}/`, {
+      method: 'PUT',
+      auth: true,
+      body: payload,
+      fallbackError: 'Could not replace that comment.',
+    });
+    return requireForumComment(raw, 'Could not replace that comment.');
+  }
+
+  async deleteComment(commentId: number): Promise<void> {
+    await apiRequest(`/api/forum/comments/${commentId}/`, {
+      method: 'DELETE',
+      auth: true,
+      fallbackError: 'Could not delete that comment.',
+    });
+  }
+
+  async restoreComment(commentId: number): Promise<ForumComment> {
+    const raw = await apiRequest<unknown>(
+      `/api/forum/comments/${commentId}/restore/`,
+      {
+        method: 'POST',
+        auth: true,
+        fallbackError: 'Could not restore that comment.',
+      },
+    );
+    return requireForumComment(raw, 'Could not restore that comment.');
   }
 }
 

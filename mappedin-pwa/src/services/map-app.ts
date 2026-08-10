@@ -35,6 +35,9 @@ import {
   onAuthSessionCleared,
   registerUser,
   resendVerification,
+  changePassword,
+  confirmPasswordReset,
+  requestPasswordReset,
   resolveOnboardingStep,
   saveVenueSelection,
   signInWithGoogle,
@@ -43,34 +46,69 @@ import {
   verifyEmail,
   type VenueSelection,
 } from './auth-service';
+import {
+  clearPasswordResetLinkFromUrl,
+  parsePasswordResetLink,
+} from '../auth/domain/password-reset-link';
+import { evaluatePasswordStrength } from '../auth/domain/password-strength';
+import {
+  initializeFingerprint,
+  registerCurrentGuestFingerprint,
+  validateCurrentGuestAccess,
+} from './guest-access-service';
+import {
+  clearDeviceHasUsedApp,
+  clearReturningSession,
+  hasDeviceUsedApp,
+  isReturningSession,
+  loadReturningSession,
+  markDeviceHasUsedApp,
+  resolveStartupDestination,
+  saveReturningSession,
+  type ReturningSessionSnapshot,
+} from './session-service';
+import { homeRepository } from '../home/data/home-repository-impl';
+import { venueVisitRepository } from '../home/data/venue-visit-repository-impl';
+import type { HomeExperience } from '../home/domain/entities';
 import { isCompleteOtpCode } from '../auth/domain/otp-code';
 import {
   loadAppPreferences,
   patchAppPreferences,
 } from './app-preferences-service';
 import {
+  createForumComment,
   createForumPost,
+  deleteForumComment,
+  deleteForumPost,
   flagForumPost,
   listAllVenues,
+  listForumComments,
   loadInitialVenueFeed,
   loadVenueCatalog,
   subscribeVenueLiveFeed,
   toggleForumPostUpvote,
+  updateForumPost,
   type ForumPost,
   type VenueLiveEvent,
   type VenueLiveSubscription,
 } from './forum-service';
 import {
   countUnread,
+  getNotification,
   listNotifications,
   loadInitialNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  fetchUnreadNotificationCount,
   subscribePersonalNotifications,
   type AppNotification,
   type PersonalNotificationEvent,
   type PersonalNotificationSubscription,
 } from './notifications-service';
+import {
+  mapForumCommentsToItems,
+  mapForumCommentToItem,
+} from '../ui/post-comments-data';
 import {
   getCurrentMapLanguage,
   getSupportedMapLanguages,
@@ -86,6 +124,11 @@ import { requestDeviceOrientationPermission } from '../position/providers/gpsPro
 import type { FplacesPositionFrame, PositionSourceType } from '../position/types';
 import { scheduleSocialMapMarkers, type LocationCardSelection, type SocialMapMarkerService } from '../map/social-map-markers';
 import { LocationService } from './location-service';
+import {
+  isLocationGateAuthStep,
+  resolveLocationGateFailure,
+  resolveLocationGatePreflight,
+} from '../location/domain/location-gate';
 import {
   LOCATION_NOT_ROUTABLE_MESSAGE,
   toUserFacingRouteError,
@@ -107,6 +150,7 @@ import type {
 import {
   clearStoredAuthUser,
   isArSessionActive,
+  loadStoredUser,
   storeAuthUser,
 } from '../types';
 import { inferAreaHint } from '../ui/route-summary';
@@ -145,6 +189,8 @@ export class MapApp {
   private authResumeInFlight = false;
   private venueEnterInFlight = false;
   private handlingSessionExpiry = false;
+  /** One-shot: focus map search after the next UI paint (Try AR flow). */
+  private pendingMapSearchFocus = false;
   /** In-memory only — used to obtain JWTs after email verification. */
   private pendingAuthPassword: string | null = null;
   private socialMapMarkers: SocialMapMarkerService | null = null;
@@ -174,6 +220,11 @@ export class MapApp {
       mapStatus: 'loading',
       loadingMessage: 'Loading map SDK…\nFirst open can take 1–2 minutes.',
       loadingProgress: 28,
+    });
+
+    // Warm FingerprintJS in parallel with map load (no backend call yet).
+    void initializeFingerprint().catch((error) => {
+      appWarn('Guest', 'Fingerprint agent failed to initialize', error);
     });
 
     this.initTimeout = setTimeout(() => {
@@ -256,7 +307,7 @@ export class MapApp {
         searchChips: getLocationChips(this.mapData),
       });
 
-      this.bootstrapAuthFlow();
+      void this.bootstrapAuthFlow();
 
       this.maybePromptLocation();
       void this.maybeAutoStartBlueDot();
@@ -352,15 +403,87 @@ export class MapApp {
   }
 
   setActiveTab(tab: AppTab): void {
+    const state = this.store.get();
+    // Tapping Navigate again from the indoor map returns to venue home.
+    if (
+      tab === 'map' &&
+      state.activeTab === 'map' &&
+      state.navigateView === 'map'
+    ) {
+      this.store.patch({
+        navigateView: 'home',
+        homeExperience: state.selectedVenueId ? 'first-visit' : state.homeExperience,
+        homeVenueSearchQuery: '',
+        profileView: 'main',
+        settingsConfirm: null,
+        notificationsOpen: false,
+      });
+      return;
+    }
+
     this.store.patch({
       activeTab: tab,
       profileView: 'main',
       settingsConfirm: null,
       notificationsOpen: false,
-      socialLocation: tab === 'social' ? null : this.store.get().socialLocation,
+      socialLocation: tab === 'social' ? null : state.socialLocation,
       socialDraft: this.captureSocialDraft(),
       venueFeedDraft: this.captureVenueFeedDraft(),
     });
+  }
+
+  setHomeVenueSearchQuery(query: string): void {
+    this.store.patch({ homeVenueSearchQuery: query });
+  }
+
+  openNavigateMap(): void {
+    this.store.patch({
+      activeTab: 'map',
+      navigateView: 'map',
+      homeVenueSearchQuery: '',
+    });
+  }
+
+  selectHomeRecentVenue(venueId: string): void {
+    const state = this.store.get();
+    const recent = state.homeContent?.recentlyVisited.find(
+      (item) => item.id === venueId,
+    );
+    const matchedForumVenue = state.forumVenues.find(
+      (venue) =>
+        String(venue.id) === venueId ||
+        venue.name.toLowerCase() === recent?.name.toLowerCase(),
+    );
+
+    if (matchedForumVenue) {
+      this.store.patch({
+        selectedVenueId: String(matchedForumVenue.id),
+        homeVenueSearchQuery: '',
+        navigateView: 'map',
+        activeTab: 'map',
+      });
+      this.showToast(`Opening ${matchedForumVenue.name}`);
+      return;
+    }
+
+    // Demo recent venues may not match the live forum catalog yet.
+    this.store.patch({
+      homeVenueSearchQuery: '',
+      navigateView: 'map',
+      activeTab: 'map',
+    });
+    if (recent) {
+      this.showToast(`Opening ${recent.name}`);
+    }
+  }
+
+  private async loadReturningHomeContent(): Promise<void> {
+    try {
+      const homeContent = await homeRepository.getReturningHomeContent();
+      this.store.patch({ homeContent });
+    } catch (error) {
+      appWarn('Home', 'Could not load returning-home content', error);
+    }
   }
 
   openProfileSettings(): void {
@@ -414,6 +537,81 @@ export class MapApp {
       authFieldErrors: {},
       authLoading: false,
     });
+  }
+
+  openChangePasswordFromSettings(): void {
+    const state = this.store.get();
+    if (!state.authUser || !hasStoredAuthTokens()) {
+      this.showLogin();
+      return;
+    }
+    this.store.patch({
+      activeTab: 'profile',
+      profileView: 'change-password',
+      settingsConfirm: null,
+      authFieldErrors: {},
+      authLoading: false,
+    });
+  }
+
+  closeChangePasswordSettings(): void {
+    this.store.patch({
+      profileView: 'settings',
+      authFieldErrors: {},
+      authLoading: false,
+    });
+  }
+
+  async submitChangePassword(
+    oldPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const fieldErrors: Record<string, string> = {};
+    if (!oldPassword) {
+      fieldErrors.old_password = 'Current password is required.';
+    }
+    if (!newPassword) {
+      fieldErrors.new_password = 'New password is required.';
+    } else if (evaluatePasswordStrength(newPassword) !== 'strong') {
+      fieldErrors.new_password =
+        'Use at least 8 characters with a letter and a number.';
+    } else if (oldPassword && newPassword === oldPassword) {
+      fieldErrors.new_password = 'Choose a password different from the current one.';
+    }
+
+    if (Object.keys(fieldErrors).length > 0) {
+      this.store.patch({ authFieldErrors: fieldErrors });
+      return;
+    }
+
+    if (!hasStoredAuthTokens()) {
+      this.store.patch({
+        authFieldErrors: {
+          _form: 'Your session expired. Please log in to continue.',
+        },
+      });
+      this.showLogin();
+      return;
+    }
+
+    this.store.patch({ authLoading: true, authFieldErrors: {} });
+    try {
+      const message = await changePassword({
+        old_password: oldPassword,
+        new_password: newPassword,
+      });
+      this.store.patch({
+        authLoading: false,
+        authFieldErrors: {},
+        profileView: 'settings',
+      });
+      this.showToast(message || 'Password updated.');
+    } catch (error) {
+      this.handleAuthFailure(
+        error,
+        'Could not change your password. Please try again.',
+      );
+    }
   }
 
   async submitProfileEditFromSettings(pseudoName: string): Promise<void> {
@@ -571,12 +769,73 @@ export class MapApp {
     this.store.patch({
       activeTab: 'social',
       notificationsOpen: true,
+      notificationDetail: null,
+      notificationDetailError: null,
+      notificationDetailLoading: false,
     });
     void this.refreshNotificationsInbox();
   }
 
   closeNotifications(): void {
-    this.store.patch({ notificationsOpen: false });
+    this.store.patch({
+      notificationsOpen: false,
+      notificationDetail: null,
+      notificationDetailError: null,
+      notificationDetailLoading: false,
+    });
+  }
+
+  closeNotificationDetail(): void {
+    this.store.patch({
+      notificationDetail: null,
+      notificationDetailError: null,
+      notificationDetailLoading: false,
+    });
+  }
+
+  async openNotificationDetail(notificationId: string): Promise<void> {
+    const id = Number(notificationId);
+    if (!Number.isFinite(id)) return;
+
+    const cached =
+      this.store.get().notifications.find((item) => item.id === id) ?? null;
+    this.store.patch({
+      activeTab: 'social',
+      notificationsOpen: true,
+      notificationDetail: cached,
+      notificationDetailLoading: true,
+      notificationDetailError: null,
+    });
+
+    if (cached && !cached.isRead) {
+      void this.markNotificationAsRead(String(id));
+    }
+
+    try {
+      const remote = await getNotification(id);
+      const mapped = mapNotificationToItem(remote);
+      const latest = this.store.get();
+      this.store.patch({
+        notificationDetail: mapped,
+        notificationDetailLoading: false,
+        notificationDetailError: null,
+        notifications: latest.notifications.some((item) => item.id === id)
+          ? latest.notifications.map((item) => (item.id === id ? mapped : item))
+          : latest.notifications,
+      });
+      if (!mapped.isRead) {
+        void this.markNotificationAsRead(String(id));
+      }
+    } catch (error) {
+      this.store.patch({
+        notificationDetailLoading: false,
+        notificationDetailError:
+          error instanceof Error
+            ? error.message
+            : 'Could not load this notification.',
+      });
+      appWarn('Notifications', 'Could not load notification detail', error);
+    }
   }
 
   async refreshNotificationsInbox(): Promise<void> {
@@ -587,10 +846,16 @@ export class MapApp {
     try {
       const page = await loadInitialNotifications();
       const notifications = page.results.map(mapNotificationToItem);
+      let unread = countUnread(page.results);
+      try {
+        unread = await fetchUnreadNotificationCount();
+      } catch (error) {
+        appWarn('Notifications', 'unread_count failed; using list count', error);
+      }
       this.store.patch({
         notifications,
         notificationsNext: page.next,
-        notificationsUnreadCount: countUnread(page.results),
+        notificationsUnreadCount: unread,
         notificationsLoading: false,
       });
     } catch (error) {
@@ -727,7 +992,143 @@ export class MapApp {
   }
 
   completeOnboarding(): void {
-    this.store.patch({ onboardingComplete: true, authStep: 'none' });
+    const state = this.store.get();
+    const homeExperience = this.resolveHomeExperience(state.selectedVenueId);
+    markDeviceHasUsedApp();
+    saveReturningSession({
+      onboardingComplete: true,
+      mode: state.authUser ? 'auth' : 'guest',
+      selectedVenueId: state.selectedVenueId,
+      selectedGateId: state.selectedGateId,
+      guestId: state.guestId,
+    });
+    this.store.patch({
+      onboardingComplete: true,
+      authStep: 'none',
+      authStepBeforeLocation: null,
+      locationGateLoading: false,
+      locationGateError: null,
+      activeTab: 'map',
+      navigateView: 'home',
+      homeExperience,
+      homeVenueSearchQuery: '',
+    });
+    void this.loadReturningHomeContent();
+  }
+
+  /**
+   * First enter of a venue → first-visit dashboard; later visits → returning home.
+   * Temporarily always treats a selected venue as a first visit so we can preview
+   * that home experience.
+   */
+  private resolveHomeExperience(venueId: string | null): HomeExperience {
+    if (!venueId?.trim()) return 'returning';
+    venueVisitRepository.clear();
+    return 'first-visit';
+  }
+
+  /** Discover / See all posts from the first-visit venue home. */
+  openVenueDiscover(): void {
+    this.store.patch({
+      activeTab: 'social',
+      notificationsOpen: false,
+      profileView: 'main',
+      settingsConfirm: null,
+    });
+  }
+
+  /** Try AR from the first-visit venue home. */
+  async openVenueArFromHome(): Promise<void> {
+    if (this.store.get().route) {
+      this.store.patch({ arRoutePromptOpen: false });
+      this.openNavigateMap();
+      await this.openAr();
+      return;
+    }
+
+    // Stay on venue home — dialog explains start/end, then user opens the map.
+    this.store.patch({ arRoutePromptOpen: true });
+  }
+
+  dismissArRoutePrompt(): void {
+    this.store.patch({ arRoutePromptOpen: false });
+  }
+
+  /** Confirm Try AR dialog → map with search ready for start/end. */
+  confirmArRoutePrompt(): void {
+    this.pendingMapSearchFocus = true;
+    this.store.patch({
+      arRoutePromptOpen: false,
+      activeTab: 'map',
+      navigateView: 'map',
+      homeVenueSearchQuery: '',
+      searchQuery: '',
+      searchResults: [],
+      categoryFilter: null,
+      isSearching: false,
+      arRouteSetupActive: true,
+    });
+  }
+
+  /** Whether the map search field should be focused after render. */
+  shouldFocusMapSearch(): boolean {
+    return this.pendingMapSearchFocus;
+  }
+
+  /** Called by UI after focusing the map search field. */
+  consumeMapSearchFocus(): void {
+    this.pendingMapSearchFocus = false;
+  }
+
+  /** After auth + venue setup, gate the main app on geolocation. */
+  beginLocationPermissionGate(): void {
+    const state = this.store.get();
+    const underlyingStep = isLocationGateAuthStep(state.authStep)
+      ? state.authStepBeforeLocation ?? 'none'
+      : state.authStep;
+
+    // Never mount the location dialog over the welcome "Find places" screen.
+    if (underlyingStep === 'none') {
+      void this.continueAfterLocationGranted();
+      return;
+    }
+
+    this.store.patch({
+      onboardingComplete: false,
+      authStep: 'location-permission',
+      authStepBeforeLocation: underlyingStep,
+      authLoading: false,
+      locationGateLoading: false,
+      locationPermanentlyDenied: false,
+      locationGateError: null,
+    });
+  }
+
+  showArTeaser(): void {
+    this.store.patch({
+      authStep: 'ar-teaser',
+      authFieldErrors: {},
+      authLegalDocument: null,
+      legalWebView: null,
+    });
+  }
+
+  showIntroduction(): void {
+    this.store.patch({
+      authStep: 'introduction',
+      authFieldErrors: {},
+      authLegalDocument: null,
+      legalWebView: null,
+    });
+  }
+
+  showFeatures(): void {
+    this.store.patch({
+      authStep: 'features',
+      authFieldErrors: {},
+      authLegalDocument: null,
+      legalWebView: null,
+    });
   }
 
   showPseudoNameSetup(): void {
@@ -742,6 +1143,8 @@ export class MapApp {
       : state.selectedInterests;
     this.store.patch({
       authStep: 'pseudo-name',
+      authStepBeforeLocation: null,
+      locationGateLoading: false,
       onboardingComplete: false,
       authFieldErrors: {},
       pseudoNameDraft: existingName,
@@ -854,6 +1257,8 @@ export class MapApp {
   showVenueSelect(): void {
     this.store.patch({
       authStep: 'venue-select',
+      authStepBeforeLocation: null,
+      locationGateLoading: false,
       onboardingComplete: false,
       authFieldErrors: {},
     });
@@ -885,7 +1290,10 @@ export class MapApp {
         selectedGateId: selection.sectionId,
         authFieldErrors: {},
       });
-      this.completeOnboarding();
+      void this.enterSelectedVenue({
+        skipLocationGate: true,
+        welcomeToast: false,
+      });
       return;
     }
     this.showPseudoNameSetup();
@@ -913,7 +1321,7 @@ export class MapApp {
   }
 
   submitVenueSelect(): void {
-    void this.enterSelectedVenue();
+    void this.enterSelectedVenue({ skipLocationGate: true });
   }
 
   private async loadOnboardingVenues(): Promise<void> {
@@ -1005,6 +1413,8 @@ export class MapApp {
 
   private async enterSelectedVenue(options?: {
     welcomeToast?: boolean;
+    /** Location was already granted after create / sign-in / guest. */
+    skipLocationGate?: boolean;
   }): Promise<void> {
     if (this.venueEnterInFlight) return;
 
@@ -1095,13 +1505,19 @@ export class MapApp {
         authLoading: false,
         authFieldErrors: {},
       });
-      this.completeOnboarding();
       this.connectVenueLiveFeed(venueId);
       void this.bootstrapPersonalNotifications();
       if (options?.welcomeToast !== false) {
         this.showToast(
           venue ? `Welcome to ${venue.name}. You're in.` : 'Welcome to fplaces!',
         );
+      }
+
+      // Location dialog only after create / sign-in / guest — not after venue pick.
+      if (options?.skipLocationGate || this.store.get().userLocation) {
+        this.completeOnboarding();
+      } else {
+        this.beginLocationPermissionGate();
       }
     } catch (error) {
       this.handleAuthFailure(
@@ -1243,23 +1659,273 @@ export class MapApp {
     }
   }
 
-  private bootstrapAuthFlow(): void {
+  private async bootstrapAuthFlow(): Promise<void> {
     if (this.authFlowBootstrapped) return;
     this.authFlowBootstrapped = true;
 
-    if (hasStoredAuthTokens()) {
-      // Keep marketing UI hidden while profile restore runs.
-      this.store.patch({ authLoading: true, authFieldErrors: {} });
-    } else {
-      // Show welcome/onboarding until the user chooses create or login.
-      this.store.patch({ authStep: 'none', authFieldErrors: {} });
+    // Fingerprint + guest validation before deciding welcome vs create-account.
+    // Registered users with JWTs still get fingerprinted for future association,
+    // but are not blocked by guest limits.
+    this.store.patch({ authLoading: true, authFieldErrors: {} });
+    const guestGatePassed = await this.resolveGuestFingerprintGate();
+    if (!guestGatePassed) {
+      return;
     }
 
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        void this.resumeAuthSession();
-      });
+    if (this.tryOpenPasswordResetFromUrl()) {
+      return;
+    }
+
+    const returning =
+      loadReturningSession() ?? this.inferReturningSessionFromLocalAuth();
+    const destination = resolveStartupDestination({
+      hasReturningSession: isReturningSession(returning),
+      hasAuthTokens: hasStoredAuthTokens(),
+      deviceHasUsedApp: hasDeviceUsedApp() || Boolean(loadStoredUser()),
     });
+
+    if (destination === 'app' && isReturningSession(returning)) {
+      // Skip welcome/marketing — restore home for auth or guest returners.
+      await this.restoreReturningSession(returning);
+      return;
+    }
+
+    if (destination === 'app' && hasStoredAuthTokens()) {
+      // Keep marketing UI hidden while profile restore runs.
+      this.store.patch({ authLoading: true, authFieldErrors: {} });
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          void this.resumeAuthSession();
+        });
+      });
+      return;
+    }
+
+    if (destination === 'sign-in') {
+      markDeviceHasUsedApp();
+      this.store.patch({
+        authLoading: false,
+        authFieldErrors: {},
+        authLegalDocument: null,
+        legalWebView: null,
+      });
+      this.showLogin();
+      return;
+    }
+
+    // Brand-new device — Find places / marketing onboarding.
+    this.store.patch({
+      authStep: 'none',
+      authLoading: false,
+      authFieldErrors: {},
+    });
+  }
+
+  /**
+   * Auth users who finished venue setup before returning-session persistence
+   * still count as returners (tokens + profile + venue preference).
+   */
+  private inferReturningSessionFromLocalAuth(): ReturningSessionSnapshot | null {
+    if (!hasStoredAuthTokens()) return null;
+    const user = loadStoredUser();
+    if (!user) return null;
+    const selection = loadVenueSelection(user.id);
+    if (!selection || resolveOnboardingStep(user, selection) !== 'home') {
+      return null;
+    }
+    return {
+      onboardingComplete: true,
+      mode: 'auth',
+      selectedVenueId: selection.venueId,
+      selectedGateId: selection.sectionId,
+      guestId: null,
+    };
+  }
+
+  /**
+   * Reload a previously completed onboarding session without showing welcome.
+   * Auth users refresh profile + venue feed; guests re-enter their last venue.
+   */
+  private async restoreReturningSession(
+    snapshot: ReturningSessionSnapshot,
+  ): Promise<void> {
+    let venueId = snapshot.selectedVenueId;
+    let gateId = snapshot.selectedGateId;
+    const storedUser = loadStoredUser();
+    if (storedUser) {
+      const preference = loadVenueSelection(storedUser.id);
+      if (preference) {
+        venueId = preference.venueId;
+        gateId = preference.sectionId;
+      }
+    }
+
+    const homeExperience: HomeExperience = venueId
+      ? 'first-visit'
+      : 'returning';
+
+    this.store.patch({
+      selectedVenueId: venueId,
+      selectedGateId: gateId,
+      guestId: snapshot.guestId ?? this.store.get().guestId,
+      authStep: 'none',
+      authStepBeforeLocation: null,
+      authLoading: true,
+      authFieldErrors: {},
+      navigateView: 'home',
+      homeExperience,
+    });
+
+    if (hasStoredAuthTokens()) {
+      try {
+        const user = await fetchCurrentUser();
+        this.persistSessionUser(user);
+        this.store.patch({
+          authUser: user,
+          authEmail: user.email,
+          selectedInterests: user.interests?.length
+            ? [...user.interests]
+            : this.store.get().selectedInterests,
+        });
+
+        const selection =
+          loadVenueSelection(user.id) ??
+          (venueId && gateId
+            ? { venueId, sectionId: gateId }
+            : null);
+        const step = resolveOnboardingStep(user, selection);
+        if (step !== 'home' || !selection) {
+          this.store.patch({ authLoading: false, onboardingComplete: false });
+          await this.continueAfterLocationGranted();
+          return;
+        }
+
+        this.store.patch({
+          selectedVenueId: selection.venueId,
+          selectedGateId: selection.sectionId,
+        });
+        await this.enterSelectedVenue({
+          skipLocationGate: true,
+          welcomeToast: false,
+        });
+        return;
+      } catch (error) {
+        clearStoredAuthTokens();
+        clearStoredAuthUser();
+        this.store.patch({ authUser: null });
+        appWarn('Auth', 'Returning session tokens expired', error);
+
+        if (snapshot.mode !== 'guest' || !venueId || !gateId) {
+          clearReturningSession();
+          this.store.patch({
+            authLoading: false,
+            onboardingComplete: false,
+            selectedVenueId: null,
+            selectedGateId: null,
+          });
+          this.showLogin();
+          this.showToast('Session expired. Please log in again.');
+          return;
+        }
+        // Guest-mode snapshot can still restore after JWT wipe.
+      }
+    }
+
+    if (this.store.get().guestAccessAllowed === false) {
+      clearReturningSession();
+      this.redirectToCreateAccountForGuestDenial(
+        this.store.get().guestAccessReason ?? 'Guest limit reached',
+      );
+      return;
+    }
+
+    if (venueId && gateId) {
+      this.store.patch({
+        selectedVenueId: venueId,
+        selectedGateId: gateId,
+        authLoading: true,
+      });
+      await this.enterSelectedVenue({
+        skipLocationGate: true,
+        welcomeToast: false,
+      });
+      return;
+    }
+
+    this.store.patch({ authLoading: false, onboardingComplete: false });
+    this.showVenueSelect();
+  }
+
+  /**
+   * Generate the browser fingerprint and validate it with the (mock) guest API.
+   * Returns false when guest access is denied and the user was redirected to create account.
+   */
+  private async resolveGuestFingerprintGate(): Promise<boolean> {
+    try {
+      const result = await validateCurrentGuestAccess();
+      this.store.patch({
+        visitorId: result.visitorId,
+        guestId: result.guestId ?? null,
+        guestAccessAllowed: result.allowed,
+        guestAccessReason: result.reason,
+      });
+      appLog('Guest', 'Fingerprint validated', {
+        visitorId: result.visitorId,
+        allowed: result.allowed,
+        guestId: result.guestId,
+        reason: result.reason,
+      });
+
+      // Authenticated sessions bypass the guest denial redirect.
+      if (!result.allowed && !hasStoredAuthTokens()) {
+        if (hasDeviceUsedApp() || Boolean(loadStoredUser())) {
+          markDeviceHasUsedApp();
+          this.store.patch({
+            authLoading: false,
+            guestAccessAllowed: false,
+            guestAccessReason: result.reason,
+          });
+          this.showLogin();
+          this.showToast(
+            result.reason === 'Guest limit reached'
+              ? 'Guest access is no longer available on this device. Please sign in.'
+              : result.reason ?? 'Please sign in to continue.',
+          );
+          return false;
+        }
+        this.redirectToCreateAccountForGuestDenial(
+          result.reason ?? 'Guest limit reached',
+        );
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      // Fail open for anonymous users so a fingerprint outage does not brick onboarding.
+      appWarn('Guest', 'Fingerprint validation failed; continuing', error);
+      this.store.patch({
+        visitorId: null,
+        guestId: null,
+        guestAccessAllowed: null,
+        guestAccessReason: null,
+      });
+      return true;
+    }
+  }
+
+  private redirectToCreateAccountForGuestDenial(reason: string): void {
+    this.store.patch({
+      authStep: 'create',
+      authLoading: false,
+      authFieldErrors: {},
+      guestAccessAllowed: false,
+      guestAccessReason: reason,
+    });
+    this.showToast(
+      reason === 'Guest limit reached'
+        ? 'Guest access is no longer available on this device. Create an account to continue.'
+        : reason,
+    );
   }
 
   private async resumeAuthSession(): Promise<void> {
@@ -1292,17 +1958,22 @@ export class MapApp {
           ? [...user.interests]
           : state.selectedInterests,
       });
-      await this.continueAfterAuthenticated(user, { welcomeToast: false });
+      await this.continueAfterAuthenticated(user, {
+        welcomeToast: false,
+        promptLocation: false,
+      });
     } catch (error) {
       clearStoredAuthTokens();
       clearStoredAuthUser();
+      markDeviceHasUsedApp();
       this.store.patch({
         authLoading: false,
         authUser: null,
         authFieldErrors: {},
       });
       appWarn('Auth', 'Stored session expired', error);
-      this.store.patch({ authStep: 'none' });
+      this.showLogin();
+      this.showToast('Session expired. Please log in again.');
     } finally {
       this.authResumeInFlight = false;
     }
@@ -1312,9 +1983,73 @@ export class MapApp {
     this.store.patch({ authStep: 'create', authFieldErrors: {} });
   }
 
+  /**
+   * Skip account creation and continue anonymously when the guest fingerprint
+   * gate allows it. Location dialog is shown next; venue select comes after.
+   */
+  async continueAsGuest(): Promise<void> {
+    const state = this.store.get();
+    if (state.guestAccessAllowed === false) {
+      this.showToast(
+        state.guestAccessReason === 'Guest limit reached'
+          ? 'Guest access is no longer available on this device. Create an account to continue.'
+          : state.guestAccessReason ||
+              'Guest access is not available on this device.',
+      );
+      return;
+    }
+
+    markDeviceHasUsedApp();
+    this.store.patch({ authLoading: true, authFieldErrors: {} });
+    try {
+      const result = await registerCurrentGuestFingerprint();
+      this.store.patch({
+        visitorId: result.visitorId,
+        guestId: result.guestId ?? null,
+        guestAccessAllowed: result.allowed,
+        guestAccessReason: result.reason ?? null,
+      });
+
+      if (!result.allowed) {
+        this.redirectToCreateAccountForGuestDenial(
+          result.reason ?? 'Guest limit reached',
+        );
+        return;
+      }
+
+      this.store.patch({
+        authLoading: false,
+        authFieldErrors: {},
+        authLegalDocument: null,
+        legalWebView: null,
+      });
+      // Stay on create-account underneath; location dialog opens next.
+      this.beginLocationPermissionGate();
+    } catch (error) {
+      appWarn('Guest', 'Continue as guest failed', error);
+      this.store.patch({
+        authLoading: false,
+        authFieldErrors: {
+          _form: 'Could not continue as guest. Please try again.',
+        },
+      });
+    }
+  }
+
   dismissCreateAccount(): void {
+    // Guests denied by fingerprint must stay on account creation / sign-in.
+    if (this.store.get().guestAccessAllowed === false) {
+      this.store.patch({
+        authStep: 'create',
+        authFieldErrors: {},
+        authLegalDocument: null,
+        legalWebView: null,
+      });
+      return;
+    }
+
     this.store.patch({
-      authStep: 'none',
+      authStep: 'features',
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
@@ -1322,6 +2057,7 @@ export class MapApp {
   }
 
   showLogin(): void {
+    markDeviceHasUsedApp();
     this.store.patch({
       authStep: 'login',
       authFieldErrors: {},
@@ -1332,11 +2068,162 @@ export class MapApp {
 
   dismissLogin(): void {
     this.store.patch({
-      authStep: 'none',
+      authStep: 'create',
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
     });
+  }
+
+  showForgotPassword(): void {
+    this.store.patch({
+      authStep: 'forgot-password',
+      authFieldErrors: {},
+      authLegalDocument: null,
+      legalWebView: null,
+    });
+  }
+
+  dismissForgotPassword(): void {
+    this.store.patch({
+      authStep: 'login',
+      authFieldErrors: {},
+      authLegalDocument: null,
+      legalWebView: null,
+    });
+  }
+
+  /** Opens the reset-confirm screen when the email deep link is present. */
+  tryOpenPasswordResetFromUrl(): boolean {
+    const params = parsePasswordResetLink(
+      window.location.search,
+      window.location.hash,
+    );
+    if (!params) return false;
+
+    clearPasswordResetLinkFromUrl();
+    markDeviceHasUsedApp();
+    this.store.patch({
+      onboardingComplete: false,
+      authStep: 'reset-password-confirm',
+      authStepBeforeLocation: null,
+      passwordResetUid: params.uid,
+      passwordResetToken: params.token,
+      authLoading: false,
+      authFieldErrors: {},
+      authLegalDocument: null,
+      legalWebView: null,
+    });
+    return true;
+  }
+
+  showResetPasswordConfirm(uid: string, token: string): void {
+    this.store.patch({
+      authStep: 'reset-password-confirm',
+      passwordResetUid: uid,
+      passwordResetToken: token,
+      authFieldErrors: {},
+      authLegalDocument: null,
+      legalWebView: null,
+    });
+  }
+
+  dismissResetPasswordConfirm(): void {
+    this.store.patch({
+      authStep: 'login',
+      passwordResetUid: '',
+      passwordResetToken: '',
+      authFieldErrors: {},
+      authLegalDocument: null,
+      legalWebView: null,
+    });
+  }
+
+  async submitResetPasswordConfirm(newPassword: string): Promise<void> {
+    const state = this.store.get();
+    const uid = state.passwordResetUid.trim();
+    const token = state.passwordResetToken.trim();
+    const fieldErrors: Record<string, string> = {};
+
+    if (!uid || !token) {
+      fieldErrors._form =
+        'This reset link is invalid or expired. Request a new one.';
+    }
+    if (!newPassword) {
+      fieldErrors.new_password = 'New password is required.';
+    } else if (evaluatePasswordStrength(newPassword) !== 'strong') {
+      fieldErrors.new_password =
+        'Use at least 8 characters with a letter and a number.';
+    }
+
+    if (Object.keys(fieldErrors).length > 0) {
+      this.store.patch({ authFieldErrors: fieldErrors });
+      return;
+    }
+
+    this.store.patch({ authLoading: true, authFieldErrors: {} });
+    try {
+      const message = await confirmPasswordReset({
+        uid,
+        token,
+        new_password: newPassword,
+      });
+      this.store.patch({
+        authLoading: false,
+        authFieldErrors: {},
+        authStep: 'login',
+        passwordResetUid: '',
+        passwordResetToken: '',
+      });
+      this.showToast(message || 'Password updated. You can log in now.');
+    } catch (error) {
+      this.handleAuthFailure(
+        error,
+        'Could not reset your password. The link may have expired.',
+      );
+    }
+  }
+
+  async submitForgotPassword(email: string): Promise<void> {
+    const fieldErrors: Record<string, string> = {};
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail) {
+      fieldErrors.email = 'Email is required.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      fieldErrors.email = 'Enter a valid email address.';
+    }
+
+    if (Object.keys(fieldErrors).length > 0) {
+      this.store.patch({
+        authEmail: trimmedEmail,
+        authFieldErrors: fieldErrors,
+      });
+      return;
+    }
+
+    this.store.patch({
+      authEmail: trimmedEmail,
+      authLoading: true,
+      authFieldErrors: {},
+    });
+
+    try {
+      const message = await requestPasswordReset(trimmedEmail);
+      this.store.patch({
+        authLoading: false,
+        authFieldErrors: {},
+        authStep: 'login',
+      });
+      this.showToast(message || 'Reset link sent. Check your email.');
+    } catch (error) {
+      this.handleAuthFailure(
+        error,
+        error instanceof TypeError
+          ? 'Cannot reach the password reset service. Try again.'
+          : 'Could not send a reset link. Please try again.',
+      );
+    }
   }
 
   openAuthTerms(): void {
@@ -1510,7 +2397,7 @@ export class MapApp {
         authEmail: user.email,
         authFieldErrors: {},
       });
-      await this.continueAfterAuthenticated(user);
+      await this.continueAfterAuthenticated(user, { promptLocation: true });
       this.showToast(
         userNeedsPseudoName(user)
           ? 'Email verified. Pick a name to continue.'
@@ -1569,7 +2456,9 @@ export class MapApp {
           : this.store.get().selectedInterests,
         authFieldErrors: {},
       });
-      await this.continueAfterAuthenticated(session.user);
+      await this.continueAfterAuthenticated(session.user, {
+        promptLocation: true,
+      });
     } catch (error) {
       this.handleAuthFailure(
         error,
@@ -1595,7 +2484,9 @@ export class MapApp {
           : this.store.get().selectedInterests,
         authFieldErrors: {},
       });
-      await this.continueAfterAuthenticated(session.user);
+      await this.continueAfterAuthenticated(session.user, {
+        promptLocation: true,
+      });
     } catch (error) {
       const message =
         error instanceof AuthApiError
@@ -1638,6 +2529,7 @@ export class MapApp {
       this.resetAuthState({
         showCreate: true,
         toast: 'Your account has been deleted.',
+        preserveAsNewDevice: true,
       });
     } catch (error) {
       this.store.patch({ authLoading: false, settingsConfirm: null });
@@ -1657,9 +2549,18 @@ export class MapApp {
     showLogin?: boolean;
     formError?: string;
     toast?: string;
+    /** After account deletion, allow marketing onboarding again. */
+    preserveAsNewDevice?: boolean;
   }): void {
     this.pendingAuthPassword = null;
     clearStoredAuthUser();
+    clearReturningSession();
+    venueVisitRepository.clear();
+    if (options?.preserveAsNewDevice) {
+      clearDeviceHasUsedApp();
+    } else {
+      markDeviceHasUsedApp();
+    }
     this.disconnectVenueLiveFeed();
     this.disconnectPersonalNotifications();
     this.store.patch({
@@ -1670,7 +2571,13 @@ export class MapApp {
         ? { _form: options.formError }
         : {},
       authStep: 'none',
+      authStepBeforeLocation: null,
       onboardingComplete: false,
+      homeExperience: 'returning',
+      userLocation: null,
+      locationGateLoading: false,
+      locationPermanentlyDenied: false,
+      locationGateError: null,
       pseudoNameDraft: '',
       pseudoNameHint: '',
       selectedInterests: [],
@@ -1693,6 +2600,17 @@ export class MapApp {
       notificationsNext: null,
       notificationsLoading: false,
       notificationsMarkingAll: false,
+      notificationDetail: null,
+      notificationDetailLoading: false,
+      notificationDetailError: null,
+      postCommentsOpen: false,
+      postCommentsPostId: null,
+      postComments: [],
+      postCommentsDraft: '',
+      postCommentsLoading: false,
+      postCommentsSubmitting: false,
+      postCommentsEditing: false,
+      postCommentsError: null,
       profileView: 'main',
       settingsConfirm: null,
     });
@@ -1744,13 +2662,63 @@ export class MapApp {
 
   private async continueAfterAuthenticated(
     user: RegisteredUser,
-    options?: { welcomeToast?: boolean },
+    options?: { welcomeToast?: boolean; promptLocation?: boolean },
   ): Promise<void> {
+    markDeviceHasUsedApp();
+    const selection = loadVenueSelection(user.id);
+    if (selection) {
+      this.store.patch({
+        selectedVenueId: selection.venueId,
+        selectedGateId: selection.sectionId,
+      });
+    }
+
+    this.store.patch({
+      authLoading: false,
+      authFieldErrors: {},
+      authLegalDocument: null,
+      legalWebView: null,
+    });
+
+    // Location dialog only after explicit create / sign-in / guest — never on
+    // silent session restore over the welcome screen.
+    if (options?.promptLocation) {
+      this.beginLocationPermissionGate();
+      return;
+    }
+
+    await this.continueAfterLocationGranted();
+    if (options?.welcomeToast !== false) {
+      /* returning-session path uses enterSelectedVenue toast when applicable */
+    }
+  }
+
+  /**
+   * After the location dialog succeeds, continue onboarding (pseudo-name /
+   * venue select) or enter a saved venue and land on home.
+   */
+  private async continueAfterLocationGranted(): Promise<void> {
+    const state = this.store.get();
+    const user = state.authUser;
+
+    // Do not clear authStepBeforeLocation here while authStep is still a
+    // location-gate step — that briefly renders Find places behind the dialog.
+    // Destination helpers clear it in the same patch as the next authStep.
+
+    if (!user) {
+      // Guest (or anonymous) path: reuse a prior venue pick when present.
+      if (state.selectedVenueId && state.selectedGateId) {
+        await this.enterSelectedVenue({ skipLocationGate: true });
+        return;
+      }
+      this.showVenueSelect();
+      return;
+    }
+
     const selection = loadVenueSelection(user.id);
     const step = resolveOnboardingStep(user, selection);
 
     if (step === 'pseudo-name') {
-      this.store.patch({ authLoading: false });
       this.showPseudoNameSetup();
       return;
     }
@@ -1762,7 +2730,6 @@ export class MapApp {
           selectedGateId: selection.sectionId ?? null,
         });
       }
-      this.store.patch({ authLoading: false });
       this.showVenueSelect();
       return;
     }
@@ -1771,16 +2738,13 @@ export class MapApp {
       selectedVenueId: selection!.venueId,
       selectedGateId: selection!.sectionId,
       authLoading: true,
-      authStep: 'none',
+      // Keep location dialog + underlying screen until completeOnboarding.
+      locationGateLoading: true,
     });
     await this.enterSelectedVenue({
-      welcomeToast: options?.welcomeToast !== false,
+      skipLocationGate: true,
+      welcomeToast: true,
     });
-
-    if (!this.store.get().onboardingComplete) {
-      // Feed restore failed — keep the user in venue onboarding instead of a blank gate.
-      this.showVenueSelect();
-    }
   }
 
   private handleAuthFailure(error: unknown, fallbackMessage: string): void {
@@ -1789,6 +2753,10 @@ export class MapApp {
         'email',
         'password',
         'password_confirm',
+        'old_password',
+        'new_password',
+        'uid',
+        'token',
         'otp',
         'pseudo_name',
         'id_token',
@@ -1911,6 +2879,8 @@ export class MapApp {
       );
 
       const hasDestination = this.routePlanner.hasDestination;
+      const continueArSetup =
+        this.store.get().arRouteSetupActive && !hasDestination;
       this.store.patch({
         activeTab: 'map',
         markers: this.routePlanner.markersState,
@@ -1921,10 +2891,19 @@ export class MapApp {
         routeSimulationComplete: false,
         routeTraveledMeters: 0,
         routeRemainingMeters: null,
+        ...(continueArSetup
+          ? {
+              searchQuery: '',
+              searchResults: [],
+            }
+          : {}),
       });
 
       if (hasDestination) {
         this.scheduleAutoRoute();
+      } else if (continueArSetup) {
+        this.pendingMapSearchFocus = true;
+        this.showToast('Now pick your destination.');
       }
     } catch (error) {
       this.showToast(
@@ -2128,6 +3107,230 @@ export class MapApp {
     }
   }
 
+  openPostComments(postId: string): void {
+    const post = this.store.get().venueFeedPosts.find((entry) => entry.id === postId);
+    if (!post) {
+      this.showToast('Post not found.');
+      return;
+    }
+    this.store.patch({
+      activeTab: 'social',
+      postCommentsOpen: true,
+      postCommentsPostId: postId,
+      postComments: [],
+      postCommentsDraft: '',
+      postCommentsLoading: true,
+      postCommentsSubmitting: false,
+      postCommentsEditing: false,
+      postCommentsError: null,
+      notificationsOpen: false,
+    });
+    void this.refreshPostComments(postId);
+  }
+
+  closePostComments(): void {
+    this.store.patch({
+      postCommentsOpen: false,
+      postCommentsPostId: null,
+      postComments: [],
+      postCommentsDraft: '',
+      postCommentsLoading: false,
+      postCommentsSubmitting: false,
+      postCommentsEditing: false,
+      postCommentsError: null,
+    });
+  }
+
+  setPostCommentsDraft(draft: string): void {
+    this.store.patch({ postCommentsDraft: draft });
+  }
+
+  beginEditVenueFeedPost(): void {
+    this.store.patch({ postCommentsEditing: true, postCommentsError: null });
+  }
+
+  cancelEditVenueFeedPost(): void {
+    this.store.patch({ postCommentsEditing: false, postCommentsError: null });
+  }
+
+  private async refreshPostComments(postId: string): Promise<void> {
+    const numericId = Number(postId);
+    if (!Number.isFinite(numericId)) {
+      this.store.patch({
+        postCommentsLoading: false,
+        postCommentsError: 'Invalid post.',
+      });
+      return;
+    }
+
+    try {
+      const page = await listForumComments({ post: numericId, ordering: 'created_at' });
+      if (this.store.get().postCommentsPostId !== postId) return;
+      const items = mapForumCommentsToItems(page.results);
+      this.store.patch({
+        postComments: items,
+        postCommentsLoading: false,
+        postCommentsError: null,
+        venueFeedPosts: this.store.get().venueFeedPosts.map((post) =>
+          post.id === postId ? { ...post, comments: items.length } : post,
+        ),
+      });
+    } catch (error) {
+      if (this.store.get().postCommentsPostId !== postId) return;
+      this.store.patch({
+        postCommentsLoading: false,
+        postCommentsError:
+          error instanceof AuthApiError
+            ? error.summary
+            : 'Could not load comments.',
+      });
+      appWarn('Forum', 'List comments failed', error);
+    }
+  }
+
+  async submitPostComment(): Promise<void> {
+    const state = this.store.get();
+    const postId = state.postCommentsPostId;
+    const content = state.postCommentsDraft.trim();
+    if (!postId || !content || state.postCommentsSubmitting) return;
+
+    if (!hasStoredAuthTokens()) {
+      this.showToast('Sign in to comment.');
+      return;
+    }
+
+    const numericId = Number(postId);
+    if (!Number.isFinite(numericId)) return;
+
+    this.store.patch({
+      postCommentsSubmitting: true,
+      postCommentsError: null,
+      postCommentsDraft: '',
+    });
+
+    try {
+      const created = await createForumComment({
+        post: numericId,
+        content,
+      });
+      if (this.store.get().postCommentsPostId !== postId) return;
+      const item = mapForumCommentToItem(created);
+      const comments = [...this.store.get().postComments, item];
+      this.store.patch({
+        postComments: comments,
+        postCommentsSubmitting: false,
+        venueFeedPosts: this.store.get().venueFeedPosts.map((post) =>
+          post.id === postId ? { ...post, comments: comments.length } : post,
+        ),
+      });
+    } catch (error) {
+      this.store.patch({
+        postCommentsSubmitting: false,
+        postCommentsDraft: content,
+        postCommentsError:
+          error instanceof AuthApiError
+            ? error.summary
+            : 'Could not post comment.',
+      });
+      appWarn('Forum', 'Create comment failed', error);
+    }
+  }
+
+  async deletePostComment(commentId: string): Promise<void> {
+    const id = Number(commentId);
+    if (!Number.isFinite(id) || !hasStoredAuthTokens()) return;
+    if (this.store.get().postCommentsSubmitting) return;
+
+    this.store.patch({ postCommentsSubmitting: true, postCommentsError: null });
+    try {
+      await deleteForumComment(id);
+      const postId = this.store.get().postCommentsPostId;
+      const comments = this.store.get().postComments.filter(
+        (comment) => comment.id !== id,
+      );
+      this.store.patch({
+        postComments: comments,
+        postCommentsSubmitting: false,
+        venueFeedPosts: postId
+          ? this.store.get().venueFeedPosts.map((post) =>
+              post.id === postId ? { ...post, comments: comments.length } : post,
+            )
+          : this.store.get().venueFeedPosts,
+      });
+    } catch (error) {
+      this.store.patch({
+        postCommentsSubmitting: false,
+        postCommentsError:
+          error instanceof AuthApiError
+            ? error.summary
+            : 'Could not delete comment.',
+      });
+      appWarn('Forum', 'Delete comment failed', error);
+    }
+  }
+
+  async saveEditedVenueFeedPost(content: string): Promise<void> {
+    const postId = this.store.get().postCommentsPostId;
+    const trimmed = content.trim();
+    if (!postId || !trimmed) {
+      this.store.patch({
+        postCommentsError: 'Post content cannot be empty.',
+      });
+      return;
+    }
+    if (!hasStoredAuthTokens()) {
+      this.showToast('Sign in to edit posts.');
+      return;
+    }
+
+    const numericId = Number(postId);
+    if (!Number.isFinite(numericId)) return;
+
+    this.store.patch({ postCommentsSubmitting: true, postCommentsError: null });
+    try {
+      const updated = await updateForumPost(numericId, { content: trimmed });
+      this.mergeForumPostIntoFeed(updated);
+      this.store.patch({
+        postCommentsSubmitting: false,
+        postCommentsEditing: false,
+      });
+      this.showToast('Post updated.');
+    } catch (error) {
+      this.store.patch({
+        postCommentsSubmitting: false,
+        postCommentsError:
+          error instanceof AuthApiError
+            ? error.summary
+            : 'Could not update post.',
+      });
+      appWarn('Forum', 'Update post failed', error);
+    }
+  }
+
+  async deleteOpenVenueFeedPost(): Promise<void> {
+    const postId = this.store.get().postCommentsPostId;
+    if (!postId || !hasStoredAuthTokens()) return;
+    const numericId = Number(postId);
+    if (!Number.isFinite(numericId)) return;
+
+    this.store.patch({ postCommentsSubmitting: true, postCommentsError: null });
+    try {
+      await deleteForumPost(numericId);
+      this.removeVenueFeedPost(postId);
+      this.closePostComments();
+      this.showToast('Post deleted.');
+    } catch (error) {
+      this.store.patch({
+        postCommentsSubmitting: false,
+        postCommentsError:
+          error instanceof AuthApiError
+            ? error.summary
+            : 'Could not delete post.',
+      });
+      appWarn('Forum', 'Delete post failed', error);
+    }
+  }
+
   private applyOptimisticVenueFeedUpvote(
     postId: string,
     upvoted: boolean,
@@ -2311,6 +3514,37 @@ export class MapApp {
         return;
       }
 
+      const needsStart = !this.routePlanner.hasOrigin;
+      if (needsStart) {
+        if (this.store.get().route) {
+          this.routePlanner.clearRoute();
+          this.routePlanner.setRoutePlanningPaused(false);
+          this.stopPositionProvider();
+        }
+        await this.routePlanner.setOriginFromLocation(target, name);
+        this.routePlanner.clearHighlights();
+        const continueArSetup = this.store.get().arRouteSetupActive;
+        this.pendingMapSearchFocus = true;
+        this.store.patch({
+          searchResults: [],
+          searchQuery: '',
+          markers: this.routePlanner.markersState,
+          showRouteSheet: false,
+          route: null,
+          routeNotFound: false,
+          routeSimulating: false,
+          routeSimulationComplete: false,
+          routeTraveledMeters: 0,
+          routeRemainingMeters: null,
+        });
+        this.showToast(
+          continueArSetup
+            ? 'Start set. Now search for your destination.'
+            : 'Start set. Search for your destination.',
+        );
+        return;
+      }
+
       await this.routePlanner.setDestinationFromLocation(target, name, {
         floorName,
         areaHint: inferAreaHint(name),
@@ -2326,8 +3560,14 @@ export class MapApp {
       });
       this.scheduleAutoRoute();
     } catch (error) {
+      const missingStart = !this.routePlanner?.hasOrigin;
       this.showToast(
-        toUserFacingRouteError(error, 'Could not set destination.'),
+        toUserFacingRouteError(
+          error,
+          missingStart
+            ? 'Could not set start point.'
+            : 'Could not set destination.',
+        ),
       );
     }
   }
@@ -3142,6 +4382,7 @@ export class MapApp {
       routeSimulating: false,
       routeSimulationComplete: false,
       routeNotFound: false,
+      arRouteSetupActive: false,
     });
 
     this.startPositionProvider(route.pathCoordinates);
@@ -3501,6 +4742,8 @@ export class MapApp {
   }
 
   private maybePromptLocation(): void {
+    // Location is requested explicitly during the post-auth location gate.
+    if (!this.store.get().onboardingComplete) return;
     if (this.locationPromptShown || !navigator.geolocation) return;
     this.locationPromptShown = true;
     if (navigator.permissions?.query) {
@@ -3512,6 +4755,124 @@ export class MapApp {
           }
         })
         .catch(() => undefined);
+    }
+  }
+
+  /**
+   * Enable Location CTA — request permission via Geolocation API, then read coords.
+   */
+  async enableLocationPermission(): Promise<void> {
+    await this.runLocationGateRequest({ fromPermissionRequired: false });
+  }
+
+  /** Try Again on Location Permission Required. */
+  async retryLocationPermission(): Promise<void> {
+    const permanentlyDenied = await this.locationService.isPermanentlyDenied();
+    if (permanentlyDenied) {
+      this.store.patch({
+        authStep: 'location-required',
+        locationPermanentlyDenied: true,
+        locationGateLoading: false,
+        locationGateError: null,
+      });
+      return;
+    }
+    await this.runLocationGateRequest({ fromPermissionRequired: true });
+  }
+
+  /** Retry on Location Error — permission already granted; re-read position. */
+  async retryLocationRetrieval(): Promise<void> {
+    await this.runLocationGateRequest({ fromPermissionRequired: false });
+  }
+
+  private async runLocationGateRequest(options: {
+    fromPermissionRequired: boolean;
+  }): Promise<void> {
+    if (this.store.get().locationGateLoading) return;
+
+    // Show progress immediately and keep the underlying auth screen frozen
+    // (authStepBeforeLocation) before any async permission / GPS work.
+    const currentStep = this.store.get().authStep;
+    this.store.patch({
+      authStep: options.fromPermissionRequired
+        ? 'location-required'
+        : currentStep === 'location-error'
+          ? 'location-error'
+          : 'location-permission',
+      locationGateLoading: true,
+      locationPermanentlyDenied: false,
+      locationGateError: null,
+    });
+
+    try {
+      const permission = await this.locationService.queryPermission();
+      const preflight = resolveLocationGatePreflight(permission);
+
+      if (preflight.action === 'error-unsupported') {
+        this.store.patch({
+          authStep: 'location-error',
+          locationGateLoading: false,
+          locationGateError:
+            'Geolocation is not supported in this browser. Try another browser or device.',
+        });
+        return;
+      }
+
+      if (preflight.action === 'required-permanent') {
+        this.store.patch({
+          authStep: 'location-required',
+          locationPermanentlyDenied: true,
+          locationGateLoading: false,
+          locationGateError: null,
+        });
+        return;
+      }
+
+      const coords = await this.locationService.requestLocation();
+      // Keep the dialog + underlying screen until continueAfterLocationGranted
+      // swaps authStep in one patch (avoids flashing Find places behind).
+      this.store.patch({
+        userLocation: coords,
+        locationGateError: null,
+        locationPermanentlyDenied: false,
+      });
+      await this.continueAfterLocationGranted();
+      void this.maybeAutoStartBlueDot();
+    } catch (error) {
+      const permanentlyDenied =
+        this.locationService.isPermissionDeniedError(error)
+          ? await this.locationService.isPermanentlyDenied()
+          : false;
+      const failure = resolveLocationGateFailure(
+        error,
+        permanentlyDenied,
+        (err) =>
+          err instanceof Error ||
+          (typeof err === 'object' &&
+            err !== null &&
+            'code' in err &&
+            typeof (err as GeolocationPositionError).code === 'number')
+            ? this.locationService.geolocationErrorMessage(
+                err as GeolocationPositionError | Error,
+              )
+            : 'Could not get your location.',
+      );
+
+      if (failure.action === 'required') {
+        this.store.patch({
+          authStep: 'location-required',
+          locationGateLoading: false,
+          locationPermanentlyDenied: failure.permanentlyDenied,
+          locationGateError: null,
+        });
+        return;
+      }
+
+      this.store.patch({
+        authStep: 'location-error',
+        locationGateLoading: false,
+        locationGateError: failure.message,
+      });
     }
   }
 

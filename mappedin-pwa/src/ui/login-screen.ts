@@ -1,6 +1,12 @@
 import type { AppState } from '../types';
 import { isGoogleSignInConfigured } from '../services/auth-service';
 
+const AUTH_ASSETS = {
+  back: '/auth/back-chevron.svg',
+  eye: '/auth/eye.svg',
+  google: '/auth/google.svg',
+} as const;
+
 function fieldError(errors: Record<string, string>, key: string): string {
   return errors[key] ?? '';
 }
@@ -22,17 +28,22 @@ export function renderLoginScreen(
   const googleEnabled = isGoogleSignInConfigured();
 
   return `
-    <div class="auth-screen">
+    <div class="auth-screen login-screen">
       <button type="button" id="login-back-btn" class="auth-back-btn" aria-label="Back">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M15 6L9 12L15 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+        <img
+          class="auth-back-icon"
+          src="${AUTH_ASSETS.back}"
+          alt=""
+          width="22"
+          height="22"
+          decoding="async"
+        />
       </button>
 
       <div class="auth-header">
-        <h1 class="auth-title">Welcome back</h1>
+        <h1 class="auth-title auth-title--sans">Welcome back</h1>
         <p class="auth-subtitle">
-          Log in to pick up where you left off inside the venue.
+          You will stay anonymous inside the venue.
         </p>
       </div>
 
@@ -50,7 +61,7 @@ export function renderLoginScreen(
             name="username"
             type="email"
             class="auth-input${emailError ? ' auth-input--error' : ''}"
-            placeholder="you@email.com"
+            placeholder="fan@email.com"
             autocomplete="username"
             inputmode="email"
             autocapitalize="off"
@@ -65,18 +76,47 @@ export function renderLoginScreen(
 
         <label class="auth-field">
           <span class="auth-label">Password</span>
-          <input
-            id="login-password"
-            name="password"
-            type="password"
-            class="auth-input${passwordError ? ' auth-input--error' : ''}"
-            placeholder="••••••••"
-            autocomplete="current-password"
-            ${state.authLoading ? 'disabled' : ''}
-            required
-          />
+          <div class="auth-input-wrap">
+            <input
+              id="login-password"
+              name="password"
+              type="password"
+              class="auth-input auth-input--with-toggle${passwordError ? ' auth-input--error' : ''}"
+              placeholder="••••••••"
+              autocomplete="current-password"
+              ${state.authLoading ? 'disabled' : ''}
+              required
+            />
+            <button
+              type="button"
+              class="auth-password-toggle"
+              data-password-toggle="login-password"
+              aria-label="Show password"
+              ${state.authLoading ? 'disabled' : ''}
+            >
+              <img
+                class="auth-password-toggle-icon"
+                src="${AUTH_ASSETS.eye}"
+                alt=""
+                width="24"
+                height="24"
+                decoding="async"
+              />
+            </button>
+          </div>
           ${passwordError ? `<span class="auth-field-error" role="alert">${escapeHtml(passwordError)}</span>` : ''}
         </label>
+
+        <p class="auth-forgot-row">
+          <button
+            type="button"
+            id="login-forgot-link"
+            class="auth-inline-link auth-inline-link--accent"
+            ${state.authLoading ? 'disabled' : ''}
+          >
+            Forgot password?
+          </button>
+        </p>
 
         <div class="auth-actions">
           <button
@@ -100,7 +140,7 @@ export function renderLoginScreen(
               class="auth-google-btn"
               ${state.authLoading ? 'disabled' : ''}
             >
-              <img src="/auth/google.svg" alt="" width="18" height="18" aria-hidden="true" />
+              <img src="${AUTH_ASSETS.google}" alt="" width="18" height="18" aria-hidden="true" />
               Continue with Google
             </button>
           `
@@ -109,8 +149,13 @@ export function renderLoginScreen(
 
           <p class="auth-footer-text">
             New here?
-            <button type="button" id="login-create-link" class="auth-inline-link">
-              Create an account
+            <button
+              type="button"
+              id="login-create-link"
+              class="auth-inline-link auth-inline-link--accent"
+              ${state.authLoading ? 'disabled' : ''}
+            >
+              Create account
             </button>
           </p>
         </div>

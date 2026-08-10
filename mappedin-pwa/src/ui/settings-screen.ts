@@ -155,6 +155,14 @@ export function renderSettingsScreen(state: AppState): string {
             })}
             <div class="settings-divider"></div>
             ${settingsRow({
+              id: 'settings-change-password-btn',
+              iconClass: 'settings-row-icon--indigo',
+              icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.75"></rect><path d="M8 11V8a4 4 0 118 0v3" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path></svg>`,
+              title: 'Change password',
+              subtitle: 'Update your sign-in password',
+            })}
+            <div class="settings-divider"></div>
+            ${settingsRow({
               id: 'settings-change-venue-btn',
               iconClass: 'settings-row-icon--blue',
               icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 21s6.5-4.5 6.5-10a6.5 6.5 0 10-13 0c0 5.5 6.5 10 6.5 10z" stroke="currentColor" stroke-width="1.75"></path><circle cx="12" cy="11" r="2.25" stroke="currentColor" stroke-width="1.75"></circle></svg>`,

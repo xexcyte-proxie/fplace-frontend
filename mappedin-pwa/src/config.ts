@@ -34,8 +34,8 @@ export const appConfig = {
     indoorAtlasFloorCertaintyMin: 0.5,
   },
   debug: {
-    positionHud:
-      import.meta.env.DEV || import.meta.env.VITE_DEBUG_POSITION_HUD === '1',
+    // Off for now — set VITE_DEBUG_POSITION_HUD=1 to re-enable the overlay.
+    positionHud: import.meta.env.VITE_DEBUG_POSITION_HUD === '1',
     arSlamDiag:
       import.meta.env.DEV || import.meta.env.VITE_AR_SLAM_DIAG === '1',
   },

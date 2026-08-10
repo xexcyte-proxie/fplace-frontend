@@ -36,9 +36,35 @@ export class NotificationsRemoteDatasource {
     };
   }
 
+  async getNotification(notificationId: number): Promise<AppNotification> {
+    const response = await apiRequest<unknown>(
+      `/api/notifications/${notificationId}/`,
+      {
+        auth: true,
+        fallbackError: 'Could not load that notification.',
+      },
+    );
+    const notification = coerceNotification(response);
+    if (!notification) {
+      throw new Error('Could not load that notification.');
+    }
+    return notification;
+  }
+
+  async getUnreadCount(): Promise<number> {
+    const response = await apiRequest<{ unread_count?: number }>(
+      '/api/notifications/unread_count/',
+      {
+        auth: true,
+        fallbackError: 'Could not load unread count.',
+      },
+    );
+    return Number(response.unread_count) || 0;
+  }
+
   async markRead(notificationId: number): Promise<AppNotification | void> {
     const response = await apiRequest<unknown>(
-      `/api/notifications/${notificationId}/mark-read/`,
+      `/api/notifications/${notificationId}/mark_read/`,
       {
         method: 'POST',
         auth: true,
@@ -49,7 +75,7 @@ export class NotificationsRemoteDatasource {
   }
 
   markAllRead(): Promise<void> {
-    return apiRequest<void>('/api/notifications/mark-all-read/', {
+    return apiRequest<void>('/api/notifications/mark_all_read/', {
       method: 'POST',
       auth: true,
       fallbackError: 'Could not mark notifications as read.',

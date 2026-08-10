@@ -2,7 +2,9 @@ import type {
   AuthSession,
   AuthTokens,
   AuthUser,
+  ChangePasswordPayload,
   LoginCredentials,
+  PasswordResetConfirmPayload,
   RegisterCredentials,
   UpdateProfilePayload,
 } from '../domain/entities';
@@ -21,6 +23,20 @@ export class AuthRepositoryImpl implements AuthRepository {
 
   async resendVerification(email: string): Promise<string> {
     return authRemoteDatasource.resendVerification(email);
+  }
+
+  async requestPasswordReset(email: string): Promise<string> {
+    return authRemoteDatasource.requestPasswordReset(email);
+  }
+
+  async confirmPasswordReset(
+    payload: PasswordResetConfirmPayload,
+  ): Promise<string> {
+    return authRemoteDatasource.confirmPasswordReset(payload);
+  }
+
+  async changePassword(payload: ChangePasswordPayload): Promise<string> {
+    return authRemoteDatasource.changePassword(payload);
   }
 
   async login(credentials: LoginCredentials): Promise<AuthSession> {
@@ -43,6 +59,10 @@ export class AuthRepositoryImpl implements AuthRepository {
 
   async updateProfile(payload: UpdateProfilePayload): Promise<AuthUser> {
     return authRemoteDatasource.updateProfile(payload);
+  }
+
+  async replaceProfile(payload: UpdateProfilePayload): Promise<AuthUser> {
+    return authRemoteDatasource.replaceProfile(payload);
   }
 
   async getProfile(): Promise<AuthUser> {

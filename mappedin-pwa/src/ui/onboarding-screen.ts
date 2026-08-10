@@ -27,11 +27,8 @@ export function renderOnboardingScreen(): string {
       </div>
 
       <div class="onboarding-actions">
-        <button type="button" id="onboarding-create-account" class="onboarding-cta-primary">
-          Create account
-        </button>
-        <button type="button" id="onboarding-login" class="onboarding-cta-secondary">
-          I already have an account
+        <button type="button" id="onboarding-continue" class="onboarding-cta-primary">
+          Continue
         </button>
       </div>
     </div>

@@ -22,7 +22,10 @@ function escapeHtml(value: string): string {
 }
 
 export function renderCreateAccountScreen(
-  state: Pick<AppState, 'authEmail' | 'authLoading' | 'authFieldErrors'>,
+  state: Pick<
+    AppState,
+    'authEmail' | 'authLoading' | 'authFieldErrors' | 'guestAccessAllowed'
+  >,
 ): string {
   const emailError = fieldError(state.authFieldErrors, 'email');
   const passwordError = fieldError(state.authFieldErrors, 'password');
@@ -33,6 +36,7 @@ export function renderCreateAccountScreen(
   const termsError = fieldError(state.authFieldErrors, 'terms');
   const generalError = fieldError(state.authFieldErrors, '_form');
   const googleEnabled = isGoogleSignInConfigured();
+  const guestEnabled = state.guestAccessAllowed !== false;
 
   return `
     <div class="auth-screen auth-screen--create">
@@ -215,6 +219,28 @@ export function renderCreateAccountScreen(
           `
               : ''
           }
+
+          ${
+            guestEnabled
+              ? `
+            <button
+              type="button"
+              id="auth-guest-btn"
+              class="auth-guest-btn"
+              ${state.authLoading ? 'disabled' : ''}
+            >
+              Continue as guest
+            </button>
+          `
+              : ''
+          }
+
+          <p class="auth-footer-text">
+            Already have an account?
+            <button type="button" id="auth-login-link" class="auth-inline-link">
+              Login
+            </button>
+          </p>
         </div>
       </form>
     </div>

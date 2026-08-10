@@ -3,14 +3,19 @@
  * HTTP + venue-room WebSocket live behind the forum repository (clean architecture).
  */
 import type {
+  CreateCommentPayload,
   CreatePostPayload,
   FlagPostPayload,
   ForumCategory,
+  ForumComment,
   ForumPost,
   ForumSection,
   ForumVenue,
+  ListCommentsParams,
   ListPostsParams,
   PaginatedList,
+  UpdateCommentPayload,
+  UpdatePostPayload,
   VenueLiveEventHandler,
   VenueLiveStatusHandler,
   VenueLiveSubscription,
@@ -18,15 +23,20 @@ import type {
 import { forumRepository } from '../forum/data/forum-repository-impl';
 
 export type {
+  CreateCommentPayload,
   CreatePostPayload,
   FlagPostPayload,
   ForumCategory,
+  ForumComment,
   ForumPost,
   ForumSection,
   ForumVenue,
+  ListCommentsParams,
   ListPostsParams,
   PaginatedList,
   SectionHeatEntry,
+  UpdateCommentPayload,
+  UpdatePostPayload,
   VenueLiveEvent,
   VenueLiveSubscription,
   VenueLiveConnectionStatus,
@@ -53,8 +63,18 @@ export async function listAllVenues(): Promise<ForumVenue[]> {
   return collectAllPages((page) => forumRepository.listVenues(page));
 }
 
+export async function getForumVenue(venueId: number): Promise<ForumVenue> {
+  return forumRepository.getVenue(venueId);
+}
+
 export async function listAllSections(venueId: number): Promise<ForumSection[]> {
   return collectAllPages((page) => forumRepository.listSections(venueId, page));
+}
+
+export async function getForumSection(
+  sectionId: number,
+): Promise<ForumSection> {
+  return forumRepository.getSection(sectionId);
 }
 
 export async function listAllCategories(): Promise<ForumCategory[]> {
@@ -66,10 +86,20 @@ export async function listAllCategories(): Promise<ForumCategory[]> {
     .sort((a, b) => a.order - b.order);
 }
 
+export async function getForumCategory(
+  categoryId: number,
+): Promise<ForumCategory> {
+  return forumRepository.getCategory(categoryId);
+}
+
 export async function listVenuePosts(
   params: ListPostsParams,
 ): Promise<PaginatedList<ForumPost>> {
   return forumRepository.listPosts(params);
+}
+
+export async function getForumPost(postId: number): Promise<ForumPost> {
+  return forumRepository.getPost(postId);
 }
 
 /**
@@ -116,6 +146,28 @@ export function createForumPost(
   return forumRepository.createPost(payload);
 }
 
+export function updateForumPost(
+  postId: number,
+  payload: UpdatePostPayload,
+): Promise<ForumPost> {
+  return forumRepository.updatePost(postId, payload);
+}
+
+export function replaceForumPost(
+  postId: number,
+  payload: CreatePostPayload,
+): Promise<ForumPost> {
+  return forumRepository.replacePost(postId, payload);
+}
+
+export function deleteForumPost(postId: number): Promise<void> {
+  return forumRepository.deletePost(postId);
+}
+
+export function restoreForumPost(postId: number): Promise<ForumPost> {
+  return forumRepository.restorePost(postId);
+}
+
 /** Idempotent upvote toggle; backend broadcasts `upvote_update`. */
 export function toggleForumPostUpvote(
   postId: number,
@@ -130,4 +182,44 @@ export function flagForumPost(
   payload?: FlagPostPayload,
 ): Promise<ForumPost> {
   return forumRepository.flagPost(postId, payload);
+}
+
+export function listForumComments(
+  params?: ListCommentsParams,
+): Promise<PaginatedList<ForumComment>> {
+  return forumRepository.listComments(params);
+}
+
+export function getForumComment(commentId: number): Promise<ForumComment> {
+  return forumRepository.getComment(commentId);
+}
+
+export function createForumComment(
+  payload: CreateCommentPayload,
+): Promise<ForumComment> {
+  return forumRepository.createComment(payload);
+}
+
+export function updateForumComment(
+  commentId: number,
+  payload: UpdateCommentPayload,
+): Promise<ForumComment> {
+  return forumRepository.updateComment(commentId, payload);
+}
+
+export function replaceForumComment(
+  commentId: number,
+  payload: CreateCommentPayload,
+): Promise<ForumComment> {
+  return forumRepository.replaceComment(commentId, payload);
+}
+
+export function deleteForumComment(commentId: number): Promise<void> {
+  return forumRepository.deleteComment(commentId);
+}
+
+export function restoreForumComment(
+  commentId: number,
+): Promise<ForumComment> {
+  return forumRepository.restoreComment(commentId);
 }

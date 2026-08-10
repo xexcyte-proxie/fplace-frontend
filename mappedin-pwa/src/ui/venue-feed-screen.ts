@@ -185,7 +185,12 @@ export function renderVenueFeedScreen(state: AppState): string {
                 </svg>
                 <span class="venue-feed-upvote-count">${post.upvotes}</span>
               </button>
-              <button type="button" class="venue-feed-comment" aria-label="${post.comments} comments">
+              <button
+                type="button"
+                class="venue-feed-comment"
+                data-comments-id="${escapeHtml(post.id)}"
+                aria-label="${post.comments} comments"
+              >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
                 </svg>

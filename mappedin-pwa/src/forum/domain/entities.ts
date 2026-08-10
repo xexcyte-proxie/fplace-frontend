@@ -87,6 +87,42 @@ export interface FlagPostPayload {
   reason?: string;
 }
 
+/** Body for PUT/PATCH /api/forum/posts/<id>/. */
+export interface UpdatePostPayload {
+  venue?: number;
+  section?: number | null;
+  category?: number;
+  content?: string;
+}
+
+/** Comment on a venue feed post. */
+export interface ForumComment {
+  id: number;
+  post: number;
+  user: ForumPublicUser;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListCommentsParams {
+  post?: number;
+  page?: number;
+  ordering?: string;
+  created_after?: string;
+  created_before?: string;
+}
+
+export interface CreateCommentPayload {
+  post: number;
+  content: string;
+}
+
+export interface UpdateCommentPayload {
+  post?: number;
+  content?: string;
+}
+
 export type SectionHeatPriority = 'high' | 'medium' | 'low';
 
 export interface SectionHeatEntry {

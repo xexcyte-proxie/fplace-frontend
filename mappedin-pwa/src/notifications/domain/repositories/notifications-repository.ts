@@ -7,6 +7,8 @@ import type {
 
 export interface NotificationsRepository {
   listNotifications(page?: number): Promise<PaginatedList<AppNotification>>;
+  getNotification(notificationId: number): Promise<AppNotification>;
+  getUnreadCount(): Promise<number>;
   markRead(notificationId: number): Promise<AppNotification | void>;
   markAllRead(): Promise<void>;
   /**

@@ -1,18 +1,33 @@
-import type { AppState } from "../types";
+import {
+  isLocationGateAuthStep,
+} from "../location/domain/location-gate";
+import type { AppState, AuthStep } from "../types";
 import type { MapApp } from "../services/map-app";
 import { buildRouteSheetSummary } from "./route-summary";
 import { renderOnboardingScreen } from "./onboarding-screen";
+import { renderArTeaserScreen } from "./ar-teaser-screen";
+import { renderIntroductionScreen } from "./introduction-screen";
+import { renderFeaturesScreen } from "./features-screen";
 import { renderCreateAccountScreen } from "./create-account-screen";
 import { renderLoginScreen } from "./login-screen";
+import { renderForgotPasswordScreen } from "./forgot-password-screen";
+import { renderResetPasswordConfirmScreen } from "./reset-password-confirm-screen";
 import { renderCheckEmailScreen } from "./check-email-screen";
 import { renderVerifyEmailScreen } from "./verify-email-screen";
 import { renderPseudoNameScreen } from "./pseudo-name-screen";
 import { renderVenueSelectScreen } from "./venue-select-screen";
+import {
+  renderLocationErrorScreen,
+  renderLocationPermissionRequiredScreen,
+  renderLocationPermissionScreen,
+} from "./location-permission-screen";
 import { renderVenueFeedScreen } from "./venue-feed-screen";
+import { renderPostCommentsScreen } from "./post-comments-screen";
 import { renderProfileScreen } from "./profile-screen";
 import { renderSettingsScreen } from "./settings-screen";
 import { renderLanguageSettingsScreen } from "./language-settings-screen";
 import { renderEditProfileSettingsScreen } from "./edit-profile-settings-screen";
+import { renderChangePasswordScreen } from "./change-password-screen";
 import { renderAboutSettingsScreen } from "./about-settings-screen";
 import {
   renderAuthPrivacyScreen,
@@ -30,10 +45,13 @@ import {
   RESEND_OTP_COOLDOWN_MS,
 } from "../auth/domain/resend-countdown";
 import { renderNotificationsScreen } from "./notifications-screen";
+import { renderNotificationDetailScreen } from "./notification-detail-screen";
 import { renderArNavigationScreen } from "./ar-navigation-screen";
+import { renderReturningHomeScreen } from "./returning-home-screen";
+import { renderFirstVisitVenueScreen } from "./first-visit-venue-screen";
 import { renderLocationActionSheet } from "./location-action-sheet";
 import {
-  bottomNavMapIcon,
+  bottomNavNavigateIcon,
   bottomNavProfileIcon,
   bottomNavSocialIcon,
 } from "./bottom-nav-icons";
@@ -48,6 +66,7 @@ function escapeHtml(value: string): string {
 
 export class UiRoot {
   private readonly root: HTMLElement;
+  private splashTaglineRevealed = false;
   private authEmailDraft = "";
   private authPasswordDraft = "";
   private createPasswordDraft = "";
@@ -65,6 +84,12 @@ export class UiRoot {
   }
 
   render(state: AppState, app: MapApp): void {
+    // Keep the splash DOM intact while only loading progress changes so the
+    // tagline fade-in is not restarted, and the bottom loader stays visible.
+    if (this.patchSplashProgress(state)) {
+      return;
+    }
+
     const activeEl = document.activeElement;
     const focusedSearch =
       activeEl?.id === "search-input"
@@ -75,38 +100,72 @@ export class UiRoot {
 
     const showOnboardingFlow =
       state.mapStatus === "ready" && !state.onboardingComplete;
-    const showSessionRestore =
-      showOnboardingFlow && state.authLoading && state.authStep === "none";
+    const locationDialogStep = isLocationGateAuthStep(state.authStep)
+      ? state.authStep
+      : null;
+    const authUiStep: AuthStep = locationDialogStep
+      ? state.authStepBeforeLocation && state.authStepBeforeLocation !== "none"
+        ? state.authStepBeforeLocation
+        : "create"
+      : state.authStep;
     const showOnboardingScreen =
-      showOnboardingFlow && state.authStep === "none" && !state.authLoading;
+      showOnboardingFlow && authUiStep === "none";
+    const showArTeaser =
+      showOnboardingFlow && authUiStep === "ar-teaser";
+    const showIntroduction =
+      showOnboardingFlow && authUiStep === "introduction";
+    const showFeatures = showOnboardingFlow && authUiStep === "features";
     const showCreateAccount =
       showOnboardingFlow &&
-      state.authStep === "create" &&
+      authUiStep === "create" &&
       !state.authLegalDocument;
     const showLogin =
       showOnboardingFlow &&
-      state.authStep === "login" &&
+      authUiStep === "login" &&
       !state.authLegalDocument;
+    const showForgotPassword =
+      showOnboardingFlow && authUiStep === "forgot-password";
+    const showResetPasswordConfirm =
+      state.mapStatus === "ready" && authUiStep === "reset-password-confirm";
     const showAuthPrivacy =
       showOnboardingFlow && state.authLegalDocument === "privacy";
     const showCheckEmail =
-      showOnboardingFlow && state.authStep === "check-email";
+      showOnboardingFlow && authUiStep === "check-email";
     const showVerifyEmail =
-      showOnboardingFlow && state.authStep === "verify";
+      showOnboardingFlow && authUiStep === "verify";
     const showPseudoName =
-      showOnboardingFlow && state.authStep === "pseudo-name";
+      showOnboardingFlow && authUiStep === "pseudo-name";
     const showVenueSelect =
-      showOnboardingFlow && state.authStep === "venue-select";
+      showOnboardingFlow && authUiStep === "venue-select";
+    const showLocationPermission =
+      showOnboardingFlow && locationDialogStep === "location-permission";
+    const showLocationRequired =
+      showOnboardingFlow && locationDialogStep === "location-required";
+    const showLocationError =
+      showOnboardingFlow && locationDialogStep === "location-error";
     const arFullscreen = state.arPresentation === "fullscreen";
     const showOverlays =
-      state.mapStatus === "ready" && state.onboardingComplete && !arFullscreen;
+      state.mapStatus === "ready" &&
+      state.onboardingComplete &&
+      !arFullscreen &&
+      !showResetPasswordConfirm;
     const onMapTab = state.activeTab === "map";
+    const onNavigateHome =
+      showOverlays && onMapTab && state.navigateView === "home";
+    const onFirstVisitHome =
+      onNavigateHome && state.homeExperience === "first-visit";
+    const onReturningHome =
+      onNavigateHome && state.homeExperience !== "first-visit";
+    const onNavigateMap =
+      showOverlays && onMapTab && state.navigateView === "map";
     const onSocialTab = state.activeTab === "social";
     const onProfileTab = state.activeTab === "profile";
     const onProfileSettings = onProfileTab && state.profileView === "settings";
     const onProfileLanguage = onProfileTab && state.profileView === "language";
     const onProfileEditProfile =
       onProfileTab && state.profileView === "edit-profile";
+    const onProfileChangePassword =
+      onProfileTab && state.profileView === "change-password";
     const onProfileAbout = onProfileTab && state.profileView === "about";
     const onProfilePrivacy = onProfileTab && state.profileView === "privacy";
     const onProfileMain = onProfileTab && state.profileView === "main";
@@ -114,11 +173,24 @@ export class UiRoot {
       onProfileSettings ||
       onProfileLanguage ||
       onProfileEditProfile ||
+      onProfileChangePassword ||
       onProfileAbout ||
       onProfilePrivacy;
     const showTermsWebView = state.legalWebView === "terms";
+    const onNotificationDetail =
+      showOverlays &&
+      onSocialTab &&
+      state.notificationsOpen &&
+      (state.notificationDetail != null ||
+        state.notificationDetailLoading ||
+        Boolean(state.notificationDetailError));
     const onNotificationsInbox =
-      showOverlays && onSocialTab && state.notificationsOpen;
+      showOverlays &&
+      onSocialTab &&
+      state.notificationsOpen &&
+      !onNotificationDetail;
+    const onPostComments =
+      showOverlays && onSocialTab && state.postCommentsOpen;
 
     const focusedVenueInput =
       activeEl?.id === "venue-feed-input"
@@ -154,7 +226,7 @@ export class UiRoot {
       this.createTermsAcceptedDraft =
         this.root.querySelector<HTMLInputElement>("#auth-terms")?.checked ??
         false;
-    } else if (state.authStep !== "create") {
+    } else if (authUiStep !== "create") {
       this.createPasswordDraft = "";
       this.createPasswordConfirmDraft = "";
       this.createTermsAcceptedDraft = false;
@@ -165,8 +237,9 @@ export class UiRoot {
       showCheckEmail ||
       showVerifyEmail ||
       showLogin ||
+      showForgotPassword ||
       (showOnboardingFlow &&
-        state.authStep === "create" &&
+        authUiStep === "create" &&
         showAuthPrivacy);
     if (!preserveAuthEmailDraft) {
       this.authEmailDraft = "";
@@ -198,21 +271,55 @@ export class UiRoot {
         ? Number(activeEl.dataset.otpIndex)
         : null;
 
+    const focusedHomeVenueSearch =
+      activeEl?.id === "home-venue-search-input"
+        ? (activeEl as HTMLInputElement)
+        : null;
+    const homeVenueSearchSelectionStart =
+      focusedHomeVenueSearch?.selectionStart ?? null;
+    const homeVenueSearchSelectionEnd =
+      focusedHomeVenueSearch?.selectionEnd ?? null;
+
     document
       .getElementById("mappedin-map")
-      ?.classList.toggle("is-hidden", showOnboardingFlow || (showOverlays && !onMapTab));
+      ?.classList.toggle(
+        "is-hidden",
+        showOnboardingFlow ||
+          showResetPasswordConfirm ||
+          onNavigateHome ||
+          (showOverlays && !onMapTab),
+      );
+
+    const postCommentsPost =
+      state.postCommentsPostId != null
+        ? state.venueFeedPosts.find(
+            (post) => post.id === state.postCommentsPostId,
+          ) ?? null
+        : null;
 
     this.root.innerHTML = `
       ${this.loadingOverlay(state)}
-      ${showSessionRestore ? this.sessionRestoreOverlay() : ""}
       ${showOnboardingScreen ? renderOnboardingScreen() : ""}
+      ${showArTeaser ? renderArTeaserScreen() : ""}
+      ${showIntroduction ? renderIntroductionScreen() : ""}
+      ${showFeatures ? renderFeaturesScreen() : ""}
       ${showCreateAccount ? renderCreateAccountScreen({
         authEmail: this.authEmailDraft || state.authEmail,
         authLoading: state.authLoading,
         authFieldErrors: state.authFieldErrors,
+        guestAccessAllowed: state.guestAccessAllowed,
       }) : ""}
       ${showLogin ? renderLoginScreen({
         authEmail: this.authEmailDraft || state.authEmail,
+        authLoading: state.authLoading,
+        authFieldErrors: state.authFieldErrors,
+      }) : ""}
+      ${showForgotPassword ? renderForgotPasswordScreen({
+        authEmail: this.authEmailDraft || state.authEmail,
+        authLoading: state.authLoading,
+        authFieldErrors: state.authFieldErrors,
+      }) : ""}
+      ${showResetPasswordConfirm ? renderResetPasswordConfirmScreen({
         authLoading: state.authLoading,
         authFieldErrors: state.authFieldErrors,
       }) : ""}
@@ -243,14 +350,33 @@ export class UiRoot {
         authLoading: state.authLoading,
         authFieldErrors: state.authFieldErrors,
       }) : ""}
-      ${showOverlays && onMapTab ? this.homeHeader(state) : ""}
-      ${showOverlays && onMapTab && state.searchQuery.trim() ? this.searchResults(state) : ""}
-      ${showOverlays && onMapTab ? this.fabs(state, app) : ""}
-      ${showOverlays && onMapTab && state.locationActionPrompt ? renderLocationActionSheet(state.locationActionPrompt, Boolean(state.markers.origin)) : ""}
-      ${showOverlays && onMapTab && (!state.showRouteSheet || (!state.route && !state.routeNotFound && !state.markers.destination)) ? this.routeHintBar(state, app) : ""}
-      ${showOverlays && onMapTab && state.showRouteSheet && (state.route || state.markers.destination || state.routeNotFound) ? this.routeSheet(state, app) : ""}
-      ${showOverlays && onSocialTab && !onNotificationsInbox ? renderVenueFeedScreen(state) : ""}
+      ${showLocationPermission ? renderLocationPermissionScreen({
+        locationGateLoading: state.locationGateLoading,
+      }) : ""}
+      ${showLocationRequired ? renderLocationPermissionRequiredScreen({
+        locationGateLoading: state.locationGateLoading,
+        locationPermanentlyDenied: state.locationPermanentlyDenied,
+      }) : ""}
+      ${showLocationError ? renderLocationErrorScreen({
+        locationGateLoading: state.locationGateLoading,
+        locationGateError: state.locationGateError,
+      }) : ""}
+      ${onFirstVisitHome ? renderFirstVisitVenueScreen(state) : ""}
+      ${onReturningHome ? renderReturningHomeScreen(state) : ""}
+      ${onNavigateMap ? this.homeHeader(state) : ""}
+      ${onNavigateMap && state.searchQuery.trim() ? this.searchResults(state) : ""}
+      ${onNavigateMap ? this.fabs(state, app) : ""}
+      ${onNavigateMap && state.locationActionPrompt ? renderLocationActionSheet(state.locationActionPrompt, Boolean(state.markers.origin)) : ""}
+      ${onNavigateMap && (!state.showRouteSheet || (!state.route && !state.routeNotFound && !state.markers.destination)) ? this.routeHintBar(state, app) : ""}
+      ${onNavigateMap && state.showRouteSheet && (state.route || state.markers.destination || state.routeNotFound) ? this.routeSheet(state, app) : ""}
+      ${showOverlays && onSocialTab && !onNotificationsInbox && !onNotificationDetail && !onPostComments ? renderVenueFeedScreen(state) : ""}
       ${onNotificationsInbox ? renderNotificationsScreen(state) : ""}
+      ${onNotificationDetail ? renderNotificationDetailScreen({
+        item: state.notificationDetail,
+        loading: state.notificationDetailLoading,
+        error: state.notificationDetailError,
+      }) : ""}
+      ${onPostComments ? renderPostCommentsScreen(state, postCommentsPost) : ""}
       ${showOverlays && onProfileMain ? renderProfileScreen(state) : ""}
       ${showOverlays && onProfileSettings ? renderSettingsScreen(state) : ""}
       ${showOverlays && onProfileLanguage ? renderLanguageSettingsScreen(state) : ""}
@@ -258,6 +384,10 @@ export class UiRoot {
         pseudoNameDraft: this.pseudoNameDraft ?? state.pseudoNameDraft,
         pseudoNameHint: state.pseudoNameHint,
         selectedInterests: state.selectedInterests,
+        authLoading: state.authLoading,
+        authFieldErrors: state.authFieldErrors,
+      }) : ""}
+      ${showOverlays && onProfileChangePassword ? renderChangePasswordScreen({
         authLoading: state.authLoading,
         authFieldErrors: state.authFieldErrors,
       }) : ""}
@@ -322,6 +452,23 @@ export class UiRoot {
       }
     }
 
+    if (focusedHomeVenueSearch && onNavigateHome) {
+      const homeSearchInput =
+        this.root.querySelector<HTMLInputElement>("#home-venue-search-input");
+      if (homeSearchInput) {
+        homeSearchInput.focus();
+        if (
+          homeVenueSearchSelectionStart !== null &&
+          homeVenueSearchSelectionEnd !== null
+        ) {
+          homeSearchInput.setSelectionRange(
+            homeVenueSearchSelectionStart,
+            homeVenueSearchSelectionEnd,
+          );
+        }
+      }
+    }
+
     if (focusedSearch) {
       const searchInput =
         this.root.querySelector<HTMLInputElement>("#search-input");
@@ -331,6 +478,11 @@ export class UiRoot {
           searchInput.setSelectionRange(selectionStart, selectionEnd);
         }
       }
+    } else if (onNavigateMap && app.shouldFocusMapSearch()) {
+      app.consumeMapSearchFocus();
+      requestAnimationFrame(() => {
+        this.root.querySelector<HTMLInputElement>("#search-input")?.focus();
+      });
     }
 
     if (focusedVenueInput) {
@@ -345,13 +497,47 @@ export class UiRoot {
     }
   }
 
+  /**
+   * Updates the splash progress bar in place. Returns true when a full re-render
+   * was skipped (splash still showing, not ready/error).
+   */
+  private patchSplashProgress(state: AppState): boolean {
+    if (state.mapStatus === "ready" || state.mapStatus === "error") {
+      return false;
+    }
+
+    const splash = this.root.querySelector(".splash-screen");
+    if (!splash || splash.classList.contains("splash-screen--error")) {
+      return false;
+    }
+
+    const progress = Math.max(0, Math.min(100, state.loadingProgress));
+    const bar = splash.querySelector<HTMLElement>(".splash-progress-bar");
+    const track = splash.querySelector(".splash-progress");
+    if (!bar || !track) return false;
+
+    bar.style.width = `${progress}%`;
+    track.setAttribute("aria-valuenow", String(progress));
+    return true;
+  }
+
   private loadingOverlay(state: AppState): string {
-    if (state.mapStatus === "ready") return "";
+    if (state.mapStatus === "ready") {
+      this.splashTaglineRevealed = false;
+      return "";
+    }
     const isError = state.mapStatus === "error";
     const progress = Math.max(0, Math.min(100, state.loadingProgress));
+    const taglineClass = this.splashTaglineRevealed
+      ? "splash-tagline splash-tagline--shown"
+      : "splash-tagline splash-tagline--enter";
+    this.splashTaglineRevealed = true;
     return `
       <div class="splash-screen ${isError ? "splash-screen--error" : ""}" role="status">
-        <h1 class="splash-title">fplaces</h1>
+        <div class="splash-brand">
+          <h1 class="splash-title">fplaces</h1>
+          <p class="${taglineClass}">Find People, Places. Find your way!</p>
+        </div>
         ${
           isError
             ? `<p class="splash-error">${escapeHtml(state.loadingMessage)}</p>`
@@ -372,17 +558,6 @@ export class UiRoot {
     `;
   }
 
-  private sessionRestoreOverlay(): string {
-    return `
-      <div class="auth-screen auth-restore-screen" role="status" aria-live="polite">
-        <div class="auth-header">
-          <h1 class="auth-title">Signing you in</h1>
-          <p class="auth-subtitle">Restoring your session…</p>
-        </div>
-      </div>
-    `;
-  }
-
   private homeHeader(state: AppState): string {
     return `
       <div class="home-header">
@@ -393,8 +568,13 @@ export class UiRoot {
   }
 
   private searchBar(state: AppState): string {
+    const placeholder = state.arRouteSetupActive
+      ? state.markers.origin
+        ? "Search your destination..."
+        : "Search your start point..."
+      : "Search a store or place...";
     return `
-      <div class="search-bar">
+      <div class="search-bar ${state.arRouteSetupActive ? "search-bar--ar-setup" : ""}">
         <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"></circle>
           <path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
@@ -402,9 +582,10 @@ export class UiRoot {
         <input
           id="search-input"
           type="search"
-          placeholder="Search a store or place..."
+          placeholder="${escapeHtml(placeholder)}"
           value="${escapeHtml(state.searchQuery)}"
           autocomplete="off"
+          enterkeyhint="search"
         />
         ${state.searchQuery ? '<button type="button" id="search-clear" class="icon-btn" aria-label="Clear search">×</button>' : ""}
       </div>
@@ -508,18 +689,25 @@ export class UiRoot {
     const needsReset =
       state.routeNotFound && hasStart && hasEnd && !state.isCalculatingRoute;
     const canReset = hasStart || hasEnd || needsReset;
+    const arSetup = state.arRouteSetupActive;
     const hint = state.isCalculatingRoute
       ? "Finding route…"
       : needsReset
         ? "No route found. Reset to start again."
         : !hasStart
-          ? "Tap the map to set your location."
+          ? arSetup
+            ? "Search or tap to set your start point."
+            : "Tap the map to set your location."
           : !hasEnd
-            ? "Tap the map to choose your destination."
-            : "Route ready";
+            ? arSetup
+              ? "Now search or tap to set your destination."
+              : "Tap the map to choose your destination."
+            : arSetup
+              ? "Route ready — open AR when you’re set."
+              : "Route ready";
 
     return `
-      <div class="route-hint ${needsReset ? "route-hint--needs-reset" : ""}">
+      <div class="route-hint ${needsReset ? "route-hint--needs-reset" : ""} ${arSetup && !hasEnd ? "route-hint--ar-setup" : ""}">
         <div class="route-steps">
           <button type="button" class="step-dot step-dot--start ${hasStart ? "is-done" : "is-active"}" data-focus="start" ${hasStart ? "" : "disabled"}></button>
           <div class="step-line ${hasStart ? "is-done" : ""}"></div>
@@ -619,8 +807,8 @@ export class UiRoot {
           id="nav-map"
           class="bottom-nav-item ${mapActive ? "bottom-nav-item--active" : ""}"
         >
-          ${bottomNavMapIcon}
-          <span class="bottom-nav-label">Map</span>
+          ${bottomNavNavigateIcon}
+          <span class="bottom-nav-label">Navigate</span>
         </button>
         <button
           type="button"
@@ -653,6 +841,47 @@ export class UiRoot {
         void app.submitSearch(searchInput.value);
       }
     });
+
+    const homeVenueSearchInput =
+      this.root.querySelector<HTMLInputElement>("#home-venue-search-input");
+    homeVenueSearchInput?.addEventListener("input", () => {
+      app.setHomeVenueSearchQuery(homeVenueSearchInput.value);
+    });
+
+    this.root.querySelectorAll<HTMLButtonElement>("[data-home-venue-id]").forEach(
+      (button) => {
+        button.addEventListener("click", () => {
+          const venueId = button.dataset.homeVenueId;
+          if (venueId) app.selectHomeRecentVenue(venueId);
+        });
+      },
+    );
+
+    this.root
+      .querySelector("#first-visit-discover-btn")
+      ?.addEventListener("click", () => {
+        app.openVenueDiscover();
+      });
+    this.root
+      .querySelector("#first-visit-see-all-btn")
+      ?.addEventListener("click", () => {
+        app.openVenueDiscover();
+      });
+    this.root
+      .querySelector("#first-visit-ar-btn")
+      ?.addEventListener("click", () => {
+        void app.openVenueArFromHome();
+      });
+    this.root
+      .querySelector("#first-visit-ar-open-map-btn")
+      ?.addEventListener("click", () => {
+        app.confirmArRoutePrompt();
+      });
+    this.root
+      .querySelector("#first-visit-ar-prompt-dismiss")
+      ?.addEventListener("click", () => {
+        app.dismissArRoutePrompt();
+      });
 
     this.root.querySelector("#search-clear")?.addEventListener("click", () => {
       void app.clearSearch();
@@ -771,15 +1000,33 @@ export class UiRoot {
       });
 
     this.root
-      .querySelector("#onboarding-create-account")
+      .querySelector("#onboarding-continue")
+      ?.addEventListener("click", () => {
+        app.showArTeaser();
+      });
+
+    this.root
+      .querySelector("#ar-teaser-skip-btn")
       ?.addEventListener("click", () => {
         app.showCreateAccount();
       });
 
     this.root
-      .querySelector("#onboarding-login")
+      .querySelector("#ar-teaser-continue")
       ?.addEventListener("click", () => {
-        app.showLogin();
+        app.showCreateAccount();
+      });
+
+    this.root
+      .querySelector("#introduction-continue")
+      ?.addEventListener("click", () => {
+        app.showFeatures();
+      });
+
+    this.root
+      .querySelector("#features-continue")
+      ?.addEventListener("click", () => {
+        app.showCreateAccount();
       });
 
     this.root
@@ -801,6 +1048,12 @@ export class UiRoot {
       });
 
     this.root
+      .querySelector("#auth-guest-btn")
+      ?.addEventListener("click", () => {
+        void app.continueAsGuest();
+      });
+
+    this.root
       .querySelector("#login-back-btn")
       ?.addEventListener("click", () => {
         app.dismissLogin();
@@ -813,9 +1066,84 @@ export class UiRoot {
       });
 
     this.root
+      .querySelector("#login-forgot-link")
+      ?.addEventListener("click", () => {
+        app.showForgotPassword();
+      });
+
+    this.root
       .querySelector("#login-google-btn")
       ?.addEventListener("click", () => {
         void app.submitGoogleSignIn();
+      });
+
+    this.root
+      .querySelector("#forgot-password-back-btn")
+      ?.addEventListener("click", () => {
+        app.dismissForgotPassword();
+      });
+
+    this.root
+      .querySelector("#forgot-password-login-link")
+      ?.addEventListener("click", () => {
+        app.dismissForgotPassword();
+      });
+
+    this.root
+      .querySelector("#forgot-password-email")
+      ?.addEventListener("input", (event) => {
+        this.authEmailDraft = (event.currentTarget as HTMLInputElement).value;
+      });
+
+    this.root
+      .querySelector("#forgot-password-form")
+      ?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const form = event.currentTarget as HTMLFormElement;
+        const email =
+          form.querySelector<HTMLInputElement>("#forgot-password-email")
+            ?.value ?? "";
+        void app.submitForgotPassword(email);
+      });
+
+    this.root
+      .querySelector("#reset-password-back-btn")
+      ?.addEventListener("click", () => {
+        app.dismissResetPasswordConfirm();
+      });
+
+    this.root
+      .querySelector("#reset-password-login-link")
+      ?.addEventListener("click", () => {
+        app.dismissResetPasswordConfirm();
+      });
+
+    this.root
+      .querySelector("#reset-password-confirm-form")
+      ?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const password =
+          this.root.querySelector<HTMLInputElement>("#reset-password-new")
+            ?.value ?? "";
+        void app.submitResetPasswordConfirm(password);
+      });
+
+    this.root
+      .querySelector("#location-enable-btn")
+      ?.addEventListener("click", () => {
+        void app.enableLocationPermission();
+      });
+
+    this.root
+      .querySelector("#location-try-again-btn")
+      ?.addEventListener("click", () => {
+        void app.retryLocationPermission();
+      });
+
+    this.root
+      .querySelector("#location-retry-btn")
+      ?.addEventListener("click", () => {
+        void app.retryLocationRetrieval();
       });
 
     this.root
@@ -1115,6 +1443,12 @@ export class UiRoot {
       });
 
     this.root
+      .querySelector("#settings-change-password-btn")
+      ?.addEventListener("click", () => {
+        app.openChangePasswordFromSettings();
+      });
+
+    this.root
       .querySelector("#settings-interests-btn")
       ?.addEventListener("click", () => {
         app.openEditProfileFromSettings();
@@ -1147,6 +1481,25 @@ export class UiRoot {
         void app.submitProfileEditFromSettings(
           input?.value ?? this.pseudoNameDraft ?? "",
         );
+      });
+
+    this.root
+      .querySelector("#change-password-back-btn")
+      ?.addEventListener("click", () => {
+        app.closeChangePasswordSettings();
+      });
+
+    this.root
+      .querySelector("#change-password-form")
+      ?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const oldPassword =
+          this.root.querySelector<HTMLInputElement>("#change-password-old")
+            ?.value ?? "";
+        const newPassword =
+          this.root.querySelector<HTMLInputElement>("#change-password-new")
+            ?.value ?? "";
+        void app.submitChangePassword(oldPassword, newPassword);
       });
 
     this.root
@@ -1258,6 +1611,12 @@ export class UiRoot {
       });
 
     this.root
+      .querySelector("#notification-detail-back-btn")
+      ?.addEventListener("click", () => {
+        app.closeNotificationDetail();
+      });
+
+    this.root
       .querySelector("#notifications-mark-all-btn")
       ?.addEventListener("click", () => {
         void app.markAllNotificationsAsRead();
@@ -1274,7 +1633,76 @@ export class UiRoot {
       .forEach((button) => {
         button.addEventListener("click", () => {
           const notificationId = button.dataset.notificationId;
-          if (notificationId) void app.markNotificationAsRead(notificationId);
+          if (notificationId) void app.openNotificationDetail(notificationId);
+        });
+      });
+
+    this.root
+      .querySelector("#post-comments-back-btn")
+      ?.addEventListener("click", () => {
+        app.closePostComments();
+      });
+
+    this.root
+      .querySelector("#post-comments-input")
+      ?.addEventListener("input", (event) => {
+        app.setPostCommentsDraft(
+          (event.currentTarget as HTMLInputElement).value,
+        );
+      });
+
+    this.root
+      .querySelector("#post-comments-form")
+      ?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void app.submitPostComment();
+      });
+
+    this.root
+      .querySelector("#post-comments-edit-btn")
+      ?.addEventListener("click", () => {
+        app.beginEditVenueFeedPost();
+      });
+
+    this.root
+      .querySelector("#post-comments-edit-cancel-btn")
+      ?.addEventListener("click", () => {
+        app.cancelEditVenueFeedPost();
+      });
+
+    this.root
+      .querySelector("#post-comments-edit-save-btn")
+      ?.addEventListener("click", () => {
+        const content =
+          this.root.querySelector<HTMLTextAreaElement>(
+            "#post-comments-edit-input",
+          )?.value ?? "";
+        void app.saveEditedVenueFeedPost(content);
+      });
+
+    this.root
+      .querySelector("#post-comments-delete-post-btn")
+      ?.addEventListener("click", () => {
+        void app.deleteOpenVenueFeedPost();
+      });
+
+    this.root
+      .querySelectorAll<HTMLButtonElement>("[data-delete-comment-id]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const commentId = button.dataset.deleteCommentId;
+          if (commentId) void app.deletePostComment(commentId);
+        });
+      });
+
+    this.root
+      .querySelectorAll<HTMLButtonElement>("[data-comments-id]")
+      .forEach((button) => {
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const postId = button.dataset.commentsId;
+          if (postId) app.openPostComments(postId);
         });
       });
 

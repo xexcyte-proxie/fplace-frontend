@@ -1,3 +1,8 @@
+import type {
+  HomeExperience,
+  ReturningHomeContent,
+} from './home/domain/entities';
+
 export type MapStatus = 'initial' | 'loading' | 'ready' | 'error';
 
 export interface FloorInfo {
@@ -137,13 +142,30 @@ export type BlueDotStatus = 'off' | 'starting' | 'active' | 'inactive' | 'error'
 
 export type AppTab = 'map' | 'social' | 'profile';
 
+/** Navigate tab: venue home dashboard vs indoor map. */
+export type NavigateView = 'home' | 'map';
+
 export type ProfileView =
   | 'main'
   | 'settings'
   | 'language'
   | 'edit-profile'
+  | 'change-password'
   | 'about'
   | 'privacy';
+
+/** Comment row on a venue-feed post thread. */
+export interface PostCommentItem {
+  id: number;
+  postId: number;
+  authorId: number;
+  author: string;
+  initials: string;
+  avatarColor: string;
+  content: string;
+  timeAgo: string;
+  createdAt: string;
+}
 
 /** Destructive confirm dialog shown over Settings. */
 export type SettingsConfirm = null | 'logout' | 'delete-account';
@@ -170,12 +192,27 @@ export interface MapLanguageOption {
 
 export type AuthStep =
   | 'none'
+  | 'ar-teaser'
+  | 'introduction'
+  | 'features'
   | 'create'
   | 'login'
+  | 'forgot-password'
+  | 'reset-password-confirm'
   | 'check-email'
   | 'verify'
   | 'pseudo-name'
-  | 'venue-select';
+  | 'venue-select'
+  | 'location-permission'
+  | 'location-required'
+  | 'location-error';
+
+/** GPS fix captured during the location permission gate. */
+export interface UserLocationCoords {
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+}
 
 export interface RegisteredUser {
   id: number;
@@ -313,14 +350,31 @@ export type AuthLegalDocument = 'terms' | 'privacy';
 export interface AppState {
   onboardingComplete: boolean;
   authStep: AuthStep;
+  /**
+   * Auth screen kept underneath the location dialog (login, venue-select, etc.).
+   * Null when the location gate is not open.
+   */
+  authStepBeforeLocation: AuthStep | null;
   /** Legal document overlay shown during the auth/onboarding flow. */
   authLegalDocument: AuthLegalDocument | null;
   /** In-app WebView bottom sheet for Terms (settings + auth). */
   legalWebView: LegalWebViewDocument | null;
   authEmail: string;
+  /** uid from the password-reset email deep link. */
+  passwordResetUid: string;
+  /** token from the password-reset email deep link. */
+  passwordResetToken: string;
   authLoading: boolean;
   authFieldErrors: Record<string, string>;
   authUser: RegisteredUser | null;
+  /** FingerprintJS visitorId for the current browser (null until resolved). */
+  visitorId: string | null;
+  /** Mock/backend guest id when guest access is allowed. */
+  guestId: string | null;
+  /** False when guest fingerprint validation denies anonymous access. */
+  guestAccessAllowed: boolean | null;
+  /** Denial reason from guest fingerprint validation, when applicable. */
+  guestAccessReason: string | null;
   pseudoNameDraft: string;
   /** Placeholder suggestion for the pseudo-name field (not the committed value). */
   pseudoNameHint: string;
@@ -344,6 +398,14 @@ export interface AppState {
   mapError?: string;
   loadingMessage: string;
   loadingProgress: number;
+  /** Coordinates from the startup location gate (null until retrieved). */
+  userLocation: UserLocationCoords | null;
+  /** True while requesting permission or reading GPS during the location gate. */
+  locationGateLoading: boolean;
+  /** When true, location was permanently denied — show browser settings help. */
+  locationPermanentlyDenied: boolean;
+  /** User-facing message on the Location Error gate. */
+  locationGateError: string | null;
   blueDotStatus: BlueDotStatus;
   blueDotFollowing: boolean;
   routeSimulating: boolean;
@@ -366,8 +428,26 @@ export interface AppState {
   routeInstructions: string;
   /** `closed` = no session; `minimized` = map visible + AR pip; `fullscreen` = AR covers map */
   arPresentation: ArPresentation;
+  /**
+   * After Try AR with no route — coach start/end selection on the map.
+   */
+  arRouteSetupActive: boolean;
+  /**
+   * Try AR dialog on the first-visit venue home (before leaving for the map).
+   */
+  arRoutePromptOpen: boolean;
   toast?: string;
   activeTab: AppTab;
+  /** Navigate tab content: venue home vs indoor map. */
+  navigateView: NavigateView;
+  /**
+   * First-time-at-venue dashboard vs returning (search / recently visited) home.
+   */
+  homeExperience: HomeExperience;
+  /** Venue search on the returning-user home screen. */
+  homeVenueSearchQuery: string;
+  /** Cached returning-home content (recent venues + stats). */
+  homeContent: ReturningHomeContent | null;
   profileView: ProfileView;
   settingsConfirm: SettingsConfirm;
   notificationsEnabled: boolean;
@@ -378,6 +458,19 @@ export interface AppState {
   notificationsNext: string | null;
   notificationsLoading: boolean;
   notificationsMarkingAll: boolean;
+  /** Opened notification detail (fetched via GET /api/notifications/{id}/). */
+  notificationDetail: NotificationItem | null;
+  notificationDetailLoading: boolean;
+  notificationDetailError: string | null;
+  /** Venue-feed post comments overlay. */
+  postCommentsOpen: boolean;
+  postCommentsPostId: string | null;
+  postComments: PostCommentItem[];
+  postCommentsDraft: string;
+  postCommentsLoading: boolean;
+  postCommentsSubmitting: boolean;
+  postCommentsEditing: boolean;
+  postCommentsError: string | null;
   /** Location/route simulation; on by default until the user turns it off. */
   simulationEnabled: boolean;
   /** Languages available from the Mappedin enterprise venue. */
@@ -414,12 +507,19 @@ export const initialAppState = (): AppState => ({
   /** Resolved after session restore from profile + venue preference. */
   onboardingComplete: false,
   authStep: 'none',
+  authStepBeforeLocation: null,
+  passwordResetUid: '',
+  passwordResetToken: '',
   authLegalDocument: null,
   legalWebView: null,
   authEmail: '',
   authLoading: false,
   authFieldErrors: {},
   authUser: loadStoredUser(),
+  visitorId: null,
+  guestId: null,
+  guestAccessAllowed: null,
+  guestAccessReason: null,
   pseudoNameDraft: '',
   pseudoNameHint: '',
   selectedInterests: [],
@@ -437,6 +537,10 @@ export const initialAppState = (): AppState => ({
   mapStatus: 'initial',
   loadingMessage: 'Loading map SDK…',
   loadingProgress: 12,
+  userLocation: null,
+  locationGateLoading: false,
+  locationPermanentlyDenied: false,
+  locationGateError: null,
   blueDotStatus: 'off',
   blueDotFollowing: false,
   routeSimulating: false,
@@ -457,7 +561,13 @@ export const initialAppState = (): AppState => ({
   currentLegIndex: 0,
   routeInstructions: '',
   arPresentation: 'closed',
+  arRouteSetupActive: false,
+  arRoutePromptOpen: false,
   activeTab: 'map',
+  navigateView: 'home',
+  homeExperience: 'returning',
+  homeVenueSearchQuery: '',
+  homeContent: null,
   profileView: 'main',
   settingsConfirm: null,
   notificationsEnabled: true,
@@ -467,6 +577,17 @@ export const initialAppState = (): AppState => ({
   notificationsNext: null,
   notificationsLoading: false,
   notificationsMarkingAll: false,
+  notificationDetail: null,
+  notificationDetailLoading: false,
+  notificationDetailError: null,
+  postCommentsOpen: false,
+  postCommentsPostId: null,
+  postComments: [],
+  postCommentsDraft: '',
+  postCommentsLoading: false,
+  postCommentsSubmitting: false,
+  postCommentsEditing: false,
+  postCommentsError: null,
   simulationEnabled: true,
   mapLanguages: [],
   mapLanguageCode: null,

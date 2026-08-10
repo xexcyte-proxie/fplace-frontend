@@ -5,7 +5,9 @@
 import type {
   AuthSession,
   AuthUser,
+  ChangePasswordPayload,
   LoginCredentials,
+  PasswordResetConfirmPayload,
   RegisterCredentials,
   UpdateProfilePayload,
   VenueSelection,
@@ -29,7 +31,14 @@ import {
   requestGoogleIdToken,
 } from '../auth/data/google-auth';
 
-export type { AuthSession, AuthUser, UpdateProfilePayload, VenueSelection };
+export type {
+  AuthSession,
+  AuthUser,
+  ChangePasswordPayload,
+  PasswordResetConfirmPayload,
+  UpdateProfilePayload,
+  VenueSelection,
+};
 export type { AuthTokens, OnboardingStep } from '../auth/domain/entities';
 export {
   AuthApiError,
@@ -84,6 +93,25 @@ export async function resendVerification(email: string): Promise<string> {
   return authRepository.resendVerification(email);
 }
 
+/** Sends a password-reset email via POST /api/users/password-reset/. */
+export async function requestPasswordReset(email: string): Promise<string> {
+  return authRepository.requestPasswordReset(email);
+}
+
+/** Completes reset via POST /api/users/password-reset-confirm/. */
+export async function confirmPasswordReset(
+  payload: PasswordResetConfirmPayload,
+): Promise<string> {
+  return authRepository.confirmPasswordReset(payload);
+}
+
+/** Changes password via POST /api/users/change-password/. */
+export async function changePassword(
+  payload: ChangePasswordPayload,
+): Promise<string> {
+  return authRepository.changePassword(payload);
+}
+
 export async function loginUser(payload: LoginPayload): Promise<AuthSession> {
   return authRepository.login(payload);
 }
@@ -104,6 +132,12 @@ export async function updateCurrentUser(
   payload: UpdateProfilePayload,
 ): Promise<AuthUser> {
   return authRepository.updateProfile(payload);
+}
+
+export async function replaceCurrentUser(
+  payload: UpdateProfilePayload,
+): Promise<AuthUser> {
+  return authRepository.replaceProfile(payload);
 }
 
 export async function fetchCurrentUser(): Promise<AuthUser> {

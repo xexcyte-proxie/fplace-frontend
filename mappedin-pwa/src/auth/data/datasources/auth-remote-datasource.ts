@@ -2,7 +2,9 @@ import type {
   AuthSession,
   AuthTokens,
   AuthUser,
+  ChangePasswordPayload,
   LoginCredentials,
+  PasswordResetConfirmPayload,
   RegisterCredentials,
   UpdateProfilePayload,
 } from '../../domain/entities';
@@ -13,6 +15,13 @@ function normalizeSession(body: AuthSession): AuthSession {
     throw new Error('Invalid auth response: missing tokens or user.');
   }
   return body;
+}
+
+function detailMessage(
+  body: { detail?: string; message?: string },
+  fallback: string,
+): string {
+  return body.detail?.trim() || body.message?.trim() || fallback;
 }
 
 export class AuthRemoteDatasource {
@@ -41,11 +50,47 @@ export class AuthRemoteDatasource {
         fallbackError: 'Could not resend the verification code. Please try again.',
       },
     );
-    return (
-      body.detail?.trim() ||
-      body.message?.trim() ||
-      'Code sent. Check your email.'
+    return detailMessage(body, 'Code sent. Check your email.');
+  }
+
+  async requestPasswordReset(email: string): Promise<string> {
+    const body = await apiRequest<{ detail?: string; message?: string }>(
+      '/api/users/password-reset/',
+      {
+        method: 'POST',
+        body: { email },
+        fallbackError: 'Could not send a reset link. Please try again.',
+      },
     );
+    return detailMessage(body, 'Reset link sent. Check your email.');
+  }
+
+  async confirmPasswordReset(
+    payload: PasswordResetConfirmPayload,
+  ): Promise<string> {
+    const body = await apiRequest<{ detail?: string; message?: string }>(
+      '/api/users/password-reset-confirm/',
+      {
+        method: 'POST',
+        body: payload,
+        fallbackError:
+          'Could not reset your password. The link may have expired.',
+      },
+    );
+    return detailMessage(body, 'Password updated. You can log in now.');
+  }
+
+  async changePassword(payload: ChangePasswordPayload): Promise<string> {
+    const body = await apiRequest<{ detail?: string; message?: string }>(
+      '/api/users/change-password/',
+      {
+        method: 'POST',
+        auth: true,
+        body: payload,
+        fallbackError: 'Could not change your password. Please try again.',
+      },
+    );
+    return detailMessage(body, 'Password changed.');
   }
 
   async login(credentials: LoginCredentials): Promise<AuthSession> {
@@ -72,6 +117,15 @@ export class AuthRemoteDatasource {
       body: payload,
       auth: true,
       fallbackError: 'Could not update your profile. Please try again.',
+    });
+  }
+
+  replaceProfile(payload: UpdateProfilePayload): Promise<AuthUser> {
+    return apiRequest<AuthUser>('/api/users/me/', {
+      method: 'PUT',
+      body: payload,
+      auth: true,
+      fallbackError: 'Could not replace your profile. Please try again.',
     });
   }
 

@@ -6,6 +6,13 @@ import { DebugOverlayHUD } from './ui/DebugOverlayHUD';
 import { installArConsoleHelpers, installArDebugRelay, installArMessageBridge, type ArMessageBridgeHost } from './position/bridge';
 import { installArPipShell } from './position/ar-pip-shell';
 import { appConfig } from './config';
+import {
+  clearMockGuestFingerprintRecords,
+  listMockGuestFingerprintRecords,
+  markCurrentGuestLimitReached,
+  validateCurrentGuestAccess,
+} from './services/guest-access-service';
+import '@fontsource-variable/source-serif-4/wght.css';
 import './styles.css';
 import './styles/social-map-markers.css';
 import './styles/profile-screen.css';
@@ -13,7 +20,10 @@ import './styles/settings-screen.css';
 import './styles/legal-webview-sheet.css';
 import './styles/venue-feed.css';
 import './styles/notifications-screen.css';
+import './styles/post-comments-screen.css';
 import './styles/ar-navigation-screen.css';
+import './styles/returning-home-screen.css';
+import './styles/first-visit-venue-screen.css';
 
 // Check for a new deploy immediately + periodically; autoUpdate reloads when SW changes.
 registerSW({
@@ -41,6 +51,23 @@ if (import.meta.env.DEV) {
   console.warn(
     '[fplaces] App logs go in the BROWSER DevTools console (Cmd+Option+J in Chrome), not the Cursor terminal.',
   );
+  // Simulate guest-limit denial without a real backend:
+  //   await __fplacesGuest.markLimitReached(); location.reload();
+  (
+    window as Window & {
+      __fplacesGuest?: {
+        markLimitReached: typeof markCurrentGuestLimitReached;
+        clear: typeof clearMockGuestFingerprintRecords;
+        list: typeof listMockGuestFingerprintRecords;
+        validate: typeof validateCurrentGuestAccess;
+      };
+    }
+  ).__fplacesGuest = {
+    markLimitReached: markCurrentGuestLimitReached,
+    clear: clearMockGuestFingerprintRecords,
+    list: listMockGuestFingerprintRecords,
+    validate: validateCurrentGuestAccess,
+  };
 }
 
 const store = new AppStore();

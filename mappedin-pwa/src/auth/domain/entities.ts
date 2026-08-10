@@ -85,3 +85,16 @@ export interface UpdateProfilePayload {
   avatar_url?: string | null;
   interests?: string[] | null;
 }
+
+/** Body for POST /api/users/password-reset-confirm/. */
+export interface PasswordResetConfirmPayload {
+  uid: string;
+  token: string;
+  new_password: string;
+}
+
+/** Body for POST /api/users/change-password/. */
+export interface ChangePasswordPayload {
+  old_password: string;
+  new_password: string;
+}

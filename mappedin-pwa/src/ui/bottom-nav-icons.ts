@@ -1,11 +1,13 @@
-/** Bottom nav icons from Frame-10 design spec. */
-export const bottomNavMapIcon = `
+/** Bottom nav icons from Frame-10 / returning-user design spec. */
+export const bottomNavNavigateIcon = `
   <svg class="bottom-nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M4 7.5L10 4.5L14 6.5L20 3.5V18.5L14 21.5L10 19.5L4 22.5V7.5Z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
-    <path d="M10 4.5V19.5" stroke="currentColor" stroke-width="1.75"></path>
-    <path d="M14 6.5V21.5" stroke="currentColor" stroke-width="1.75"></path>
+    <path d="M12 21s6.25-4.35 6.25-10a6.25 6.25 0 10-12.5 0c0 5.65 6.25 10 6.25 10z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
+    <circle cx="12" cy="11" r="2.15" stroke="currentColor" stroke-width="1.75"></circle>
   </svg>
 `;
+
+/** @deprecated Prefer bottomNavNavigateIcon — kept for any legacy references. */
+export const bottomNavMapIcon = bottomNavNavigateIcon;
 
 export const bottomNavSocialIcon = `
   <svg class="bottom-nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
