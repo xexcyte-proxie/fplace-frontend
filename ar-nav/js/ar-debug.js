@@ -1,5 +1,5 @@
 /**
- * Central AR debug logger — console, on-screen panel, and Flutter bridge mirror.
+ * Central AR debug logger - console, on-screen panel, and Flutter bridge mirror.
  *
  * Enable:  ?arDebug=1  (default ON)  |  Disable: ?arDebug=0
  * Panel:   ?arPanel=1  (default ON when debug on)
@@ -287,7 +287,7 @@
 
   function captureRuntimeError(source, error, extra) {
     const message = formatUnknownError(error);
-    // Benign race when THREE/XR scripts load twice — ignored after inject guard.
+    // Benign race when THREE/XR scripts load twice - ignored after inject guard.
     if (
       /unconfigurable property/i.test(message) ||
       /Attempting to change the getter/i.test(message)
@@ -295,7 +295,7 @@
       emit('warn', source, message, {
         ...(extra || {}),
         ignored: true,
-        hint: 'Duplicate THREE/XR script inject — should be blocked by __fplacesXrScriptsInjected',
+        hint: 'Duplicate THREE/XR script inject - should be blocked by __fplacesXrScriptsInjected',
       });
       return;
     }
@@ -313,7 +313,7 @@
       errorType: error?.name,
     });
     if (previewCameraActive()) {
-      window.FplacesSlamDiagnostics?.log?.('xrError', 'XR error — keeping preview camera', {
+      window.FplacesSlamDiagnostics?.log?.('xrError', 'XR error - keeping preview camera', {
         source,
         message,
       });
@@ -337,7 +337,7 @@
         window.__fplacesXrSessionActive ||
         window.__fplacesXrAwaitingOnStart;
       if (!xrEngaged) {
-        window.FplacesSlamDiagnostics?.log?.('preXrError', 'Error before XR start — not falling back', {
+        window.FplacesSlamDiagnostics?.log?.('preXrError', 'Error before XR start - not falling back', {
           source,
           message,
         });
@@ -431,7 +431,7 @@
     showFatalBanner,
 
     complete(outcome) {
-      emit('log', 'Done', `══════ AR PAGE SESSION END — ${outcome} ══════`);
+      emit('log', 'Done', `══════ AR PAGE SESSION END - ${outcome} ══════`);
     },
   };
 

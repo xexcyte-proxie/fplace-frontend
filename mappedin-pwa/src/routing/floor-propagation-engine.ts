@@ -18,7 +18,7 @@ type MutablePoint = {
 
 /**
  * Reconstruct floor metadata for every path coordinate.
- * Never leaves floorId undefined — uses topology, legs, maneuvers, and endpoints.
+ * Never leaves floorId undefined - uses topology, legs, maneuvers, and endpoints.
  */
 export class FloorPropagationEngine {
   propagate(

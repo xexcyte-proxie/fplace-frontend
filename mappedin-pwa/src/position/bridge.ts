@@ -469,13 +469,13 @@ export function deliverRouteWithRetry(
         timer: window.setTimeout(() => {
           pendingRouteAck = null;
           if (attempts < ROUTE_DELIVERY_MAX_RETRIES) {
-            appWarn("AR", `Route ack timeout — retry ${attempts}/${ROUTE_DELIVERY_MAX_RETRIES}`, {
+            appWarn("AR", `Route ack timeout - retry ${attempts}/${ROUTE_DELIVERY_MAX_RETRIES}`, {
               routeId,
               routeVersion,
             });
             tryDeliver();
           } else {
-            appWarn("AR", "Route delivery failed after max retries — stashed in sessionStorage", {
+            appWarn("AR", "Route delivery failed after max retries - stashed in sessionStorage", {
               routeId,
               routeVersion,
             });
@@ -496,7 +496,7 @@ export function deliverRouteWithRetry(
   });
 }
 
-/** Incremental navigation sync — leg, floor, version changes without full reopen. */
+/** Incremental navigation sync - leg, floor, version changes without full reopen. */
 export function syncNavigationState(payload: NavigationSyncPayload): void {
   const frameEl = document.querySelector("#ar-frame") as HTMLIFrameElement | null;
   const shell = document.querySelector("#ar-pip-shell") as HTMLElement | null;
@@ -715,7 +715,7 @@ export function installArConsoleHelpers(): void {
       return child.FplacesSlamDiagnostics.debugArCamera();
     }
     console.warn(
-      "[fplaces] debugArCamera: AR iframe open but diagnostics not loaded — hard refresh.",
+      "[fplaces] debugArCamera: AR iframe open but diagnostics not loaded - hard refresh.",
     );
     return null;
   };
@@ -724,14 +724,14 @@ export function installArConsoleHelpers(): void {
     const child = arFrameWindow();
     if (!child) {
       console.warn(
-        "[fplaces] arBuildId: Live View is not open — open Live View first.",
+        "[fplaces] arBuildId: Live View is not open - open Live View first.",
       );
       return null;
     }
     const buildId = child.FPLACES_AR_CONFIG?.buildId ?? null;
     if (!buildId) {
       console.warn(
-        "[fplaces] arBuildId: iframe open but config not loaded — hard refresh Live View.",
+        "[fplaces] arBuildId: iframe open but config not loaded - hard refresh Live View.",
       );
       return null;
     }
@@ -796,10 +796,10 @@ export function installArDebugRelay(): void {
 
   appLog(
     "AR",
-    'Debug relay installed — filter console with "IndoorNav" or "fplaces AR"',
+    'Debug relay installed - filter console with "IndoorNav" or "fplaces AR"',
   );
   console.warn(
-    "[fplaces] AR helpers: logArHealth() | logSlamStatus() | debugArCamera() — run while Live View is open.",
+    "[fplaces] AR helpers: logArHealth() | logSlamStatus() | debugArCamera() - run while Live View is open.",
   );
 }
 

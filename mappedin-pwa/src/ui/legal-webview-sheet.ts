@@ -8,7 +8,7 @@ function escapeHtml(value: string): string {
     .replaceAll('"', '&quot;');
 }
 
-/** Bottom-sheet in-app WebView for Terms — stays in the PWA (no external browser). */
+/** Bottom-sheet in-app WebView for Terms - stays in the PWA (no external browser). */
 export function renderTermsWebViewSheet(): string {
   const title = TERMS_OF_USE.title;
   const url = TERMS_OF_USE_URL;

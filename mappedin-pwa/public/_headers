@@ -4,6 +4,6 @@
 /*
   Cache-Control: no-cache, no-store, must-revalidate
 
-# Fingerprinted Vite bundles — safe to cache forever
+# Fingerprinted Vite bundles - safe to cache forever
 /assets/*
   Cache-Control: public, max-age=31536000, immutable

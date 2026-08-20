@@ -15,13 +15,13 @@ Flutter (Mappedin route)  →  URL hash #route=…  →  ar-nav (8th Wall / fall
 - **AR** = walker (GPS progress along path, 3D arrow in SLAM space when 8th Wall is active)
 - **Not** a second routing engine
 
-## 8th Wall setup (2026 — no App Key)
+## 8th Wall setup (2026 - no App Key)
 
 As of **February 28, 2026**, the hosted platform at 8thwall.com is retired. 8th Wall continues at **[8thwall.org](https://8thwall.org)** as open source:
 
 - **No account or App Key** required
 - **SLAM / world tracking** via the free [Distributed Engine Binary](https://8thwall.org/docs/open-source) (`@8thwall/engine-binary` on npm/CDN)
-- You **self-host** (e.g. Netlify) — the Cloud Editor project you may have created is not needed for this repo
+- You **self-host** (e.g. Netlify) - the Cloud Editor project you may have created is not needed for this repo
 
 This project loads the engine from jsDelivr by default (`xrMode: 'auto'` in `config.js`).
 
@@ -96,7 +96,7 @@ That is 8th Wall's generic XR crash screen. After deploying latest `ar-nav/`, yo
 
 ## Limitations (POC)
 
-- **Indoor positioning**: GPS is coarse indoors. Accurate in-mall arrows need Mappedin positioning or future VPS — not included yet.
+- **Indoor positioning**: GPS is coarse indoors. Accurate in-mall arrows need Mappedin positioning or future VPS - not included yet.
 - **SLAM path**: Path dots use a local frame anchored at the route origin; illustrative until indoor tracking is wired up.
 
 ## Files

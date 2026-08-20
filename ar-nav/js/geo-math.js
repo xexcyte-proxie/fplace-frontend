@@ -6,8 +6,8 @@
  *   Longitude scale uses cos(mid-latitude) between reference and target.
  *
  *   ARCore Geospatial frames (Google AR Directional Alignment):
- *     EUS — East-Up-South:  X+=east, Y+=up (away from Earth center), Z+=south
- *     EUN — East-Up-North:  X+=east, Y+=up, Z+=north
+ *     EUS - East-Up-South:  X+=east, Y+=up (away from Earth center), Z+=south
+ *     EUN - East-Up-North:  X+=east, Y+=up, Z+=north
  *
  *   Three.js / SLAM floor plane uses EUS with Y as vertical:
  *     local X = east (+lng), local Y = up, local Z = south (+lat inverted).
@@ -134,7 +134,7 @@
   }
 
   /**
-   * Horizontal segment length — zero for inter-floor connectors (no fake elevation).
+   * Horizontal segment length - zero for inter-floor connectors (no fake elevation).
    */
   function segmentHorizontalMeters(a, b) {
     if (isVerticalConnector(a, b)) return 0;
@@ -171,7 +171,7 @@
   }
 
   /**
-   * Deterministic geometry hash — delegates to FplacesRouteServices when available.
+   * Deterministic geometry hash - delegates to FplacesRouteServices when available.
    */
   function pathGeometryHash(path, extras) {
     if (window.FplacesRouteServices?.computeGeometryHash) {

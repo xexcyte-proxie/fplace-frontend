@@ -1,5 +1,5 @@
 /**
- * Map offline façade — UI / MapApp talk to this module only for map data resolve + cache IO.
+ * Map offline façade - UI / MapApp talk to this module only for map data resolve + cache IO.
  */
 import {
   getMapData,

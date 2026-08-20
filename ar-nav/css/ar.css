@@ -142,7 +142,7 @@ body.lv-compass-camera #camerafeed {
   opacity: 0.72;
 }
 
-/* Top chrome — back, AR badge, map */
+/* Top chrome - back, AR badge, map */
 .lv-chrome {
   position: fixed;
   top: max(12px, env(safe-area-inset-top));
@@ -414,7 +414,7 @@ body.lv-active #hud::before {
   display: none;
 }
 
-/* Hero distance — hidden in new design */
+/* Hero distance - hidden in new design */
 .lv-hero {
   display: none !important;
 }
@@ -485,7 +485,7 @@ body.lv-active #hud::before {
   z-index: 6;
 }
 
-/* Bottom sheet — pinned to viewport bottom */
+/* Bottom sheet - pinned to viewport bottom */
 .lv-bottom {
   position: fixed;
   bottom: 0;
@@ -787,7 +787,7 @@ body.lv-active #hud::before {
   opacity: 0.12;
 }
 
-/* Minimap hidden — map is in top chrome */
+/* Minimap hidden - map is in top chrome */
 #fplaces-minimap {
   display: none !important;
 }

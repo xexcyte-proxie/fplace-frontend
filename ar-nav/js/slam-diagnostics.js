@@ -2,8 +2,8 @@
  * Always-on SLAM + AR health diagnostics (console, not gated by arDebug).
  *
  * Console helpers:
- *   logSlamStatus()  — SLAM snapshot audit
- *   logArHealth()    — full pass/fail health report with fix hints
+ *   logSlamStatus()  - SLAM snapshot audit
+ *   logArHealth()    - full pass/fail health report with fix hints
  */
 (function () {
   const PREFIX = '[fplaces SLAM]';
@@ -286,7 +286,7 @@
         s.overlay.startLayerHidden || s.cameraStarted,
         'Start overlay hidden after camera boot',
         {
-          fix: 'Tap Start — overlay should hide when camera session starts',
+          fix: 'Tap Start - overlay should hide when camera session starts',
           overlay: s.overlay,
         },
       ),
@@ -313,7 +313,7 @@
           s.hasTHREE && s.hasXR8,
           'THREE.js + XR8 loaded',
           {
-            fix: 'Check CDN / network — XR8 or THREE failed to load',
+            fix: 'Check CDN / network - XR8 or THREE failed to load',
             hasTHREE: s.hasTHREE,
             hasXR8: s.hasXR8,
           },
@@ -340,7 +340,7 @@
           s.xrSessionActive && s.xrScene,
           'XR8 session + scene active',
           {
-            fix: 'XR8.run() may not have reached onStart — check force-preview logs',
+            fix: 'XR8.run() may not have reached onStart - check force-preview logs',
             xrRunCalled: s.xrRunCalled,
             xrAttempted: s.xrAttempted,
             xrSessionActive: s.xrSessionActive,
@@ -357,7 +357,7 @@
           !!window.__fplacesCameraTextureApplied || s.previewCameraLive,
           'Live camera texture on THREE scene (or preview video)',
           {
-            fix: 'XR canvas black — cameraTexture not bound; check GlTextureRenderer + THREE background',
+            fix: 'XR canvas black - cameraTexture not bound; check GlTextureRenderer + THREE background',
             cameraTextureApplied: !!window.__fplacesCameraTextureApplied,
             previewLive: s.previewCameraLive,
           },
@@ -382,7 +382,7 @@
       addCheck(
         slamChecks,
         logCheck('slam-modules', isSlamActive(), 'SLAM modules active', {
-          fix: 'SlamHeading/Pose not attached — check xr-onStart path',
+          fix: 'SlamHeading/Pose not attached - check xr-onStart path',
           slamHeadingActive: s.slamHeadingActive,
           slamPoseActive: s.slamPoseActive,
           slamActive: isSlamActive(),
@@ -410,7 +410,7 @@
           s.route.ribbonOnScene,
           'Teal path ribbon on XR scene',
           {
-            fix: 'Calibration ran but ribbon missing — check PathGeometry / WorldRoute',
+            fix: 'Calibration ran but ribbon missing - check PathGeometry / WorldRoute',
             worldRouteAttached: s.route.worldRouteAttached,
           },
         ),
@@ -442,25 +442,25 @@
     if (summary.cameraOk && summary.slamOk) {
       console.log(
         HEALTH_PREFIX,
-        `SUMMARY — CAMERA OK + SLAM OK (${summary.passed}/${summary.total})`,
+        `SUMMARY - CAMERA OK + SLAM OK (${summary.passed}/${summary.total})`,
         summary,
       );
     } else if (summary.cameraOk && wantSlam && !summary.slamOk) {
       console.warn(
         HEALTH_PREFIX,
-        `SUMMARY — CAMERA OK but SLAM DEGRADED (${slamPassed}/${slamChecks.length} slam checks)`,
+        `SUMMARY - CAMERA OK but SLAM DEGRADED (${slamPassed}/${slamChecks.length} slam checks)`,
         summary,
       );
     } else if (summary.cameraOk) {
       console.log(
         HEALTH_PREFIX,
-        `SUMMARY — CAMERA OK compass mode (${summary.passed}/${summary.total})`,
+        `SUMMARY - CAMERA OK compass mode (${summary.passed}/${summary.total})`,
         summary,
       );
     } else {
       console.warn(
         HEALTH_PREFIX,
-        `SUMMARY — ${summary.passed}/${summary.total} passed; needs fix:`,
+        `SUMMARY - ${summary.passed}/${summary.total} passed; needs fix:`,
         failed.map((c) => c.check).join(', '),
         summary,
       );
@@ -478,11 +478,11 @@
       ...snapshot(),
     };
     if (active && isCameraVisible()) {
-      console.log(PREFIX, 'AUDIT — AR ready (SLAM + camera)', body);
+      console.log(PREFIX, 'AUDIT - AR ready (SLAM + camera)', body);
     } else if (active) {
-      console.warn(PREFIX, 'AUDIT — SLAM active but camera NOT visible', body);
+      console.warn(PREFIX, 'AUDIT - SLAM active but camera NOT visible', body);
     } else {
-      console.warn(PREFIX, 'AUDIT — SLAM is NOT active', body);
+      console.warn(PREFIX, 'AUDIT - SLAM is NOT active', body);
     }
     return body;
   }
@@ -651,19 +651,19 @@
       getComputedStyle(scanOverlay).display !== 'none';
 
     if (startBlocking) {
-      issues.push('Start overlay is still visible — tap Start Live View');
+      issues.push('Start overlay is still visible - tap Start Live View');
       tips.push('Tap the Start button to grant camera access');
     }
     if (scanBlocking) {
       issues.push('Scan overlay is covering the screen');
     }
     if (!previewLive && !window.__fplacesXrSessionActive) {
-      issues.push('No camera session — neither preview video nor XR session active');
+      issues.push('No camera session - neither preview video nor XR session active');
       tips.push('Tap Start and allow camera permission in the browser');
     }
     if (window.__fplacesXrSessionActive && video && getComputedStyle(video).display === 'none' && !previewLive) {
       if (!window.__fplacesCameraTextureApplied && !xrInfo?.hasCameraTexture) {
-        issues.push('XR is running but cameraTexture is NOT bound — canvas likely black');
+        issues.push('XR is running but cameraTexture is NOT bound - canvas likely black');
         tips.push('SLAM works internally but feed not drawn; v8+ should bind cameraTexture');
       }
     }
@@ -674,9 +674,9 @@
       issues.push('#camerafeed is display:none');
     }
     if (pixelBrightness != null && pixelBrightness < 25) {
-      issues.push(`Canvas center is BLACK (brightness ${Math.round(pixelBrightness)}/255) — SLAM feed may not be rendering`);
+      issues.push(`Canvas center is BLACK (brightness ${Math.round(pixelBrightness)}/255) - SLAM feed may not be rendering`);
       if (window.__fplacesDesktopSlamMode) {
-        tips.push('v18 desktop: single XR8 camera + cameraTexture bg — Mac canvas often dark; test on iPhone');
+        tips.push('v18 desktop: single XR8 camera + cameraTexture bg - Mac canvas often dark; test on iPhone');
       } else {
         tips.push('v18 mobile: GlTexture + clearDepth patch; never open second camera during SLAM');
       }
@@ -705,16 +705,16 @@
       window.__fplacesXrSessionActive
     ) {
       issues.push(
-        `Preview video frames are BLACK (brightness ${Math.round(videoBrightness)}/255) — ghost stream while XR8 owns the camera`,
+        `Preview video frames are BLACK (brightness ${Math.round(videoBrightness)}/255) - ghost stream while XR8 owns the camera`,
       );
       tips.push(
-        'v18: preview stream should be stopped before XR8.run — hard refresh Live View and retry',
+        'v18: preview stream should be stopped before XR8.run - hard refresh Live View and retry',
       );
     } else if (previewLive && videoBrightness != null && videoBrightness < 25) {
       issues.push(
         `Preview video frames are BLACK (brightness ${Math.round(videoBrightness)}/255)`,
       );
-      tips.push('Camera track is live but not rendering — try hard refresh or re-tap Start');
+      tips.push('Camera track is live but not rendering - try hard refresh or re-tap Start');
     }
     if (!previewLive && !window.__fplacesXrSessionActive && !startBlocking) {
       issues.push('Camera not started after overlay hidden');
@@ -730,18 +730,18 @@
       videoBrightness >= 25
     ) {
       verdict =
-        'OK — desktop dev mode: webcam preview visible (SLAM tracks on XR canvas underneath)';
+        'OK - desktop dev mode: webcam preview visible (SLAM tracks on XR canvas underneath)';
     } else if (previewLive && video && getComputedStyle(video).display !== 'none') {
       if (video.videoWidth === 0 || video.videoHeight === 0) {
-        verdict = 'PROBLEM — preview stream live but video has no frame size yet';
+        verdict = 'PROBLEM - preview stream live but video has no frame size yet';
       } else if (video.paused) {
-        verdict = 'PROBLEM — preview stream attached but #camera is paused';
+        verdict = 'PROBLEM - preview stream attached but #camera is paused';
       } else if (videoBrightness != null && videoBrightness < 25) {
-        verdict = 'PROBLEM — preview stream live but video frames are BLACK (this is why you see a dark screen)';
+        verdict = 'PROBLEM - preview stream live but video frames are BLACK (this is why you see a dark screen)';
       } else if (videoBrightness != null) {
-        verdict = 'OK — preview camera has live frame data';
+        verdict = 'OK - preview camera has live frame data';
       } else {
-        verdict = 'MAYBE — preview stream live; could not sample video pixels (check layers.video)';
+        verdict = 'MAYBE - preview stream live; could not sample video pixels (check layers.video)';
       }
     } else if (
       window.__fplacesDesktopSlamMode &&
@@ -751,19 +751,19 @@
       pixelBrightness < 25
     ) {
       verdict =
-        'DESKTOP DEV — SLAM tracking works but XR canvas feed is dark; use an iPhone for real camera QA';
+        'DESKTOP DEV - SLAM tracking works but XR canvas feed is dark; use an iPhone for real camera QA';
     } else if (pixelBrightness != null && pixelBrightness < 25 && window.__fplacesXrSessionActive) {
-      verdict = 'PROBLEM — XR/SLAM running but canvas is BLACK (this is why you see a dark screen)';
+      verdict = 'PROBLEM - XR/SLAM running but canvas is BLACK (this is why you see a dark screen)';
     } else if (window.__fplacesXrSessionActive && pixelBrightness != null && pixelBrightness >= 25) {
-      verdict = 'OK — XR canvas has live image data';
+      verdict = 'OK - XR canvas has live image data';
     } else if (window.__fplacesXrSessionActive) {
-      verdict = 'PROBLEM — XR/SLAM running but camera feed not rendering (black canvas)';
+      verdict = 'PROBLEM - XR/SLAM running but camera feed not rendering (black canvas)';
     } else if (startBlocking) {
-      verdict = 'WAITING — tap Start to open camera';
+      verdict = 'WAITING - tap Start to open camera';
     } else if (previewLive) {
-      verdict = 'PROBLEM — camera stream live but video hidden; check CSS';
+      verdict = 'PROBLEM - camera stream live but video hidden; check CSS';
     } else {
-      verdict = 'PROBLEM — no active camera feed';
+      verdict = 'PROBLEM - no active camera feed';
     }
 
     const report = {

@@ -76,7 +76,7 @@ export function buildFirstVisitVenueHomeContent(
   );
 
   return {
-    venueName: input.venueName.trim() || 'Your venue',
+    venueName: input.venueName.trim(),
     sectionLabel: input.sectionLabel.trim() || 'Entry zone',
     fansHereLabel,
     previewPosts,

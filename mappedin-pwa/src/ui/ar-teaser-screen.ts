@@ -17,7 +17,7 @@ export function renderArTeaserScreen(): string {
       <div class="placeholder-screen-body">
         <h1 class="placeholder-screen-title">AR teaser</h1>
         <p class="placeholder-screen-secondary">
-          Preview of AR navigation — coming soon.
+          Preview of AR navigation. Coming soon.
         </p>
       </div>
       <div class="placeholder-screen-actions">

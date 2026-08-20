@@ -1,6 +1,6 @@
 /**
  * Multi-floor transition metadata and floor-aware path filtering for AR rendering.
- * Vertical geometry is not faked — connectors are tracked for future vertical path support.
+ * Vertical geometry is not faked - connectors are tracked for future vertical path support.
  */
 (function () {
   const CONNECTION_PATTERNS = [

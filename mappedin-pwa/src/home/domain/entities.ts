@@ -25,6 +25,18 @@ export interface ReturningHomeContent {
 /** Which Navigate-home experience to show. */
 export type HomeExperience = 'first-visit' | 'returning';
 
+/**
+ * Returning-app sessions (already visited this venue, or no venue yet) land on
+ * Recently visited. First enter of a venue still uses the first-visit dashboard.
+ */
+export function resolveHomeExperience(
+  venueId: string | null | undefined,
+  hasVisitedVenue: boolean,
+): HomeExperience {
+  if (!venueId?.trim()) return 'returning';
+  return hasVisitedVenue ? 'returning' : 'first-visit';
+}
+
 /** Category chip tone on the first-visit venue home feed. */
 export type FirstVisitCategoryTone =
   | 'crowds'

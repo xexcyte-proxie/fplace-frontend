@@ -205,7 +205,7 @@ export async function searchVenue(
       }
     }
   } catch (error) {
-    appLog('Search', 'Search API unavailable — using filter fallback', error);
+    appLog('Search', 'Search API unavailable - using filter fallback', error);
   }
 
   const lower = trimmed.toLowerCase();

@@ -1,6 +1,6 @@
 /**
  * SLAM camera display: mobile uses GlTexture + clearDepth patch;
- * desktop uses cameraTexture scene.background (single XR8 camera — no dual webcam).
+ * desktop uses cameraTexture scene.background (single XR8 camera - no dual webcam).
  */
 (function () {
   function isDesktopDev() {

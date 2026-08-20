@@ -12,19 +12,10 @@ function escapeHtml(value: string): string {
     .replaceAll('"', '&quot;');
 }
 
-const pinIcon = `
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M12 21s6.25-4.35 6.25-10a6.25 6.25 0 10-12.5 0c0 5.65 6.25 10 6.25 10z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
-    <circle cx="12" cy="11" r="2.15" stroke="currentColor" stroke-width="1.75"></circle>
-  </svg>
-`;
-
-const cameraIcon = `
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M4.5 8.5h2.2l1.3-2h8l1.3 2H19.5A1.5 1.5 0 0121 10v8.5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5V10a1.5 1.5 0 011.5-1.5z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
-    <circle cx="12" cy="14" r="3.25" stroke="currentColor" stroke-width="1.75"></circle>
-  </svg>
-`;
+const HOME_ASSETS = {
+  location: '/home/location.png',
+  camera: '/home/camera.png',
+} as const;
 
 const upvoteIcon = `
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -59,7 +50,7 @@ export function renderFirstVisitVenueScreen(
   );
 
   const content = buildFirstVisitVenueHomeContent({
-    venueName: venue?.name ?? 'Your venue',
+    venueName: venue?.name ?? '',
     sectionLabel: section?.name ?? 'Entry zone',
     posts: state.venueFeedPosts,
   });
@@ -95,11 +86,8 @@ export function renderFirstVisitVenueScreen(
       >
         <h2 id="first-visit-ar-prompt-title" class="location-dialog-title">Set a route for AR</h2>
         <p id="first-visit-ar-prompt-desc" class="location-dialog-body">
-          Choose a start and end point on the map, then open AR to navigate
-          with your camera.
-        </p>
-        <p class="location-dialog-note">
-          Search for places or tap the map to set your route.
+          Pick a start and end on the map (search or tap), then open AR to
+          navigate with your camera.
         </p>
         <button
           type="button"
@@ -124,7 +112,11 @@ export function renderFirstVisitVenueScreen(
     <section class="first-visit-venue-screen" aria-label="Venue home">
       <header class="first-visit-hero">
         <p class="first-visit-greeting">${escapeHtml(view.greeting)}</p>
-        <h1 class="first-visit-venue-name">${escapeHtml(view.venueName)}</h1>
+        ${
+          view.venueName
+            ? `<h1 class="first-visit-venue-name">${escapeHtml(view.venueName)}</h1>`
+            : ''
+        }
         <p class="first-visit-section">${escapeHtml(view.sectionLabel)}</p>
         <div class="first-visit-fans" role="status">
           <span class="first-visit-fans-dot" aria-hidden="true"></span>
@@ -135,12 +127,16 @@ export function renderFirstVisitVenueScreen(
       <div class="first-visit-sheet">
         <div class="first-visit-actions" role="group" aria-label="Quick actions">
           <button type="button" class="first-visit-action first-visit-action--discover" id="first-visit-discover-btn">
-            <span class="first-visit-action-icon" aria-hidden="true">${pinIcon}</span>
+            <span class="first-visit-action-icon" aria-hidden="true">
+              <img src="${HOME_ASSETS.location}" alt="" width="26" height="26" decoding="async" />
+            </span>
             <span class="first-visit-action-title">Discover</span>
             <span class="first-visit-action-copy">See what the crowd is saying</span>
           </button>
           <button type="button" class="first-visit-action first-visit-action--ar" id="first-visit-ar-btn">
-            <span class="first-visit-action-icon" aria-hidden="true">${cameraIcon}</span>
+            <span class="first-visit-action-icon" aria-hidden="true">
+              <img src="${HOME_ASSETS.camera}" alt="" width="26" height="26" decoding="async" />
+            </span>
             <span class="first-visit-action-title">Try AR</span>
             <span class="first-visit-action-copy">Point your camera to navigate</span>
           </button>

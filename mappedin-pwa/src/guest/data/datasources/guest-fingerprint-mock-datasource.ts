@@ -138,7 +138,7 @@ export class GuestFingerprintMockDatasource {
     });
   }
 
-  /** Test helper — clear all mock guest records (memory + localStorage). */
+  /** Test helper - clear all mock guest records (memory + localStorage). */
   clearAll(): void {
     this.records.clear();
     try {
@@ -148,7 +148,7 @@ export class GuestFingerprintMockDatasource {
     }
   }
 
-  /** Test helper — inspect stored mock records. */
+  /** Test helper - inspect stored mock records. */
   listRecords(): GuestFingerprintRecord[] {
     return Array.from(this.records.values()).map((record) => ({ ...record }));
   }
@@ -191,7 +191,7 @@ export class GuestFingerprintMockDatasource {
         JSON.stringify(Array.from(this.records.values())),
       );
     } catch {
-      /* storage unavailable — memory-only for this session */
+      /* storage unavailable - memory-only for this session */
     }
   }
 

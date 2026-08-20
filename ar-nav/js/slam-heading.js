@@ -124,7 +124,7 @@
     getOffsetDegrees() {
       return offsetDeg;
     },
-    /** Raw SLAM yaw (0° = session-start forward) — used for world-frame alignment. */
+    /** Raw SLAM yaw (0° = session-start forward) - used for world-frame alignment. */
     getRawYawDegrees(camera) {
       return readRawYawDegrees(camera || cameraRef);
     },

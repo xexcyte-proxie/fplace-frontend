@@ -14,7 +14,7 @@
 
   /**
    * Yaw (rotation.y) so chevron visual apex points along path tangent (dx, dz).
-   * θ = atan2(Δx, Δz) + π — corrects ExtrudeGeometry floor mesh (−Z vs +D).
+   * θ = atan2(Δx, Δz) + π - corrects ExtrudeGeometry floor mesh (−Z vs +D).
    */
   function pathHeadingYawRad(dx, dz) {
     return Math.atan2(dx, dz) + headingOffsetRad();
@@ -38,7 +38,7 @@
 
   /**
    * Apply arrowHeadingOffsetRad about +Y (Euler trail meshes only).
-   * Do not use on LookRotation output — lookAt already encodes −Z-forward.
+   * Do not use on LookRotation output - lookAt already encodes −Z-forward.
    */
   function applyHeadingOffset(THREE, quaternion, out) {
     ensureScratch(THREE);
@@ -95,11 +95,11 @@
    * LookRotation: rotate default forward (−Z / chevron tip) to face `direction`, with `up` as gravity.
    * Equivalent to Unity/ARCore Quaternion.LookRotation(v, u).
    *
-   * Uses Matrix4.lookAt(eye, target, up) — camera convention where local −Z faces the target.
+   * Uses Matrix4.lookAt(eye, target, up) - camera convention where local −Z faces the target.
    * Do NOT use Object3D.lookAt here: for non-camera meshes it aims +Z at the target, which
    * would invert the chevron tip and tempt a compensating π offset (double-correction hazard).
    *
-   * Does NOT apply arrowHeadingOffsetRad — that π is Euler-only (pathHeadingYawRad).
+   * Does NOT apply arrowHeadingOffsetRad - that π is Euler-only (pathHeadingYawRad).
    */
   function lookRotation(THREE, direction, up, outQuaternion, fromPosition) {
     ensureScratch(THREE);

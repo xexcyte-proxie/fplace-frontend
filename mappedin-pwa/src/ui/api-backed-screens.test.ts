@@ -16,6 +16,20 @@ describe('API-backed screens (widget)', () => {
     expect(html).toContain('id="change-password-form"');
     expect(html).toContain('id="change-password-old"');
     expect(html).toContain('id="change-password-new"');
+    expect(html).toContain('data-password-toggle="change-password-old"');
+    expect(html).toContain('data-password-toggle="change-password-new"');
+    expect(html).toContain('/auth/eye.svg');
+  });
+
+  it('uses eye-off icon when change password fields are visible', () => {
+    const html = renderChangePasswordScreen({
+      authLoading: false,
+      authFieldErrors: {},
+      oldPasswordVisible: true,
+      newPasswordVisible: true,
+    });
+    expect(html).toContain('/auth/eye-off.svg');
+    expect(html).toContain('aria-label="Hide password"');
   });
 
   it('renders reset password confirm form hooks', () => {
@@ -26,6 +40,7 @@ describe('API-backed screens (widget)', () => {
     expect(html).toContain('Set new password');
     expect(html).toContain('id="reset-password-confirm-form"');
     expect(html).toContain('id="reset-password-new"');
+    expect(html).toContain('/auth/eye.svg');
   });
 
   it('renders post comments composer and back control', () => {

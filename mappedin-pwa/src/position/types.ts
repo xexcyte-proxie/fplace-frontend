@@ -13,7 +13,7 @@ export interface FplacesPositionFrame {
   source: PositionSourceType;
   floorId?: string;
   timestamp?: number;
-  /** Meters along the active route polyline (simulator — matches 2D map progress). */
+  /** Meters along the active route polyline (simulator - matches 2D map progress). */
   alongPathMeters?: number;
   /** Geometric distance from the raw fix to the snapped route point (live ETA). */
   offRouteMeters?: number;

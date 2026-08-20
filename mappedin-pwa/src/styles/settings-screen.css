@@ -1,4 +1,4 @@
-/* Settings screen — Figma 115:718 */
+/* Settings screen - Figma 115:718 */
 .settings-screen {
   --settings-bg: #f0ece7;
   --settings-text: #15151f;
@@ -35,22 +35,12 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: max(20px, calc(env(safe-area-inset-top) + 12px)) var(--settings-padding-x) 0;
+  padding: calc(24px + env(safe-area-inset-top)) max(34px, var(--settings-padding-x)) 0;
   min-height: 44px;
 }
 
 .settings-back-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  flex-shrink: 0;
-  border: 1px solid var(--settings-border);
-  border-radius: 14px;
-  background: var(--settings-surface);
   color: var(--settings-text);
-  cursor: pointer;
 }
 
 .settings-back-icon {
@@ -302,6 +292,22 @@
   color: var(--settings-danger);
   font-size: 14px;
   line-height: 1.35;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.settings-edit-form .auth-field {
+  margin-bottom: 0;
 }
 
 .settings-edit-form .auth-field-error {

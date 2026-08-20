@@ -9,12 +9,12 @@
     return geo().haversineMeters(a, b);
   }
 
-  /** Unified local projection — identical pre- and post-calibration. */
+  /** Unified local projection - identical pre- and post-calibration. */
   function toLocalMeters(ref, p) {
     return geo().geoToLocal2D(ref, p);
   }
 
-  /** @deprecated Alias for toLocalMeters — same equirectangular model everywhere. */
+  /** @deprecated Alias for toLocalMeters - same equirectangular model everywhere. */
   function toGeographicLocalMeters(ref, p) {
     return toLocalMeters(ref, p);
   }

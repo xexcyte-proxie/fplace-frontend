@@ -6,6 +6,7 @@ import { DebugOverlayHUD } from './ui/DebugOverlayHUD';
 import { installArConsoleHelpers, installArDebugRelay, installArMessageBridge, type ArMessageBridgeHost } from './position/bridge';
 import { installArPipShell } from './position/ar-pip-shell';
 import { appConfig } from './config';
+import { capturePasswordResetLinkFromLocation } from './auth/domain/password-reset-link';
 import {
   clearMockGuestFingerprintRecords,
   listMockGuestFingerprintRecords,
@@ -13,6 +14,12 @@ import {
   validateCurrentGuestAccess,
 } from './services/guest-access-service';
 import '@fontsource-variable/source-serif-4/wght.css';
+import '@fontsource/inria-serif/400.css';
+import '@fontsource/space-grotesk/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/plus-jakarta-sans/500.css';
+import '@fontsource/plus-jakarta-sans/600.css';
+import '@fontsource/plus-jakarta-sans/700.css';
 import './styles.css';
 import './styles/social-map-markers.css';
 import './styles/profile-screen.css';
@@ -24,6 +31,9 @@ import './styles/post-comments-screen.css';
 import './styles/ar-navigation-screen.css';
 import './styles/returning-home-screen.css';
 import './styles/first-visit-venue-screen.css';
+
+// Capture /reset-password?uid=&token= before boot/routing can drop the query.
+capturePasswordResetLinkFromLocation();
 
 // Check for a new deploy immediately + periodically; autoUpdate reloads when SW changes.
 registerSW({
@@ -79,7 +89,7 @@ installArPipShell({
 });
 const ui = new UiRoot(uiContainer);
 
-/** Stable bound surface for the AR iframe — avoids HMR/`this`/`instanceof` breakage. */
+/** Stable bound surface for the AR iframe - avoids HMR/`this`/`instanceof` breakage. */
 (window as Window & { __fplacesMapApp?: ArMessageBridgeHost }).__fplacesMapApp = {
   isArOpen: () => app.isArOpen(),
   startRouteMovement: (options) => app.startRouteMovement(options),

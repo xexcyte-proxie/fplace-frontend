@@ -50,6 +50,62 @@ describe('OpenAPI non-admin endpoint coverage', () => {
   describe('auth', () => {
     const auth = new AuthRemoteDatasource();
 
+    it('POST /api/users/guest/', async () => {
+      const { guestRemoteDatasource } = await import(
+        '../guest/data/datasources/guest-remote-datasource'
+      );
+      mockJson({
+        access: 'guest-access',
+        token_type: 'guest',
+        expires_in: 3600,
+        trial_expires_at: '2026-08-12T00:00:00Z',
+        mappedin: { token: 'mi', expires_in: 3600 },
+      });
+      await guestRemoteDatasource.obtainGuestToken({
+        ip_address: '1.2.3.4',
+        device_fingerprint: 'fp_abc',
+      });
+      const call = lastCall();
+      expect(call.method).toBe('POST');
+      expect(call.url).toContain('/api/users/guest/');
+      expect(call.body).toEqual({
+        ip_address: '1.2.3.4',
+        device_fingerprint: 'fp_abc',
+      });
+    });
+
+    it('GET/PATCH /api/users/guest/update/', async () => {
+      const { guestRemoteDatasource } = await import(
+        '../guest/data/datasources/guest-remote-datasource'
+      );
+      mockJson({ has_tried_ar_view: false, has_tried_2d_view: false });
+      await guestRemoteDatasource.getSessionPreferences();
+      expect(lastCall().method).toBe('GET');
+      expect(lastCall().url).toContain('/api/users/guest/update/');
+
+      mockJson({ has_tried_ar_view: true, has_tried_2d_view: true });
+      await guestRemoteDatasource.updateSessionPreferences({
+        has_tried_ar_view: true,
+        has_tried_2d_view: true,
+      });
+      expect(lastCall().method).toBe('PATCH');
+      expect(lastCall().url).toContain('/api/users/guest/update/');
+      expect(lastCall().body).toEqual({
+        has_tried_ar_view: true,
+        has_tried_2d_view: true,
+      });
+    });
+
+    it('POST /api/users/password-reset/', async () => {
+      mockJson({ detail: 'A password reset email has been sent.' });
+      const message = await auth.requestPasswordReset('fan@email.com');
+      const call = lastCall();
+      expect(call.method).toBe('POST');
+      expect(call.url).toContain('/api/users/password-reset/');
+      expect(call.body).toEqual({ email: 'fan@email.com' });
+      expect(message).toContain('password reset');
+    });
+
     it('POST /api/users/password-reset-confirm/', async () => {
       mockJson({ detail: 'ok' });
       await auth.confirmPasswordReset({

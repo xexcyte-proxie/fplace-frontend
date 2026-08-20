@@ -410,7 +410,7 @@
         route.syncReason === 'floor_change';
 
       if (duplicateRoute && navigationUnderway && !isLegOrStateSync) {
-        DBG()?.log('Bridge', 'applyRoute skipped — identical geometry, preserving progress', {
+        DBG()?.log('Bridge', 'applyRoute skipped - identical geometry, preserving progress', {
           source,
           maneuverIndex: nav?.maneuverIndex,
         });
@@ -499,7 +499,7 @@
       }
       pendingPositions.push({ position, source });
       if (pendingPositions.length > 60) pendingPositions.shift();
-      DBG()?.warn('Bridge', 'applyPosition — navigator not ready yet', {
+      DBG()?.warn('Bridge', 'applyPosition - navigator not ready yet', {
         hasNavigator: !!nav,
       });
       return false;
@@ -568,7 +568,7 @@
   };
 
   window.onFlutterStop = function () {
-    DBG()?.log('Bridge', 'onFlutterStop — clearing active route');
+    DBG()?.log('Bridge', 'onFlutterStop - clearing active route');
     window.fplacesActiveRoute = null;
     window.__fplacesActiveRouteFp = null;
     emitRoute(null);

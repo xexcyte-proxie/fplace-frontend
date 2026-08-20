@@ -1,5 +1,5 @@
 /**
- * Incremental AR path generation — segments append as the user walks forward,
+ * Incremental AR path generation - segments append as the user walks forward,
  * curve at turns, and terminate with a destination marker. World-anchored meshes
  * are never bulk-replaced; only pruned behind the user.
  */
@@ -145,7 +145,7 @@
       z: curr.a.z + curr.dz * Math.min(1, t2),
     };
 
-    // Fewer curve arrows — wide spacing keeps corners readable without crowding.
+    // Fewer curve arrows - wide spacing keeps corners readable without crowding.
     const steps = Math.max(3, Math.ceil((bend * 2.2) / spacing));
     const placements = [];
     for (let i = 0; i <= steps; i++) {
@@ -272,7 +272,7 @@
       mark += spacing;
     }
 
-    // Path order — required for one-at-a-time progressive spawning.
+    // Path order - required for one-at-a-time progressive spawning.
     placements.sort(
       (a, b) => (a.alongM - b.alongM) || ((a.t ?? 0.5) - (b.t ?? 0.5)),
     );
@@ -552,7 +552,7 @@
 
     const key = buildPathKey(points);
     if (key !== pathKeyCache) {
-      DBG?.log?.("IncrementalPath", "Route changed — reset incremental path", {
+      DBG?.log?.("IncrementalPath", "Route changed - reset incremental path", {
         previousKey: pathKeyCache,
         pathKey: key,
       });
@@ -588,7 +588,7 @@
       return group;
     }
 
-    // Only spawn ahead of navigation progress — never from path origin when user is mid-route.
+    // Only spawn ahead of navigation progress - never from path origin when user is mid-route.
     // Extra near-field gap keeps the first chevron out of the camera crush zone.
     const nearFieldM = c.nearFieldStartM ?? 6;
     const openingGap =

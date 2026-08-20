@@ -15,10 +15,14 @@ import { renderOnboardingScreen } from './onboarding-screen';
  * without mounting a browser DOM framework.
  */
 describe('startup flow screens (widget)', () => {
-  it('renders Welcome continue CTA', () => {
+  it('renders Welcome create-account and login CTAs', () => {
     const html = renderOnboardingScreen();
-    expect(html).toContain('id="onboarding-continue"');
-    expect(html).toContain('Continue');
+    expect(html).toContain('Find places. Find');
+    expect(html).toContain('people. Find your way.');
+    expect(html).toContain('id="onboarding-create-account"');
+    expect(html).toContain('Create account');
+    expect(html).toContain('id="onboarding-login"');
+    expect(html).toContain('I already have an account');
   });
 
   it('renders AR teaser placeholder with skip', () => {

@@ -1,7 +1,7 @@
 import type { RouteCoordinate } from '../types';
 import { computeGeometryHash } from '../routing/geometry-hash-service';
 
-/** WGS84 mean Earth radius — matches AR geo-math.js */
+/** WGS84 mean Earth radius - matches AR geo-math.js */
 export const EARTH_RADIUS_M = 6371000;
 const MIN_COS_LAT = 0.01;
 
@@ -71,7 +71,7 @@ export function isVerticalConnector(a: RouteCoordinate, b: RouteCoordinate): boo
   return !!(a.floorId && b.floorId && a.floorId !== b.floorId);
 }
 
-/** Horizontal segment length — zero for inter-floor connectors. */
+/** Horizontal segment length - zero for inter-floor connectors. */
 export function segmentHorizontalMeters(a: RouteCoordinate, b: RouteCoordinate): number {
   if (isVerticalConnector(a, b)) return 0;
   return haversineMeters(a, b);

@@ -26,6 +26,32 @@ export class AuthApiError extends Error {
   }
 }
 
+/** True when an API/network error means the user must sign in again. */
+export function isAuthCredentialFailure(error: unknown): boolean {
+  if (error instanceof AuthApiError) {
+    if (error.status === 401 || error.status === 403) return true;
+    return looksLikeAuthCredentialMessage(error.summary);
+  }
+  if (error instanceof Error) {
+    return looksLikeAuthCredentialMessage(error.message);
+  }
+  return false;
+}
+
+function looksLikeAuthCredentialMessage(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('authentication credentials') ||
+    normalized.includes('credentials were not provided') ||
+    normalized.includes('invalid credentials') ||
+    normalized.includes('please log in again') ||
+    normalized.includes('session expired') ||
+    normalized.includes('not authenticated') ||
+    normalized.includes('authentication required')
+  );
+}
+
 function flattenFieldErrors(
   details?: Record<string, string[] | string>,
 ): Record<string, string> {
@@ -70,9 +96,15 @@ function throwIfError(
       ? 'Please check your details and try again.'
       : response.status === 401
         ? 'Your session expired. Please log in again.'
-        : response.status === 404
-          ? 'Service not found. Check API configuration.'
-          : serverMessage || fallbackError,
+        : response.status === 403
+          ? serverMessage ||
+            'Guest trial has expired. Create an account to continue.'
+          : response.status === 404
+            ? 'Service not found. Check API configuration.'
+            : response.status === 502
+              ? serverMessage ||
+                'Could not retrieve map credentials. Please try again.'
+              : serverMessage || fallbackError,
     response.status,
   );
 }
@@ -103,10 +135,25 @@ function clearTokensAndNotify(): void {
   }
 }
 
+/** Clear JWTs and notify the app (e.g. route to sign-in). */
+export function clearAuthSessionLocally(): void {
+  clearTokensAndNotify();
+}
+
 async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
 
   refreshInFlight = (async () => {
+    // Guest JWTs have no refresh token - do not attempt /token/refresh/.
+    if (tokenLocalDatasource.isGuestToken() || !tokenLocalDatasource.getRefreshToken()) {
+      if (tokenLocalDatasource.isGuestToken()) {
+        clearTokensAndNotify();
+      } else if (!tokenLocalDatasource.getRefreshToken()) {
+        clearTokensAndNotify();
+      }
+      return null;
+    }
+
     const refresh = tokenLocalDatasource.getRefreshToken();
     if (!refresh) {
       clearTokensAndNotify();

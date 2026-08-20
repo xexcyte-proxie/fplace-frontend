@@ -46,6 +46,7 @@ import {
 } from "../auth/domain/resend-countdown";
 import { renderNotificationsScreen } from "./notifications-screen";
 import { renderNotificationDetailScreen } from "./notification-detail-screen";
+import { renderGuestArGateDialog } from "./guest-ar-gate-dialog";
 import { renderArNavigationScreen } from "./ar-navigation-screen";
 import { renderReturningHomeScreen } from "./returning-home-screen";
 import { renderFirstVisitVenueScreen } from "./first-visit-venue-screen";
@@ -66,12 +67,15 @@ function escapeHtml(value: string): string {
 
 export class UiRoot {
   private readonly root: HTMLElement;
-  private splashTaglineRevealed = false;
   private authEmailDraft = "";
   private authPasswordDraft = "";
   private createPasswordDraft = "";
   private createPasswordConfirmDraft = "";
   private createTermsAcceptedDraft = false;
+  private changePasswordOldDraft = "";
+  private changePasswordNewDraft = "";
+  private changePasswordOldVisible = false;
+  private changePasswordNewVisible = false;
   private pseudoNameDraft: string | null = null;
   private venueSearchDraft: string | null = null;
   private otpDraft = "";
@@ -85,7 +89,7 @@ export class UiRoot {
 
   render(state: AppState, app: MapApp): void {
     // Keep the splash DOM intact while only loading progress changes so the
-    // tagline fade-in is not restarted, and the bottom loader stays visible.
+    // bottom loader stays visible.
     if (this.patchSplashProgress(state)) {
       return;
     }
@@ -109,7 +113,7 @@ export class UiRoot {
         : "create"
       : state.authStep;
     const showOnboardingScreen =
-      showOnboardingFlow && authUiStep === "none";
+      showOnboardingFlow && authUiStep === "none" && !state.authLoading;
     const showArTeaser =
       showOnboardingFlow && authUiStep === "ar-teaser";
     const showIntroduction =
@@ -327,6 +331,7 @@ export class UiRoot {
       ${showCheckEmail ? renderCheckEmailScreen({
         authEmail: state.authEmail || state.authUser?.email || "",
         authLoading: state.authLoading,
+        checkEmailPurpose: state.checkEmailPurpose,
       }) : ""}
       ${showVerifyEmail ? renderVerifyEmailScreen({
         authEmail: state.authEmail || state.authUser?.email || "",
@@ -390,11 +395,20 @@ export class UiRoot {
       ${showOverlays && onProfileChangePassword ? renderChangePasswordScreen({
         authLoading: state.authLoading,
         authFieldErrors: state.authFieldErrors,
+        oldPasswordVisible: this.changePasswordOldVisible,
+        newPasswordVisible: this.changePasswordNewVisible,
       }) : ""}
       ${showOverlays && onProfileAbout ? renderAboutSettingsScreen() : ""}
       ${showOverlays && onProfilePrivacy ? renderPrivacySettingsScreen() : ""}
       ${showOverlays && !onProfileOverlay && !onNotificationsInbox ? this.bottomNav(state) : ""}
       ${arFullscreen ? renderArNavigationScreen(state) : ""}
+      ${
+        showOverlays && state.guestArGatePrompt
+          ? renderGuestArGateDialog(state.guestArGatePrompt, {
+              loading: state.guestArGateLoading,
+            })
+          : ""
+      }
       ${showTermsWebView ? renderTermsWebViewSheet() : ""}
       ${
         state.toast
@@ -419,6 +433,7 @@ export class UiRoot {
     this.bindOtpInputs(app, focusedOtpIndex);
     this.restoreLoginPasswordDraft(showLogin);
     this.restoreCreateAccountDrafts(showCreateAccount);
+    this.restoreChangePasswordDrafts(onProfileChangePassword);
 
     if (focusedPseudoName && (showPseudoName || onProfileEditProfile)) {
       const pseudoInput =
@@ -523,20 +538,14 @@ export class UiRoot {
 
   private loadingOverlay(state: AppState): string {
     if (state.mapStatus === "ready") {
-      this.splashTaglineRevealed = false;
       return "";
     }
     const isError = state.mapStatus === "error";
     const progress = Math.max(0, Math.min(100, state.loadingProgress));
-    const taglineClass = this.splashTaglineRevealed
-      ? "splash-tagline splash-tagline--shown"
-      : "splash-tagline splash-tagline--enter";
-    this.splashTaglineRevealed = true;
     return `
       <div class="splash-screen ${isError ? "splash-screen--error" : ""}" role="status">
         <div class="splash-brand">
           <h1 class="splash-title">fplaces</h1>
-          <p class="${taglineClass}">Find People, Places. Find your way!</p>
         </div>
         ${
           isError
@@ -703,7 +712,7 @@ export class UiRoot {
               ? "Now search or tap to set your destination."
               : "Tap the map to choose your destination."
             : arSetup
-              ? "Route ready — open AR when you’re set."
+              ? "Route ready. Open AR when you’re set."
               : "Route ready";
 
     return `
@@ -951,6 +960,24 @@ export class UiRoot {
     });
 
     this.root
+      .querySelector("#guest-ar-gate-continue-btn")
+      ?.addEventListener("click", () => {
+        void app.confirmGuestArOneTimeTrial();
+      });
+
+    this.root
+      .querySelector("#guest-ar-gate-cancel-btn")
+      ?.addEventListener("click", () => {
+        app.dismissGuestArGate();
+      });
+
+    this.root
+      .querySelector("#guest-ar-gate-dismiss-btn")
+      ?.addEventListener("click", () => {
+        app.dismissGuestArGate();
+      });
+
+    this.root
       .querySelector("#ar-nav-close-btn")
       ?.addEventListener("click", () => {
         app.closeAr();
@@ -1000,9 +1027,15 @@ export class UiRoot {
       });
 
     this.root
-      .querySelector("#onboarding-continue")
+      .querySelector("#onboarding-create-account")
       ?.addEventListener("click", () => {
-        app.showArTeaser();
+        app.showCreateAccount();
+      });
+
+    this.root
+      .querySelector("#onboarding-login")
+      ?.addEventListener("click", () => {
+        app.showLogin();
       });
 
     this.root
@@ -1237,17 +1270,34 @@ export class UiRoot {
     this.root
       .querySelectorAll<HTMLButtonElement>("[data-password-toggle]")
       .forEach((button) => {
-        button.addEventListener("click", () => {
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
           const inputId = button.dataset.passwordToggle;
           if (!inputId) return;
           const input = this.root.querySelector<HTMLInputElement>(`#${inputId}`);
           if (!input) return;
           const showing = input.type === "text";
-          input.type = showing ? "password" : "text";
+          const nextVisible = !showing;
+          input.type = nextVisible ? "text" : "password";
           button.setAttribute(
             "aria-label",
-            showing ? "Show password" : "Hide password",
+            nextVisible ? "Hide password" : "Show password",
           );
+          button.setAttribute("aria-pressed", nextVisible ? "true" : "false");
+
+          const icon = button.querySelector<HTMLImageElement>(
+            ".auth-password-toggle-icon",
+          );
+          if (icon) {
+            icon.src = nextVisible ? "/auth/eye-off.svg" : "/auth/eye.svg";
+          }
+
+          if (inputId === "change-password-old") {
+            this.changePasswordOldVisible = nextVisible;
+          } else if (inputId === "change-password-new") {
+            this.changePasswordNewVisible = nextVisible;
+          }
         });
       });
 
@@ -1303,9 +1353,15 @@ export class UiRoot {
       });
 
     this.root
+      .querySelector("#check-email-login-link")
+      ?.addEventListener("click", () => {
+        app.showLogin();
+      });
+
+    this.root
       .querySelector("#check-email-resend-btn")
       ?.addEventListener("click", () => {
-        void app.resendVerificationCode();
+        void app.resendCheckEmail();
       });
 
     this.root
@@ -1486,7 +1542,27 @@ export class UiRoot {
     this.root
       .querySelector("#change-password-back-btn")
       ?.addEventListener("click", () => {
+        this.changePasswordOldDraft = "";
+        this.changePasswordNewDraft = "";
+        this.changePasswordOldVisible = false;
+        this.changePasswordNewVisible = false;
         app.closeChangePasswordSettings();
+      });
+
+    this.root
+      .querySelector("#change-password-old")
+      ?.addEventListener("input", (event) => {
+        this.changePasswordOldDraft = (
+          event.currentTarget as HTMLInputElement
+        ).value;
+      });
+
+    this.root
+      .querySelector("#change-password-new")
+      ?.addEventListener("input", (event) => {
+        this.changePasswordNewDraft = (
+          event.currentTarget as HTMLInputElement
+        ).value;
       });
 
     this.root
@@ -1499,6 +1575,8 @@ export class UiRoot {
         const newPassword =
           this.root.querySelector<HTMLInputElement>("#change-password-new")
             ?.value ?? "";
+        this.changePasswordOldDraft = oldPassword;
+        this.changePasswordNewDraft = newPassword;
         void app.submitChangePassword(oldPassword, newPassword);
       });
 
@@ -1799,6 +1877,26 @@ export class UiRoot {
       this.root.querySelector<HTMLInputElement>("#login-password");
     if (passwordInput && !passwordInput.value) {
       passwordInput.value = this.authPasswordDraft;
+    }
+  }
+
+  private restoreChangePasswordDrafts(showChangePassword: boolean): void {
+    if (!showChangePassword) {
+      this.changePasswordOldDraft = "";
+      this.changePasswordNewDraft = "";
+      this.changePasswordOldVisible = false;
+      this.changePasswordNewVisible = false;
+      return;
+    }
+    const oldInput =
+      this.root.querySelector<HTMLInputElement>("#change-password-old");
+    const newInput =
+      this.root.querySelector<HTMLInputElement>("#change-password-new");
+    if (oldInput && this.changePasswordOldDraft) {
+      oldInput.value = this.changePasswordOldDraft;
+    }
+    if (newInput && this.changePasswordNewDraft) {
+      newInput.value = this.changePasswordNewDraft;
     }
   }
 

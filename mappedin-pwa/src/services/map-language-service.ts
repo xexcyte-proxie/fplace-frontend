@@ -1,5 +1,5 @@
 /**
- * Map language façade — UI / MapApp talk to this module only for preference IO.
+ * Map language façade - UI / MapApp talk to this module only for preference IO.
  */
 import { languagePreferenceLocalDatasource } from '../map/data/datasources/language-preference-local-datasource';
 import {

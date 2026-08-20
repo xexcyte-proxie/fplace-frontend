@@ -1,5 +1,5 @@
 /**
- * Session façade — MapApp uses this to recognize returning users across reloads.
+ * Session façade - MapApp uses this to recognize returning users across reloads.
  */
 import type {
   ReturningSessionSnapshot,

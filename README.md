@@ -1,4 +1,4 @@
-# Fplaces — Indoor Navigation PWA
+# Fplaces - Indoor Navigation PWA
 
 Indoor wayfinding for mapped venues, built with [Mappedin JS v6](https://developer.mappedin.com/web-sdk/getting-started) (Vite + TypeScript + PWA).
 
@@ -35,12 +35,10 @@ Copy `mappedin-pwa/.env.example` → `mappedin-pwa/.env`:
 
 | Variable | Purpose |
 |----------|---------|
-| `VITE_MAPPEDIN_KEY` | Mappedin API key |
-| `VITE_MAPPEDIN_SECRET` | Mappedin API secret |
-| `VITE_MAPPEDIN_MAP_ID` | Venue map ID |
+| `VITE_MAPPEDIN_MAP_ID` | Default venue map ID (tokens come from the backend) |
 | `VITE_AR_URL` | Hosted AR page (see below) |
 
-Defaults use Mappedin **Demo Mall** (free tier).
+Mappedin API key/secret are **not** shipped in the client. Guests get `mappedin.token` from `POST /api/users/guest/`; signed-in users use `GET /api/maps/token/`. Default map id is Mappedin **Demo Mall**.
 
 ## AR guidance
 
@@ -66,5 +64,5 @@ run-mappedin-pwa  Dev server launcher
 
 ## Docs
 
-- [mappedin-pwa/README.md](mappedin-pwa/README.md) — implementation details
-- [docs/PRD.md](docs/PRD.md) — product spec
+- [mappedin-pwa/README.md](mappedin-pwa/README.md) - implementation details
+- [docs/PRD.md](docs/PRD.md) - product spec

@@ -1,6 +1,6 @@
 /**
  * Single dynamic leading guidance arrow in camera space (Google AR hybrid fallback).
- * One mesh updated per frame via Quaternion LookRotation + Slerp — not a lane of instances.
+ * One mesh updated per frame via Quaternion LookRotation + Slerp - not a lane of instances.
  */
 (function () {
   const CYAN_BRIGHT = 0x3dd6ff;
@@ -97,7 +97,7 @@
       if (!aligned) {
         window.FplacesArDebug?.logThrottled?.(
           'Align',
-          'Camera leading arrow hidden — misaligned',
+          'Camera leading arrow hidden - misaligned',
           window.FplacesArDebug?.arrowState?.(
             Math.round(target * 10) / 10,
             state.externalHeadingDegrees,

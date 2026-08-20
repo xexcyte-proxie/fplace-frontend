@@ -96,7 +96,7 @@
     if (!video) throw new Error('Camera element missing');
 
     if (!window.navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Camera API unavailable — use HTTPS on a phone browser');
+      throw new Error('Camera API unavailable - use HTTPS on a phone browser');
     }
 
     releaseVideoStream(video);

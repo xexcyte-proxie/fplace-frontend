@@ -1,10 +1,10 @@
-# Mappedin PWA — Fplaces Indoor Nav
+# Mappedin PWA - Fplaces Indoor Nav
 
 PRD implementation using **Mappedin JS v6** the [official way](https://developer.mappedin.com/web-sdk/getting-started):
 
 - Vite + TypeScript
-- `@mappedin/mappedin-js` — map, search, routing
-- `vite-plugin-pwa` — installable web app shell
+- `@mappedin/mappedin-js` - map, search, routing
+- `vite-plugin-pwa` - installable web app shell
 - No Flutter / WebView bridge
 - No custom live GPS tracking (per PRD non-goals)
 
@@ -27,11 +27,11 @@ npm run build && npm run preview
 
 | Phase | Features | Status |
 |-------|----------|--------|
-| **1 — Map shell** | 3D map, loading/error overlay, 45s timeout toast, floor list | Done |
-| **2 — Search** | Query bar, results panel, map highlights, focus POI as destination | Done |
-| **3 — Route planning** | Tap start/end, green/red markers, auto-route, animated path, bottom sheet | Done |
-| **4 — Navigation UX** | Multi-leg prev/next, focus start/end, reset points, one-shot My Location | Done |
-| **5 — AR handoff** | Route JSON → hosted `ar-nav` in fullscreen iframe, back to map | Done |
+| **1 - Map shell** | 3D map, loading/error overlay, 45s timeout toast, floor list | Done |
+| **2 - Search** | Query bar, results panel, map highlights, focus POI as destination | Done |
+| **3 - Route planning** | Tap start/end, green/red markers, auto-route, animated path, bottom sheet | Done |
+| **4 - Navigation UX** | Multi-leg prev/next, focus start/end, reset points, one-shot My Location | Done |
+| **5 - AR handoff** | Route JSON → hosted `ar-nav` in fullscreen iframe, back to map | Done |
 
 ### Explicitly excluded (PRD non-goals)
 
@@ -46,19 +46,21 @@ Future: Mappedin official `@mappedin/blue-dot` + venue IPS.
 Copy `.env.example` → `.env`:
 
 ```
-VITE_MAPPEDIN_KEY=...
-VITE_MAPPEDIN_SECRET=...
 VITE_MAPPEDIN_MAP_ID=...
 VITE_AR_URL=https://fplaces-test.netlify.app/
 ```
 
+Mappedin **key/secret are not used in the client**. Map credentials come from the backend:
+- guests: `POST /api/users/guest/` → `mappedin.token`
+- signed-in users: `GET /api/maps/token/`
+
 ## User flows
 
-1. **Search** — type a store name → tap result → sets destination
-2. **Route** — tap map for start (green) → tap map or search for end (red) → route draws automatically
-3. **Navigate** — bottom sheet shows turn-by-turn; use Step X/Y for multi-floor legs
-4. **My location** — ⊕ FAB requests one GPS fix and sets start point
-5. **AR** — with active route, tap **AR Guidance** (requires HTTPS on phone for camera)
+1. **Search** - type a store name → tap result → sets destination
+2. **Route** - tap map for start (green) → tap map or search for end (red) → route draws automatically
+3. **Navigate** - bottom sheet shows turn-by-turn; use Step X/Y for multi-floor legs
+4. **My location** - ⊕ FAB requests one GPS fix and sets start point
+5. **AR** - with active route, tap **AR Guidance** (requires HTTPS on phone for camera)
 
 ## Repository layout
 

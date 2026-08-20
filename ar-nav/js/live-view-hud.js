@@ -1,5 +1,5 @@
 /**
- * AR navigation HUD — matches design spec (instruction card + bottom sheet).
+ * AR navigation HUD - matches design spec (instruction card + bottom sheet).
  */
 (function () {
   const WALK_MPS = 1.3;
@@ -30,14 +30,14 @@
   }
 
   function formatDistanceCompact(meters) {
-    if (meters == null || !Number.isFinite(meters)) return '—';
+    if (meters == null || !Number.isFinite(meters)) return '-';
     const m = Math.max(0, meters);
     if (m >= 1000) return `${(m / 1000).toFixed(1)}km`;
     return `${Math.round(m)}m`;
   }
 
   function formatEta(meters) {
-    if (meters == null || !Number.isFinite(meters)) return '—';
+    if (meters == null || !Number.isFinite(meters)) return '-';
     const seconds = Math.max(0, meters / WALK_MPS);
     if (seconds < 60) return '< 1 min';
     const minutes = Math.round(seconds / 60);
@@ -48,7 +48,7 @@
   }
 
   function formatArriveTime(meters) {
-    if (meters == null || !Number.isFinite(meters)) return '—';
+    if (meters == null || !Number.isFinite(meters)) return '-';
     const seconds = Math.max(0, meters / WALK_MPS);
     const arrive = new Date(Date.now() + seconds * 1000);
     const hours = arrive.getHours();
@@ -93,7 +93,7 @@
       parts.push(route.destinationAreaHint);
     }
 
-    return parts.length ? parts.join(' · ') : '—';
+    return parts.length ? parts.join(' · ') : '-';
   }
 
   function instructionLabel(primary) {
@@ -254,7 +254,7 @@
             ? remainingTotal
             : route.distanceMeters;
         tripDistEl.textContent =
-          remaining != null ? formatDistanceCompact(remaining) : '—';
+          remaining != null ? formatDistanceCompact(remaining) : '-';
       }
 
       const tripEtaEl = document.getElementById('trip-eta');

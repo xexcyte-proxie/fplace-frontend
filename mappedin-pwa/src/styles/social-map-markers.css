@@ -1,9 +1,9 @@
 /* ─────────────────────────────────────────────────────────────────────────────
-   Tradefaire Social Map Markers — design system (visual only, no map logic)
+   Tradefaire Social Map Markers - design system (visual only, no map logic)
    ───────────────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* Brand & surfaces — aligned with app theme */
+  /* Brand & surfaces - aligned with app theme */
   --sm-ink: #15151f;
   --sm-ink-soft: rgba(21, 21, 31, 0.72);
   --sm-muted: #5c5f69;
@@ -96,7 +96,7 @@
     0 0 0 3px rgba(58, 91, 160, 0.4);
 }
 
-/* Stage — gives the halo room to render outside the pill bounds */
+/* Stage - gives the halo room to render outside the pill bounds */
 .social-map-marker__stage {
   position: relative;
   display: flex;
@@ -120,7 +120,7 @@
   transition: opacity var(--sm-duration-fast) ease;
 }
 
-/* Pin anchor — invisible hit geometry + visual anchor dot at map coordinate */
+/* Pin anchor - invisible hit geometry + visual anchor dot at map coordinate */
 .social-map-marker__anchor {
   position: relative;
   z-index: 1;

@@ -3,7 +3,7 @@
  * Calibration sets the world origin AND the yaw alignment between the geographic
  * EUS frame (X=east, Y=up, Z=south) and the SLAM world frame.
  *
- * WebXR/8th Wall world −Z is the camera's facing at session start — NOT north.
+ * WebXR/8th Wall world −Z is the camera's facing at session start - NOT north.
  * `yawOffsetDeg` is the SLAM yaw of true north (rawSlamYaw − deviceCompassHeading
  * at calibration): geographic bearing β maps to SLAM yaw β + yawOffsetDeg.
  * Without this rotation the route renders assuming the phone faced north at start,
@@ -23,7 +23,7 @@
     /**
      * @param {{latitude:number, longitude:number}} baseCoordinates anchor geo point
      * @param {{yawOffsetDeg?:number, slamX?:number, slamZ?:number}} [alignment]
-     *   yawOffsetDeg — SLAM yaw of true north; slamX/slamZ — SLAM camera position
+     *   yawOffsetDeg - SLAM yaw of true north; slamX/slamZ - SLAM camera position
      *   at calibration (anchor geo point maps there instead of the SLAM origin).
      */
     calibrate(baseCoordinates, alignment) {

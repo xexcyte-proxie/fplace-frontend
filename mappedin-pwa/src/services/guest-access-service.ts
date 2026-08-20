@@ -1,16 +1,46 @@
 /**
- * Guest access façade — MapApp talks to this module only.
- * Combines FingerprintService (browser id) with the guest fingerprint repository
- * (mock today, real HTTP later) without mixing those concerns.
+ * Guest access façade - MapApp talks to this module only.
+ * Combines FingerprintJS (browser id) with POST /api/users/guest/
+ * and GET/PATCH /api/users/guest/update/.
  */
-import type { GuestFingerprintResponse } from '../guest/domain/entities';
-import { guestFingerprintRepository } from '../guest/data/guest-fingerprint-repository-impl';
+import type {
+  GuestAccessDecision,
+  GuestSession,
+  GuestSessionPreferences,
+} from '../guest/domain/entities';
+import {
+  createGuestAccessDecision,
+  guestArAlreadyUsedMessage,
+  guestArOneTimeTrialMessage,
+  guestCanUseArTrial,
+  guestDenialUserMessage,
+  isGuestTrialExpiredReason,
+} from '../guest/domain/entities';
+import { guestRepository } from '../guest/data/guest-repository-impl';
 import { guestFingerprintMockDatasource } from '../guest/data/datasources/guest-fingerprint-mock-datasource';
+import { guestSessionLocalDatasource } from '../guest/data/datasources/guest-session-local-datasource';
+import { tokenLocalDatasource } from '../auth/data/datasources/token-local-datasource';
 import { fingerprintService } from './fingerprint-service';
 
-export type { GuestFingerprintResponse, GuestDenialReason } from '../guest/domain/entities';
+export type {
+  GuestAccessDecision,
+  GuestDenialReason,
+  GuestSession,
+  GuestSessionPreferences,
+} from '../guest/domain/entities';
 
-export interface GuestAccessResult extends GuestFingerprintResponse {
+/** @deprecated Use GuestAccessDecision. */
+export type GuestFingerprintResponse = GuestAccessDecision;
+
+export {
+  guestArAlreadyUsedMessage,
+  guestArOneTimeTrialMessage,
+  guestCanUseArTrial,
+  guestDenialUserMessage,
+  isGuestTrialExpiredReason,
+};
+
+export interface GuestAccessResult extends GuestAccessDecision {
   visitorId: string;
 }
 
@@ -28,61 +58,127 @@ export function getCachedVisitorId(): string | null {
   return fingerprintService.getCachedVisitorId();
 }
 
+export function getStoredGuestSession(): GuestSession | null {
+  return guestSessionLocalDatasource.load();
+}
+
+export function getStoredGuestMappedinToken(): string | null {
+  return guestSessionLocalDatasource.getMappedinToken();
+}
+
+export function getGuestTrialExpiresAt(): string | null {
+  return guestSessionLocalDatasource.getTrialExpiresAt();
+}
+
+export function getCachedGuestSessionPreferences(): GuestSessionPreferences {
+  return guestSessionLocalDatasource.getPreferences();
+}
+
+/** True when the active access token is a guest JWT (not a registered user). */
+export function isGuestMode(): boolean {
+  return tokenLocalDatasource.isGuestToken();
+}
+
 /**
- * App-init entry: fingerprint the browser, then validate guest access
- * against the (mock) backend. Authenticated session restore can still
- * run afterward; this gates anonymous / guest entry.
+ * App-init entry: fingerprint the browser, then obtain/refresh a guest JWT
+ * via POST /api/users/guest/. Authenticated (user) sessions skip the guest API
+ * so we never overwrite registered-user tokens.
  */
 export async function validateCurrentGuestAccess(): Promise<GuestAccessResult> {
   const visitorId = await fingerprintService.getVisitorId();
-  const response =
-    await guestFingerprintRepository.validateGuestFingerprint(visitorId);
+
+  if (tokenLocalDatasource.load()) {
+    return {
+      ...createGuestAccessDecision({
+        allowed: true,
+        guestId: visitorId,
+        reason: null,
+        session: guestSessionLocalDatasource.load() ?? undefined,
+      }),
+      visitorId,
+    };
+  }
+
+  const response = await guestRepository.validateGuestFingerprint(visitorId);
   return { ...response, visitorId };
 }
 
 export async function registerCurrentGuestFingerprint(): Promise<GuestAccessResult> {
   const visitorId = await fingerprintService.getVisitorId();
-  const response =
-    await guestFingerprintRepository.registerGuestFingerprint(visitorId);
+  const response = await guestRepository.registerGuestFingerprint(visitorId);
   return { ...response, visitorId };
 }
 
 /**
  * Mark the current browser fingerprint as having exhausted guest access.
- * Call when a guest session ends / is reset so a later visit is denied.
+ * Clears guest JWT / MappedIn credentials and records a local denial.
  */
 export async function markCurrentGuestLimitReached(): Promise<GuestAccessResult> {
   const visitorId = await fingerprintService.getVisitorId();
-  const response =
-    await guestFingerprintRepository.markGuestLimitReached(visitorId);
+  const response = await guestRepository.markGuestLimitReached(visitorId);
   return { ...response, visitorId };
 }
 
-/** Explicit visitorId variants — useful when the id is already known. */
 export function validateGuestFingerprint(
   visitorId: string,
-): Promise<GuestFingerprintResponse> {
-  return guestFingerprintRepository.validateGuestFingerprint(visitorId);
+): Promise<GuestAccessDecision> {
+  return guestRepository.validateGuestFingerprint(visitorId);
 }
 
 export function registerGuestFingerprint(
   visitorId: string,
-): Promise<GuestFingerprintResponse> {
-  return guestFingerprintRepository.registerGuestFingerprint(visitorId);
+): Promise<GuestAccessDecision> {
+  return guestRepository.registerGuestFingerprint(visitorId);
 }
 
 export function markGuestLimitReached(
   visitorId: string,
-): Promise<GuestFingerprintResponse> {
-  return guestFingerprintRepository.markGuestLimitReached(visitorId);
+): Promise<GuestAccessDecision> {
+  return guestRepository.markGuestLimitReached(visitorId);
+}
+
+/** Refresh AR / 2D trial flags from GET /api/users/guest/update/. */
+export async function fetchGuestSessionPreferences(): Promise<GuestSessionPreferences> {
+  return guestRepository.getSessionPreferences();
+}
+
+/** PATCH has_tried_ar_view=true as soon as the guest enters AR. */
+export async function markGuestArViewTried(): Promise<GuestSessionPreferences> {
+  return guestRepository.updateSessionPreferences({ hasTriedArView: true });
+}
+
+/** PATCH has_tried_2d_view=true as soon as the guest opens the 2D map. */
+export async function markGuest2dViewTried(): Promise<GuestSessionPreferences> {
+  return guestRepository.updateSessionPreferences({ hasTried2dView: true });
 }
 
 /**
- * Dev/test helpers for the mock store. No-ops conceptually once a real
- * remote datasource replaces the mock (remove or gate behind DEV).
+ * Resolve whether a guest may still open AR, preferring a fresh backend read.
+ * Falls back to cached session flags if the update endpoint is unreachable.
  */
+export async function resolveGuestArEligibility(): Promise<{
+  allowed: boolean;
+  preferences: GuestSessionPreferences;
+}> {
+  try {
+    const preferences = await fetchGuestSessionPreferences();
+    return {
+      allowed: guestCanUseArTrial(preferences),
+      preferences,
+    };
+  } catch {
+    const preferences = getCachedGuestSessionPreferences();
+    return {
+      allowed: guestCanUseArTrial(preferences),
+      preferences,
+    };
+  }
+}
+
+/** Dev/test helpers for the mock denial store + guest session cache. */
 export function clearMockGuestFingerprintRecords(): void {
   guestFingerprintMockDatasource.clearAll();
+  guestSessionLocalDatasource.clear();
 }
 
 export function listMockGuestFingerprintRecords() {

@@ -26,18 +26,18 @@ export interface ForumRepository {
   getCategory(categoryId: number): Promise<ForumCategory>;
   listPosts(params: ListPostsParams): Promise<PaginatedList<ForumPost>>;
   getPost(postId: number): Promise<ForumPost>;
-  /** POST /api/forum/posts/ — broadcasts `new_post` (+ `section_heat_update` when section set). */
+  /** POST /api/forum/posts/ - broadcasts `new_post` (+ `section_heat_update` when section set). */
   createPost(payload: CreatePostPayload): Promise<ForumPost>;
   updatePost(postId: number, payload: UpdatePostPayload): Promise<ForumPost>;
   replacePost(postId: number, payload: CreatePostPayload): Promise<ForumPost>;
   deletePost(postId: number): Promise<void>;
   restorePost(postId: number): Promise<ForumPost>;
-  /** POST /api/forum/posts/<id>/upvote/ — idempotent toggle; broadcasts `upvote_update`. */
+  /** POST /api/forum/posts/<id>/upvote/ - idempotent toggle; broadcasts `upvote_update`. */
   toggleUpvote(
     postId: number,
     options?: { hasUpvotedFallback?: boolean },
   ): Promise<ForumPost>;
-  /** POST /api/forum/posts/<id>/flag/ — at 3 unique flags, backend may hide + broadcast `post_hidden`. */
+  /** POST /api/forum/posts/<id>/flag/ - at 3 unique flags, backend may hide + broadcast `post_hidden`. */
   flagPost(postId: number, payload?: FlagPostPayload): Promise<ForumPost>;
   listComments(params?: ListCommentsParams): Promise<PaginatedList<ForumComment>>;
   getComment(commentId: number): Promise<ForumComment>;

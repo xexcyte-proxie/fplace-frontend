@@ -29,7 +29,7 @@
       isSecureContext: window.isSecureContext,
       reason:
         resolved === 'fallback' && mode !== 'fallback'
-          ? 'HTTP/non-secure context — SLAM requires HTTPS'
+          ? 'HTTP/non-secure context - SLAM requires HTTPS'
           : null,
     });
     return resolved;
@@ -39,7 +39,7 @@
     if (window.__fplacesXrScriptsInjected) return true;
     const bootstrap = document.getElementById('xr-bootstrap');
     if (bootstrap?.dataset?.loaded === 'true') return true;
-    // Scripts may still be loading (THREE/XR8 not defined yet) — check tags.
+    // Scripts may still be loading (THREE/XR8 not defined yet) - check tags.
     if (document.querySelector('script[data-fplaces-xr], script[src*="three@0.160.0"], script[src*="engine-binary"]')) {
       return true;
     }
@@ -58,7 +58,7 @@
     if (xrScriptsAlreadyInjected()) {
       window.__fplacesXrScriptsInjected = true;
       if (bootstrap) bootstrap.dataset.loaded = 'true';
-      DBG()?.log('Bootstrap', 'XR scripts already present — skip re-inject', {
+      DBG()?.log('Bootstrap', 'XR scripts already present - skip re-inject', {
         hasTHREE: !!window.THREE,
         hasXR8: !!window.XR8,
       });
@@ -128,7 +128,7 @@
     window.__fplacesFallbackReason = reason || '';
     window.__fplacesExpectSlam = false;
     if (activeMode === 'xr') {
-      DBG()?.warn('Bootstrap', 'XR error — switching to compass', {
+      DBG()?.warn('Bootstrap', 'XR error - switching to compass', {
         reason,
         keepPreview,
       });
@@ -140,7 +140,7 @@
     activeMode = 'fallback';
     window.__fplacesArMode = 'compass';
     DBG()?.warn('Bootstrap', 'Starting FALLBACK mode', { reason, keepPreview });
-    SLOG()?.log?.('fallback', `SLAM skipped — fallback mode: ${reason}`, { reason, keepPreview });
+    SLOG()?.log?.('fallback', `SLAM skipped - fallback mode: ${reason}`, { reason, keepPreview });
     SLOG()?.audit?.('fallback');
     if (xrWaitTimer) {
       clearTimeout(xrWaitTimer);
@@ -207,7 +207,7 @@
     if (!window.__fplacesFallbackTriggered) return false;
     if (window.__fplacesXrRunCalled || window.__fplacesXrSessionActive) return false;
 
-    SLOG()?.log?.('recover', 'Resetting premature fallback — retrying SLAM', {
+    SLOG()?.log?.('recover', 'Resetting premature fallback - retrying SLAM', {
       reason: window.__fplacesFallbackReason,
     });
     window.__fplacesFallbackTriggered = false;
@@ -252,7 +252,7 @@
           hasTHREE: !!window.THREE,
           polls: xrPollCount,
         });
-        SLOG()?.log?.('timeout', 'XR8/THREE load timeout — falling back', {
+        SLOG()?.log?.('timeout', 'XR8/THREE load timeout - falling back', {
           hasXR8: !!window.XR8,
           hasTHREE: !!window.THREE,
           polls: xrPollCount,
@@ -353,7 +353,7 @@
       SLOG()?.audit?.('camera-started-fallback');
       SLOG()?.runHealthCheck?.('camera-started-fallback');
     } else {
-      SLOG()?.log?.('camera', 'XR camera session started — awaiting xr-onStart audit');
+      SLOG()?.log?.('camera', 'XR camera session started - awaiting xr-onStart audit');
     }
     window.FplacesOrientationCompass?.start?.();
     window.FplacesOrientationCompass?.attachNavigator?.(navigatorInstance);
@@ -398,7 +398,7 @@
 
   function onXrPipelineReady() {
     DBG()?.log('Bootstrap', 'XR pipeline ready');
-    SLOG()?.log?.('pipeline', 'XR pipeline ready — waiting for user tap');
+    SLOG()?.log?.('pipeline', 'XR pipeline ready - waiting for user tap');
     window.FplacesLiveViewHud?.setTrackingMode?.('slam-loading', 'Tap Start for SLAM');
     const copy = document.getElementById('camera-start-copy');
     if (copy) copy.textContent = 'Tap Start to begin floor SLAM';
@@ -423,7 +423,7 @@
 
     const route = window.fplacesActiveRoute;
     if (!route) {
-      DBG()?.error('Bootstrap', 'No route — cannot start AR');
+      DBG()?.error('Bootstrap', 'No route - cannot start AR');
       window.FplacesLiveViewHud?.setStatus(
         'Generate a route on the map, then open Live View.',
         true,
@@ -493,13 +493,13 @@
     new URLSearchParams(window.location.search).get('preload') === '1';
 
   if (isPreloadOnly) {
-    DBG()?.log('Bootstrap', 'Preload-only session — warming XR scripts');
+    DBG()?.log('Bootstrap', 'Preload-only session - warming XR scripts');
     injectXrScripts(resolveXrMode());
   } else if (window.fplacesActiveRoute) {
-    DBG()?.log('Bootstrap', 'Route already present at boot — starting immediately');
+    DBG()?.log('Bootstrap', 'Route already present at boot - starting immediately');
     startExperience();
   } else {
-    DBG()?.log('Bootstrap', 'No route at boot — waiting for bridge');
+    DBG()?.log('Bootstrap', 'No route at boot - waiting for bridge');
     const mode = resolveXrMode();
     if (window.isSecureContext && mode !== 'fallback') {
       injectXrScripts(mode);

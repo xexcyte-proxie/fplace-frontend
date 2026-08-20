@@ -1,10 +1,10 @@
-/** Mappedin Demo Mall — override via .env (see .env.example). */
+/** Venue map defaults - Mappedin tokens always come from the backend. */
 export const appConfig = {
   mappedin: {
-    key: import.meta.env.VITE_MAPPEDIN_KEY ?? 'mik_yeBk0Vf0nNJtpesfu560e07e5',
-    secret:
-      import.meta.env.VITE_MAPPEDIN_SECRET ??
-      'mis_2g9ST8ZcSFb5R9fPnsvYhrX3RyRwPtDGbMGweCYKEq385431022',
+    /**
+     * Default map until a venue's `mappedin_map_id` is selected.
+     * Not a secret; override with VITE_MAPPEDIN_MAP_ID.
+     */
     mapId: import.meta.env.VITE_MAPPEDIN_MAP_ID ?? '65c0ff7430b94e3fabd5bb8c',
     venueName: 'Demo Mall',
   },
@@ -25,7 +25,7 @@ export const appConfig = {
    */
   googleClientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '').trim(),
   arUrl: import.meta.env.VITE_AR_URL ?? '/ar/',
-  /** Must match ar-nav/config.js buildId — busts iframe cache after AR deploys. */
+  /** Must match ar-nav/config.js buildId - busts iframe cache after AR deploys. */
   arBuildId: import.meta.env.VITE_AR_BUILD_ID ?? '20260727-arrow-density-v1',
   mapInitTimeoutMs: 45_000,
   positioning: {
@@ -34,7 +34,7 @@ export const appConfig = {
     indoorAtlasFloorCertaintyMin: 0.5,
   },
   debug: {
-    // Off for now — set VITE_DEBUG_POSITION_HUD=1 to re-enable the overlay.
+    // Off for now - set VITE_DEBUG_POSITION_HUD=1 to re-enable the overlay.
     positionHud: import.meta.env.VITE_DEBUG_POSITION_HUD === '1',
     arSlamDiag:
       import.meta.env.DEV || import.meta.env.VITE_AR_SLAM_DIAG === '1',

@@ -10,7 +10,7 @@ function escapeHtml(value: string): string {
 }
 
 function formatCoord(value: number | undefined, digits = 5): string {
-  if (value == null || Number.isNaN(value)) return '—';
+  if (value == null || Number.isNaN(value)) return '-';
   return value.toFixed(digits);
 }
 
@@ -94,27 +94,27 @@ export class DebugOverlayHUD {
     const floorFilter = snapshot.floorFilter;
     const floorFilterLabel = floorFilter
       ? floorFilter.accepted
-        ? `accepted → ${floorFilter.mappedinFloorId ?? '—'}`
+        ? `accepted → ${floorFilter.mappedinFloorId ?? '-'}`
         : `rejected (${floorFilter.reason ?? 'unknown'})`
-      : '—';
+      : '-';
 
     const orch = snapshot.orchestrator;
     const orchBar = orch
       ? `<div class="hysteresis-bar"><div class="hysteresis-bar-fill" style="width:${orch.progressPct}%"></div></div>
-         <div class="debug-hud-sub">${escapeHtml(orch.candidateFloorId ?? '—')} → ${escapeHtml(orch.committedFloorId ?? '—')} · ${orch.framesHeld}/${orch.framesRequired}</div>`
-      : '<div class="debug-hud-sub">—</div>';
+         <div class="debug-hud-sub">${escapeHtml(orch.candidateFloorId ?? '-')} → ${escapeHtml(orch.committedFloorId ?? '-')} · ${orch.framesHeld}/${orch.framesRequired}</div>`
+      : '<div class="debug-hud-sub">-</div>';
 
     this.bodyEl.innerHTML = `
       <table class="debug-hud-table">
         <tbody>
           <tr><td class="debug-hud-metric">Source</td><td>${escapeHtml(snapshot.activeSource)}</td></tr>
-          ${hzRows || '<tr><td class="debug-hud-metric">Hz</td><td>—</td></tr>'}
+          ${hzRows || '<tr><td class="debug-hud-metric">Hz</td><td>-</td></tr>'}
           <tr><td class="debug-hud-metric">Lat / Lng</td><td>${formatCoord(last?.latitude, 6)} / ${formatCoord(last?.longitude, 6)}</td></tr>
-          <tr><td class="debug-hud-metric">Heading</td><td>${last?.heading != null ? `${Math.round(last.heading)}°` : '—'}</td></tr>
-          <tr><td class="debug-hud-metric">Accuracy</td><td>${last?.accuracy != null ? `±${last.accuracy.toFixed(1)} m` : '—'}</td></tr>
+          <tr><td class="debug-hud-metric">Heading</td><td>${last?.heading != null ? `${Math.round(last.heading)}°` : '-'}</td></tr>
+          <tr><td class="debug-hud-metric">Accuracy</td><td>${last?.accuracy != null ? `±${last.accuracy.toFixed(1)} m` : '-'}</td></tr>
           <tr><td class="debug-hud-metric">Floor filter</td><td>${escapeHtml(floorFilterLabel)}</td></tr>
           <tr><td class="debug-hud-metric">Floor hysteresis</td><td>${orchBar}</td></tr>
-          ${bleRows || '<tr><td class="debug-hud-metric">BLE RSSI</td><td>—</td></tr>'}
+          ${bleRows || '<tr><td class="debug-hud-metric">BLE RSSI</td><td>-</td></tr>'}
         </tbody>
       </table>
     `;

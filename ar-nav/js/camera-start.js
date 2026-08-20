@@ -112,7 +112,7 @@
         SLOG()?.log?.('camera', 'SLAM engine not ready after wait', {
           attempts: xrAttempts,
         });
-        showLayer('SLAM failed to load — tap Start to try compass mode');
+        showLayer('SLAM failed to load - tap Start to try compass mode');
         if (btn) {
           btn.disabled = false;
           btn.textContent = 'Start Live View';
@@ -144,7 +144,7 @@
 
       if (window.__fplacesDesktopSlamMode) {
         window.FplacesLiveViewHud?.setStatus?.(
-          'Mac desktop — SLAM via XR8 (one camera). Test on iPhone for production camera.',
+          'Mac desktop - SLAM via XR8 (one camera). Test on iPhone for production camera.',
         );
       }
       try {
@@ -152,14 +152,14 @@
         if (result === 'xr-run') {
           window.__fplacesXrAwaitingOnStart = true;
           window.FplacesArDebug?.log('Camera', 'XR8.run() invoked');
-          SLOG()?.log?.('camera', 'XR8.run() invoked — waiting for XR camera feed');
+          SLOG()?.log?.('camera', 'XR8.run() invoked - waiting for XR camera feed');
           requestSensorsAfterCamera().catch(() => {});
         }
       } catch (error) {
         window.FplacesArDebug?.warn('Camera', 'XR8.run failed', {
           error: String(error),
         });
-        showLayer('AR failed to start — tap Start to retry');
+        showLayer('AR failed to start - tap Start to retry');
         if (btn) {
           btn.disabled = false;
           btn.textContent = 'Start Live View';
@@ -187,7 +187,7 @@
 
     try {
       if (window.__fplacesXrSyncStart) {
-        // XR8 owns the camera on mobile — do not open a preview stream first.
+        // XR8 owns the camera on mobile - do not open a preview stream first.
         startXrFromGesture(cb);
         return;
       }
@@ -206,7 +206,7 @@
         })
         .catch((error) => {
           window.FplacesArDebug?.warn('Camera', 'Camera start failed', { error: String(error) });
-          showLayer('Camera blocked — allow access in Settings, then tap Start again');
+          showLayer('Camera blocked - allow access in Settings, then tap Start again');
           if (btn) {
             btn.disabled = false;
             btn.textContent = 'Start Live View';
@@ -220,7 +220,7 @@
       window.FplacesArDebug?.warn('Camera', 'XR start failed', { error: String(error) });
       SLOG()?.log?.('camera', 'XR start failed', { error: String(error) });
       SLOG()?.audit?.('camera-xr-error');
-      showLayer('AR failed to start — tap Start to retry');
+      showLayer('AR failed to start - tap Start to retry');
       if (btn) {
         btn.disabled = false;
         btn.textContent = 'Start Live View';

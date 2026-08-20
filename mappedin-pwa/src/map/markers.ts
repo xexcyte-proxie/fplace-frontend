@@ -45,7 +45,7 @@ const NAV_BLUE_DOT_STATE = {
  * Injected live frames are already snapped onto the route, so raw GPS accuracy
  * (often 50–500 m indoors) is display noise. Capping it keeps the accuracy ring
  * sane and keeps fixes under the blue-dot accuracy threshold, which silently
- * drops any update above ~50 m — the reason live positions never applied.
+ * drops any update above ~50 m - the reason live positions never applied.
  */
 const MAX_INJECTED_ACCURACY_METERS = 30;
 
@@ -276,7 +276,7 @@ export class MapMarkerService {
       }
     } catch (error) {
       this.deviceHeadingActive = false;
-      appWarn('MapMarker', 'Compass unavailable — cone follows provider heading', error);
+      appWarn('MapMarker', 'Compass unavailable - cone follows provider heading', error);
       return;
     }
 

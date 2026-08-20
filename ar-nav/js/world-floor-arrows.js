@@ -1,7 +1,7 @@
 /**
  * Google Live View–style floor-locked 3D arrows.
  * Straight chevrons along the approach; a prominent L-turn at the junction
- * (emphasized ~2–5 m before). Visualization only — no nav/routing changes.
+ * (emphasized ~2–5 m before). Visualization only - no nav/routing changes.
  */
 (function () {
   const GROUP_NAME = "ar_navigation_floor_arrows";
@@ -106,7 +106,7 @@
 
   function mat(THREE, color, opts) {
     const options = opts || {};
-    // Unlit material — stays vivid in any real-world lighting (Google AR spec).
+    // Unlit material - stays vivid in any real-world lighting (Google AR spec).
     return new THREE.MeshBasicMaterial({
       color,
       transparent: true,
@@ -120,7 +120,7 @@
   let sharedGeoms = null;
   let sharedMats = null;
 
-  /** Single dynamic leading guidance arrow — position & quaternion updated every frame. */
+  /** Single dynamic leading guidance arrow - position & quaternion updated every frame. */
   let leadingArrowMesh = null;
   let leadingQuatCurrent = null;
   let leadingQuatTarget = null;
@@ -140,7 +140,7 @@
       stripe: extrudeShape(THREE, stripeShape, 0.018),
     };
 
-    // Build turn glyphs defensively — never block straight arrows if one fails.
+    // Build turn glyphs defensively - never block straight arrows if one fails.
     try {
       const turnRight = buildTurnShape(THREE, "right");
       const turnLeft = buildTurnShape(THREE, "left");
@@ -151,12 +151,12 @@
     } catch (error) {
       window.FplacesArDebug?.warn?.(
         "FloorArrows",
-        "Turn glyph build failed — straight arrows only",
+        "Turn glyph build failed - straight arrows only",
         { error: String(error) },
       );
     }
 
-    // Flat teal chevron — no backing disc (user-requested clean look).
+    // Flat teal chevron - no backing disc (user-requested clean look).
     sharedMats = {
       outline: mat(THREE, TEAL_EDGE, { opacity: 1 }),
       body: mat(THREE, TEAL, { opacity: 0.96 }),
@@ -207,7 +207,7 @@
   }
 
   /**
-   * Red map-pin marker for the user's current position — visually distinct
+   * Red map-pin marker for the user's current position - visually distinct
    * from the blue navigation chevrons. Rotationally symmetric, so the shared
    * LookRotation/Slerp orientation pipeline stays harmless.
    */
@@ -486,7 +486,7 @@
       ? Math.max(trailStartAlong + 0.5, nextTurn.alongM - 0.5)
       : totalLen;
 
-    // Static breadcrumb grid — leading arrow is a separate single dynamic object.
+    // Static breadcrumb grid - leading arrow is a separate single dynamic object.
     let nextMark = leadIn;
     while (nextMark <= trailStartAlong + 0.05) nextMark += spacing;
 
@@ -653,7 +653,7 @@
     if (!THREE || !scene || !points?.length || points.length < 2) {
       DBG?.logThrottled?.(
         'Align',
-        'Leading arrow skipped — insufficient path',
+        'Leading arrow skipped - insufficient path',
         { pointCount: points?.length ?? 0 },
         2000,
         'align:leading:short-path',
@@ -663,7 +663,7 @@
 
     const align = window.FplacesQuaternionAlignment;
     if (!align?.lookRotation || !align?.slerp) {
-      DBG?.warn?.('Align', 'Leading arrow skipped — quaternion module missing');
+      DBG?.warn?.('Align', 'Leading arrow skipped - quaternion module missing');
       return null;
     }
 
@@ -674,7 +674,7 @@
     if (userX == null || userZ == null) {
       DBG?.logThrottled?.(
         'Align',
-        'Leading arrow skipped — no camera position',
+        'Leading arrow skipped - no camera position',
         { userX, userZ },
         2000,
         'align:leading:no-camera',
@@ -688,7 +688,7 @@
 
     const key = pathKey(points);
     if (key !== leadingLastPathKey) {
-      DBG?.log?.('Align', 'Leading arrow path changed — reset waypoint index', {
+      DBG?.log?.('Align', 'Leading arrow path changed - reset waypoint index', {
         previousKey: leadingLastPathKey,
         pathKey: key,
         pointCount: points.length,
@@ -725,7 +725,7 @@
     if (!pos) {
       DBG?.logThrottled?.(
         'Align',
-        'Leading arrow skipped — no position on path',
+        'Leading arrow skipped - no position on path',
         { userAlong: round3(userAlong), posAlong: round3(posAlong) },
         1500,
         'align:leading:no-pos',
@@ -904,7 +904,7 @@
       if (existing && existing.userData?.signature === signature) {
         window.FplacesArDebug?.logThrottled?.(
           'Align',
-          'Path trail unchanged — skip rebuild',
+          'Path trail unchanged - skip rebuild',
           { signature, placementCount: placements.length },
           2000,
           `align:trail:skip:${signature}`,

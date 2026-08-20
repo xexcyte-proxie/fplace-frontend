@@ -30,23 +30,12 @@
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: max(8px, env(safe-area-inset-top)) var(--pc-pad-x) 12px;
+  padding: calc(24px + env(safe-area-inset-top)) 34px 12px;
   min-height: 56px;
 }
 
 .post-comments-back-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  margin: 0;
-  border: none;
-  border-radius: 12px;
-  background: transparent;
   color: var(--pc-text);
-  cursor: pointer;
 }
 
 .post-comments-header-copy {

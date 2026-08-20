@@ -1,4 +1,4 @@
-/** Routing engine semantic version — bump when payload schema or algorithms change. */
+/** Routing engine semantic version - bump when payload schema or algorithms change. */
 export const ROUTING_ENGINE_VERSION = 'fplaces-routing/2.0';
 
 /** Default walking speed (m/s) for duration estimates when Mappedin omits duration. */
@@ -10,7 +10,7 @@ export const ROUTE_ACK_TIMEOUT_MS = 2500;
 /** Max route delivery retries before giving up. */
 export const ROUTE_DELIVERY_MAX_RETRIES = 4;
 
-/** Persistent: location has no map geometry — picking again won't help. */
+/** Persistent: location has no map geometry - picking again won't help. */
 export const LOCATION_NOT_ROUTABLE_MESSAGE =
   "This location isn't on the map, so it can't be used for directions. Try another place.";
 

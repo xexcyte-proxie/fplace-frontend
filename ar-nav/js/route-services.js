@@ -1,5 +1,5 @@
 /**
- * AR-side route services — validation, version negotiation, geometry hashing.
+ * AR-side route services - validation, version negotiation, geometry hashing.
  * Mirrors mappedin-pwa/src/routing/* for consistent cross-client behavior.
  */
 (function () {

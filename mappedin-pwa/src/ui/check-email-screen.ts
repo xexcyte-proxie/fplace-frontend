@@ -1,4 +1,4 @@
-import type { AppState } from '../types';
+import type { AppState, AuthCheckEmailPurpose } from '../types';
 
 const AUTH_ASSETS = {
   back: '/auth/back-chevron.svg',
@@ -6,8 +6,13 @@ const AUTH_ASSETS = {
 } as const;
 
 export function renderCheckEmailScreen(
-  state: Pick<AppState, 'authEmail' | 'authLoading'>,
+  state: Pick<AppState, 'authEmail' | 'authLoading'> & {
+    checkEmailPurpose?: AuthCheckEmailPurpose | null;
+  },
 ): string {
+  const purpose = state.checkEmailPurpose ?? 'verify';
+  const isPasswordReset = purpose === 'password-reset';
+
   return `
     <div class="auth-screen check-email-screen">
       <button type="button" id="check-email-back-btn" class="auth-back-btn" aria-label="Back">
@@ -37,9 +42,18 @@ export function renderCheckEmailScreen(
 
         <h1 class="check-email-title">Check your email</h1>
         <p class="check-email-subtitle">
-          We sent a verification link and code to
+          ${
+            isPasswordReset
+              ? 'We sent a password reset link to'
+              : 'We sent a verification link and code to'
+          }
         </p>
         <p class="check-email-address">${escapeHtml(state.authEmail)}</p>
+        ${
+          isPasswordReset
+            ? `<p class="check-email-hint">Open the link in that email to choose a new password.</p>`
+            : ''
+        }
       </div>
 
       <div class="auth-actions check-email-actions">
@@ -54,6 +68,22 @@ export function renderCheckEmailScreen(
             Resend
           </button>
         </p>
+        ${
+          isPasswordReset
+            ? `
+          <p class="auth-footer-text">
+            <button
+              type="button"
+              id="check-email-login-link"
+              class="auth-inline-link auth-inline-link--accent"
+              ${state.authLoading ? 'disabled' : ''}
+            >
+              Back to log in
+            </button>
+          </p>
+        `
+            : ''
+        }
       </div>
     </div>
   `;

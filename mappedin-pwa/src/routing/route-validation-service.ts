@@ -64,7 +64,7 @@ export class RouteValidationService {
         pathLength: path?.length ?? 0,
       });
       if (payload.checksum !== expected) {
-        errors.push('Checksum mismatch — payload may be corrupted');
+        errors.push('Checksum mismatch - payload may be corrupted');
       }
     }
 

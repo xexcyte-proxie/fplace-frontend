@@ -1,5 +1,5 @@
 /**
- * Personal notifications façade — presentation and MapApp talk to this module only.
+ * Personal notifications façade - presentation and MapApp talk to this module only.
  * REST history + personal WebSocket live behind the notifications repository.
  */
 import type {

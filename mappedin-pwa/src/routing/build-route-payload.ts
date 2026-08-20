@@ -26,7 +26,7 @@ export interface BuildRoutePayloadOptions {
 }
 
 /**
- * Production route builder — runs floor propagation, leg intelligence,
+ * Production route builder - runs floor propagation, leg intelligence,
  * geometry hashing, and lifecycle metadata before serialization.
  */
 export function buildProductionRoutePayload(

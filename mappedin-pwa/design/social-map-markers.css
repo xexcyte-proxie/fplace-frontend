@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────────────
-   Tradefaire Social Map Markers — design system (visual only, no map logic)
+   Tradefaire Social Map Markers - design system (visual only, no map logic)
    ───────────────────────────────────────────────────────────────────────────── */
 
 :root {
@@ -74,7 +74,7 @@
     0 0 0 3px rgba(37, 99, 235, 0.45);
 }
 
-/* Soft ground halo — replaces flat beige circle from reference */
+/* Soft ground halo - replaces flat beige circle from reference */
 .social-map-marker__halo {
   position: absolute;
   left: 50%;
@@ -94,7 +94,7 @@
   transition: opacity var(--sm-duration-fast) ease;
 }
 
-/* Pin anchor — invisible hit geometry + visual anchor dot at map coordinate */
+/* Pin anchor - invisible hit geometry + visual anchor dot at map coordinate */
 .social-map-marker__anchor {
   position: relative;
   z-index: 1;

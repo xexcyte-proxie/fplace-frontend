@@ -4,7 +4,7 @@
  */
 (function () {
   const geo = () => window.FplacesGeoMath;
-  /** Matches HighFrequencyMockProvider — parent simulator walk speed. */
+  /** Matches HighFrequencyMockProvider - parent simulator walk speed. */
   const PARENT_SIM_WALK_MPS = 1.3;
   const PARENT_SIM_EXTRAP_CAP_S = 0.12;
 
@@ -268,7 +268,7 @@
       } else {
         window.FplacesArDebug?.log(
           "Navigator",
-          "No seed position in route — waiting for GPS/external feed",
+          "No seed position in route - waiting for GPS/external feed",
         );
         this._displayAlongPathM = 0;
         this.notify();
@@ -607,7 +607,7 @@
       if (!pos || pos.latitude == null || pos.longitude == null) {
         window.FplacesArDebug?.warn(
           "Navigator",
-          "applyPosition ignored — invalid coords",
+          "applyPosition ignored - invalid coords",
           pos,
         );
         return;
@@ -684,7 +684,7 @@
       }
     }
 
-    /** Parent PWA simulator — lock to polyline progress (same as 2D blue dot). */
+    /** Parent PWA simulator - lock to polyline progress (same as 2D blue dot). */
     applySimulatorPosition(pos, options = {}) {
       const path = this.route?.pathCoordinates || [];
       const total = path.length
@@ -917,7 +917,7 @@
               : kind === "escalator"
                 ? "Take the escalator"
                 : "Floor change";
-        this.floorChangeMessage = `${kindLabel} — now on ${this.floorLabel(floorId)}`;
+        this.floorChangeMessage = `${kindLabel} - now on ${this.floorLabel(floorId)}`;
         this._floorChangeUntil = performance.now() + 4500;
         window.FplacesArDebug?.log("Navigator", "Floor changed", {
           from: prev,
@@ -967,7 +967,7 @@
       return 0.55;
     }
 
-    /** Live progress along route polyline — blends GPS snap + walking extrapolation. */
+    /** Live progress along route polyline - blends GPS snap + walking extrapolation. */
     getDisplayAlongPathMeters(gpsAlongMeters) {
       const path = this.route?.pathCoordinates || [];
       const total = path.length
@@ -1182,7 +1182,7 @@
       return Math.max(0, total - along);
     }
 
-    /** Live distance to next maneuver — updates every frame with 0.1 m precision. */
+    /** Live distance to next maneuver - updates every frame with 0.1 m precision. */
     getDisplayDistanceMeters() {
       const raw = this.distanceToCurrentTargetMeters();
       if (raw == null) return this._smoothDistToTarget;
@@ -1316,7 +1316,7 @@
           this._warnedShortPath = true;
           window.FplacesArDebug?.warn(
             "Navigator",
-            "getTargetBearingDegrees — need ≥2 path points",
+            "getTargetBearingDegrees - need ≥2 path points",
             {
               pathPoints: path.length,
             },

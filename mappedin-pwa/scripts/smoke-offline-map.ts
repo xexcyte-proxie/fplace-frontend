@@ -1,5 +1,6 @@
 /**
  * Smoke test for Mappedin offline TMVF flow + resolveMapData.
+ * Credentials come from POST /api/users/guest/ (no client Mappedin key/secret).
  * Run: npx tsx scripts/smoke-offline-map.ts
  */
 import {
@@ -17,11 +18,8 @@ import {
   saveMapDataToCache,
 } from '../src/services/map-offline-service';
 
-const OPTIONS = {
-  key: 'mik_yeBk0Vf0nNJtpesfu560e07e5',
-  secret: 'mis_2g9ST8ZcSFb5R9fPnsvYhrX3RyRwPtDGbMGweCYKEq385431022',
-  mapId: '65c0ff7430b94e3fabd5bb8c',
-};
+const MAP_ID = '65c0ff7430b94e3fabd5bb8c';
+const BACKEND = 'https://fplaces-backend.vercel.app';
 
 class MemoryMapOfflineRepository implements MapOfflineRepository {
   private readonly store = new Map<string, OfflineMapCacheRecord>();
@@ -55,6 +53,31 @@ function setOnline(online: boolean): void {
   });
 }
 
+async function obtainGuestMappedinAccessToken(): Promise<string> {
+  const response = await fetch(`${BACKEND}/api/users/guest/`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      ip_address: '127.0.0.1',
+      device_fingerprint: `fp_smoke_${Date.now()}`,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Guest token failed: HTTP ${response.status}`);
+  }
+  const body = (await response.json()) as {
+    mappedin?: { token?: string };
+  };
+  const token = body.mappedin?.token?.trim();
+  if (!token) {
+    throw new Error('Guest response missing mappedin.token');
+  }
+  return token;
+}
+
 async function waitForCache(
   repo: MemoryMapOfflineRepository,
   mapId: string,
@@ -70,6 +93,14 @@ async function waitForCache(
 }
 
 async function main(): Promise<void> {
+  console.log('0) Obtain Mappedin access token from guest API…');
+  const accessToken = await obtainGuestMappedinAccessToken();
+  const OPTIONS = {
+    accessToken,
+    mapId: MAP_ID,
+  };
+  console.log('   ok - using backend mappedin.token');
+
   const repo = new MemoryMapOfflineRepository();
   let passed = 0;
 
@@ -78,7 +109,7 @@ async function main(): Promise<void> {
   const online = await resolveMapData(OPTIONS, repo);
   assert(!online.fromCache, 'online load should not be fromCache');
   assert(online.mapData, 'online mapData missing');
-  console.log('   ok — fromCache=false');
+  console.log('   ok - fromCache=false');
   passed += 1;
 
   console.log('2) Wait for background toBinaryBundle cache…');
@@ -86,7 +117,7 @@ async function main(): Promise<void> {
   assert(bundle.type === 'binary', 'cached bundle type should be binary');
   assert(bundle.main instanceof Uint8Array, 'cached bundle.main should be Uint8Array');
   assert(bundle.main.byteLength > 0, 'cached bundle should be non-empty');
-  console.log(`   ok — cached ${bundle.main.byteLength} bytes`);
+  console.log(`   ok - cached ${bundle.main.byteLength} bytes`);
   passed += 1;
 
   console.log('3) Offline resolveMapData (hydrate from cache)…');
@@ -94,7 +125,7 @@ async function main(): Promise<void> {
   const offline = await resolveMapData(OPTIONS, repo);
   assert(offline.fromCache, 'offline load should be fromCache');
   assert(offline.mapData, 'offline mapData missing');
-  console.log('   ok — fromCache=true');
+  console.log('   ok - fromCache=true');
   passed += 1;
 
   console.log('4) Offline with empty cache throws…');
@@ -112,7 +143,7 @@ async function main(): Promise<void> {
     );
   }
   assert(threw, 'empty offline cache should throw');
-  console.log('   ok — throws helpful error');
+  console.log('   ok - throws helpful error');
   passed += 1;
 
   console.log('5) Direct hydrateMapData round-trip…');
@@ -124,7 +155,7 @@ async function main(): Promise<void> {
   assert(saved, 'saveMapDataToCache should persist a bundle');
   const hydrated = await hydrateMapData(saved, OPTIONS);
   assert(hydrated, 'hydrateMapData should return MapData');
-  console.log('   ok — getMapData → toBinaryBundle → hydrateMapData');
+  console.log('   ok - getMapData → toBinaryBundle → hydrateMapData');
   passed += 1;
 
   console.log(`\nAll ${passed} checks passed.`);

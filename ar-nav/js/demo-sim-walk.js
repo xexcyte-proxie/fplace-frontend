@@ -1,5 +1,5 @@
 /**
- * Dev/demo walk simulator — advances route progress when device motion detects steps.
+ * Dev/demo walk simulator - advances route progress when device motion detects steps.
  * Enable with ?demoSim=1 when indoor GPS is too weak for a live demo.
  */
 (function () {
@@ -104,7 +104,7 @@
         window.addEventListener('devicemotion', onMotion, true);
         bound = true;
       }
-      window.FplacesArDebug?.log('DemoSim', 'Walk simulator active — shake/steps advance route');
+      window.FplacesArDebug?.log('DemoSim', 'Walk simulator active - shake/steps advance route');
     },
 
     stop() {
@@ -121,7 +121,7 @@
       if (window.parent && window.parent !== window) {
         window.FplacesArDebug?.log(
           'DemoSim',
-          'Auto-walk skipped — embedded in PWA; parent simulator drives movement',
+          'Auto-walk skipped - embedded in PWA; parent simulator drives movement',
         );
         return;
       }

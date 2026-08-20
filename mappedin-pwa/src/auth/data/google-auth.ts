@@ -169,7 +169,7 @@ export async function requestGoogleIdToken(): Promise<string> {
         openButtonFallback();
       }
       if (notification.isDismissedMoment()) {
-        // User closed One Tap — still offer the button fallback.
+        // User closed One Tap - still offer the button fallback.
         openButtonFallback();
       }
     });

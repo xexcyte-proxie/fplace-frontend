@@ -4,6 +4,7 @@ import {
   countDistinctFans,
   formatFansHereLabel,
   resolveFirstVisitCategory,
+  resolveHomeExperience,
 } from '../home/domain/entities';
 import {
   buildFirstVisitVenueHomeContent,
@@ -81,6 +82,12 @@ describe('first-visit venue home', () => {
     expect(ds.has('12')).toBe(true);
     ds.mark('12');
     expect(ds.list()).toEqual(['12']);
+  });
+
+  it('sends signed-in returners to Recently visited, not first-visit', () => {
+    expect(resolveHomeExperience(null, false)).toBe('returning');
+    expect(resolveHomeExperience('12', false)).toBe('first-visit');
+    expect(resolveHomeExperience('12', true)).toBe('returning');
   });
 
   it('renders first-visit markup hooks', () => {

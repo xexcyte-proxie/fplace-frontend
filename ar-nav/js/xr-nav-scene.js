@@ -149,7 +149,7 @@
     if (window.__fplacesPreviewFallbackDone) return;
     const video = document.getElementById('camera');
     if (video?.srcObject && window.FplacesCameraStart?.isStarted?.()) {
-      SLOG()?.log?.('cameraFallback', 'Preview already active — skipping fallback', { reason });
+      SLOG()?.log?.('cameraFallback', 'Preview already active - skipping fallback', { reason });
       return;
     }
     if (!window.__fplacesXrAttempted && !window.FplacesCameraStart?.isStarted?.()) return;
@@ -177,7 +177,7 @@
         'Preview camera (SLAM unavailable)',
       );
       window.FplacesLiveViewHud?.setStatus?.(
-        'Camera on — SLAM could not start. Compass navigation active.',
+        'Camera on - SLAM could not start. Compass navigation active.',
       );
       SLOG()?.audit?.('preview-fallback');
     } catch (error) {
@@ -185,7 +185,7 @@
         error: String(error),
       });
       window.FplacesCameraStart?.showPrompt?.(
-        'Camera blocked — allow access, then tap Start',
+        'Camera blocked - allow access, then tap Start',
         () => window.FplacesFallbackNav.attachCamera(),
         { syncXr: false },
       );
@@ -234,8 +234,8 @@
       'camera-feed-layer',
       true,
       isDesktop
-        ? 'SLAM canvas visible — desktop cameraTexture background (single XR8 camera)'
-        : 'SLAM canvas visible — GlTextureRenderer + clearDepth-only THREE overlay',
+        ? 'SLAM canvas visible - desktop cameraTexture background (single XR8 camera)'
+        : 'SLAM canvas visible - GlTextureRenderer + clearDepth-only THREE overlay',
       {
         isDesktop,
         customThreePipeline: false,
@@ -289,7 +289,7 @@
     SLOG()?.logCheck?.(
       'xr-camera-notify',
       true,
-      'notifyCameraSessionStarted — SLAM camera feed active',
+      'notifyCameraSessionStarted - SLAM camera feed active',
       SLOG()?.snapshot?.(),
     );
     SLOG()?.runHealthCheck?.('xr-camera-notify');
@@ -362,7 +362,7 @@
         'compass',
         'Camera on (compass mode)',
       );
-      window.FplacesLiveViewHud?.setStatus?.('Camera on — compass navigation active.');
+      window.FplacesLiveViewHud?.setStatus?.('Camera on - compass navigation active.');
       SLOG()?.audit?.('preview-forced');
       SLOG()?.runHealthCheck?.('preview-forced');
     } catch (error) {
@@ -370,7 +370,7 @@
         error: String(error),
       });
       window.FplacesCameraStart?.showPrompt?.(
-        'Camera blocked — allow access, then tap Start',
+        'Camera blocked - allow access, then tap Start',
         () => window.FplacesFallbackNav.attachCamera(),
         { syncXr: false },
       );
@@ -379,7 +379,7 @@
 
   function scheduleCameraFeedHealthCheck() {
     if (feedHealthTimer != null) return;
-    // Only validate XR canvas after SLAM session confirmed — early checks false-trigger
+    // Only validate XR canvas after SLAM session confirmed - early checks false-trigger
     // when canvas has CSS size but internal buffer not ready yet (w/h = 0).
     if (!window.__fplacesCameraSessionNotified) return;
     feedHealthTimer = window.setTimeout(() => {
@@ -388,7 +388,7 @@
       const feed = document.getElementById('camerafeed');
       if (!feed || feed.clientWidth === 0 || feed.clientHeight === 0) {
         SLOG()?.logCheck?.('canvas-health', false, 'XR canvas missing or zero layout size', {
-          fix: 'Check FullWindowCanvas + XR8.run canvas — SLAM kept running (no compass fallback)',
+          fix: 'Check FullWindowCanvas + XR8.run canvas - SLAM kept running (no compass fallback)',
           canvas: SLOG()?.snapshot?.()?.canvas,
         });
         return;
@@ -397,7 +397,7 @@
         SLOG()?.logCheck?.(
           'canvas-health',
           true,
-          'XR canvas layout ok — buffer size pending (not forcing fallback)',
+          'XR canvas layout ok - buffer size pending (not forcing fallback)',
           {
             size: { w: feed.width, h: feed.height, cw: feed.clientWidth, ch: feed.clientHeight },
           },
@@ -414,21 +414,21 @@
         {
           fix: hasImage
             ? null
-            : 'Pixel read often false on XR8 canvas — check camera visually; SLAM kept running',
+            : 'Pixel read often false on XR8 canvas - check camera visually; SLAM kept running',
           size: { w: feed.width, h: feed.height, cw: feed.clientWidth, ch: feed.clientHeight },
         },
       );
       if (hasImage) {
         SLOG()?.runHealthCheck?.('canvas-health-ok');
       }
-      // Do NOT forcePreviewCamera on canvas-black — readPixels is unreliable on XR8's
+      // Do NOT forcePreviewCamera on canvas-black - readPixels is unreliable on XR8's
       // WebGL context and was killing SLAM while the feed was actually fine.
     }, 6000);
   }
 
   window.executeDemoCalibrationFlow = function executeDemoCalibrationFlow() {
     if (!window.FplacesCameraStart?.isStarted?.()) {
-      window.FplacesArDebug?.warn('XR', 'Calibration skipped — camera not started yet');
+      window.FplacesArDebug?.warn('XR', 'Calibration skipped - camera not started yet');
       return;
     }
 
@@ -448,7 +448,7 @@
     const scene = window.__fplacesXrScene;
     const cam = window.__fplacesXrCamera;
     if (!scene) {
-      window.FplacesArDebug?.warn('XR', 'Calibration deferred — XR scene not ready');
+      window.FplacesArDebug?.warn('XR', 'Calibration deferred - XR scene not ready');
       window.__fplacesScheduleFloorCalibration?.();
       return;
     }
@@ -471,7 +471,7 @@
     );
 
     if (!calibrated) {
-      window.FplacesArDebug?.error?.('XR', 'Calibration failed — missing anchor');
+      window.FplacesArDebug?.error?.('XR', 'Calibration failed - missing anchor');
       return;
     }
 
@@ -498,7 +498,7 @@
     nav?.resetProgressAtSnap?.(snap);
 
     if (cam) {
-      // Calibrate HUD heading to the actual facing (compass) — not the route —
+      // Calibrate HUD heading to the actual facing (compass) - not the route -
       // so "turn left/right/around" matches the 2D map.
       const headingNow = alignment?.headingDeg ?? routeBearing;
       if (headingNow != null) {
@@ -537,7 +537,7 @@
       }
       window.FplacesDemoSim?.stop?.();
       if (window.FplacesCameraStart?.isStarted?.()) {
-        window.FplacesLiveViewHud?.setStatus?.('AR locked to floor — follow the blue chevrons ahead.');
+        window.FplacesLiveViewHud?.setStatus?.('AR locked to floor - follow the blue chevrons ahead.');
         window.FplacesLiveViewHud?.setTrackingMode?.('slam', slamTrackingLabel());
       }
       window.FplacesArDebug?.log('XR', 'Demo calibration complete (embedded)', {
@@ -554,7 +554,7 @@
       alongPathMeters: snap.distanceAlongPathMeters ?? 0,
     });
     if (window.FplacesCameraStart?.isStarted?.()) {
-      window.FplacesLiveViewHud?.setStatus?.('AR locked to floor — follow the blue chevrons ahead.');
+      window.FplacesLiveViewHud?.setStatus?.('AR locked to floor - follow the blue chevrons ahead.');
       window.FplacesLiveViewHud?.setTrackingMode?.('slam', slamTrackingLabel());
     }
     window.FplacesArDebug?.log('XR', 'Demo calibration complete', {
@@ -621,14 +621,14 @@
         SLOG()?.logCheck?.(
           'xr-camera-timeout',
           false,
-          'XR camera session not confirmed after 18s — SLAM kept running; check onStart logs',
+          'XR camera session not confirmed after 18s - SLAM kept running; check onStart logs',
           {},
         );
       }, 18000);
     } catch (error) {
       window.__fplacesXrRunCalled = false;
       window.__fplacesXrAwaitingOnStart = false;
-      DBG?.warn('XR', 'XR8.run failed — preview camera remains active', {
+      DBG?.warn('XR', 'XR8.run failed - preview camera remains active', {
         error: String(error),
       });
       SLOG()?.log?.('xrRun', 'XR8.run() threw', { error: String(error) });
@@ -646,7 +646,7 @@
       const THREE = window.THREE;
       const cfg = window.FPLACES_AR_CONFIG || {};
       if (!THREE) {
-        DBG?.error('XR', 'THREE.js not loaded — cannot start XR scene');
+        DBG?.error('XR', 'THREE.js not loaded - cannot start XR scene');
         return;
       }
 
@@ -805,7 +805,7 @@
           DBG?.log('XR', 'XR pipeline onStart fired');
           SLOG()?.log?.('onStart', 'XR pipeline onStart fired');
           if (!setupXrScene()) {
-            SLOG()?.log?.('onStart', 'xrScene not ready in onStart — will retry in onUpdate');
+            SLOG()?.log?.('onStart', 'xrScene not ready in onStart - will retry in onUpdate');
           }
         },
 
@@ -881,7 +881,7 @@
 
         const rendererPatch = window.FplacesXrRendererPatch?.createModule?.();
         if (!rendererPatch) {
-          DBG?.error('XR', 'FplacesXrRendererPatch missing — cannot patch SLAM renderer');
+          DBG?.error('XR', 'FplacesXrRendererPatch missing - cannot patch SLAM renderer');
           return;
         }
 
@@ -908,7 +908,7 @@
         XR8.addCameraPipelineModules(pipelineModules.filter(Boolean));
 
         window.__fplacesXrPipelineReady = true;
-        window.FplacesArDebug?.log('XR', 'Pipeline ready — waiting for camera start tap');
+        window.FplacesArDebug?.log('XR', 'Pipeline ready - waiting for camera start tap');
         SLOG()?.log?.('pipeline', 'XR camera pipeline modules registered');
         SLOG()?.logCheck?.('xr-pipeline', true, 'XR camera pipeline modules registered', {
           isDesktop,

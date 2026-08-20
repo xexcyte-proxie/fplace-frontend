@@ -18,18 +18,18 @@ export interface ArNavigationViewModel {
 }
 
 function formatEtaMinutes(seconds: number | null): string {
-  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return '—';
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return '-';
   const mins = Math.max(1, Math.round(seconds / 60));
   return `${mins} min`;
 }
 
 function formatDistanceShort(meters: number | null): string {
-  if (meters == null || !Number.isFinite(meters) || meters < 0) return '—';
+  if (meters == null || !Number.isFinite(meters) || meters < 0) return '-';
   return `${Math.round(meters)}m`;
 }
 
 function formatArriveClock(seconds: number | null): string {
-  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '—';
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '-';
   const arrive = new Date(Date.now() + seconds * 1000);
   const hours = arrive.getHours();
   const mins = arrive.getMinutes();

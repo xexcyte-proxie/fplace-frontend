@@ -88,7 +88,7 @@ export class MapOfflineLocalDatasource {
     try {
       await runStoreRequest('readwrite', (store) => store.put(record));
     } catch {
-      /* storage unavailable or quota exceeded — do not fail map load */
+      /* storage unavailable or quota exceeded - do not fail map load */
     }
   }
 

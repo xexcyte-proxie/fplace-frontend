@@ -1,5 +1,5 @@
 /**
- * Auth service façade — presentation and MapApp talk to this module only.
+ * Auth service façade - presentation and MapApp talk to this module only.
  * HTTP + token persistence live behind the auth repository (clean architecture).
  */
 import type {

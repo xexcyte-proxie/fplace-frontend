@@ -170,6 +170,9 @@ export interface PostCommentItem {
 /** Destructive confirm dialog shown over Settings. */
 export type SettingsConfirm = null | 'logout' | 'delete-account';
 
+/** Guest AR one-time trial dialog (null when closed). */
+export type GuestArGatePrompt = null | 'one-time-info' | 'already-used';
+
 /** In-app legal WebView bottom sheet (Terms). */
 export type LegalWebViewDocument = 'terms';
 
@@ -237,7 +240,7 @@ export type VenueFeedFilter = 'all' | (string & {});
 export interface VenueFeedPost {
   id: string;
   author: string;
-  /** Forum user id — used for distinct “fans live”, not post volume. */
+  /** Forum user id - used for distinct “fans live”, not post volume. */
   authorId: number;
   initials: string;
   avatarColor: string;
@@ -347,6 +350,9 @@ export {
 
 export type AuthLegalDocument = 'terms' | 'privacy';
 
+/** Why the check-email screen is shown (registration verify vs password reset). */
+export type AuthCheckEmailPurpose = 'verify' | 'password-reset';
+
 export interface AppState {
   onboardingComplete: boolean;
   authStep: AuthStep;
@@ -360,6 +366,8 @@ export interface AppState {
   /** In-app WebView bottom sheet for Terms (settings + auth). */
   legalWebView: LegalWebViewDocument | null;
   authEmail: string;
+  /** Purpose for the check-email screen when authStep is check-email. */
+  checkEmailPurpose: AuthCheckEmailPurpose | null;
   /** uid from the password-reset email deep link. */
   passwordResetUid: string;
   /** token from the password-reset email deep link. */
@@ -369,12 +377,22 @@ export interface AppState {
   authUser: RegisteredUser | null;
   /** FingerprintJS visitorId for the current browser (null until resolved). */
   visitorId: string | null;
-  /** Mock/backend guest id when guest access is allowed. */
+  /** Guest id (device fingerprint) when continuing anonymously. */
   guestId: string | null;
   /** False when guest fingerprint validation denies anonymous access. */
   guestAccessAllowed: boolean | null;
-  /** Denial reason from guest fingerprint validation, when applicable. */
+  /** Denial reason from guest validation, when applicable. */
   guestAccessReason: string | null;
+  /** ISO-8601 trial end from POST /api/users/guest/ (null until obtained). */
+  guestTrialExpiresAt: string | null;
+  /** Backend has_tried_ar_view for the current guest session. */
+  guestHasTriedArView: boolean;
+  /** Backend has_tried_2d_view for the current guest session. */
+  guestHasTried2dView: boolean;
+  /** Guest AR trial gate dialog over the map / home UI. */
+  guestArGatePrompt: GuestArGatePrompt;
+  /** True while consuming the AR trial / opening AR after acknowledge. */
+  guestArGateLoading: boolean;
   pseudoNameDraft: string;
   /** Placeholder suggestion for the pseudo-name field (not the committed value). */
   pseudoNameHint: string;
@@ -402,7 +420,7 @@ export interface AppState {
   userLocation: UserLocationCoords | null;
   /** True while requesting permission or reading GPS during the location gate. */
   locationGateLoading: boolean;
-  /** When true, location was permanently denied — show browser settings help. */
+  /** When true, location was permanently denied - show browser settings help. */
   locationPermanentlyDenied: boolean;
   /** User-facing message on the Location Error gate. */
   locationGateError: string | null;
@@ -429,7 +447,7 @@ export interface AppState {
   /** `closed` = no session; `minimized` = map visible + AR pip; `fullscreen` = AR covers map */
   arPresentation: ArPresentation;
   /**
-   * After Try AR with no route — coach start/end selection on the map.
+   * After Try AR with no route - coach start/end selection on the map.
    */
   arRouteSetupActive: boolean;
   /**
@@ -510,6 +528,7 @@ export const initialAppState = (): AppState => ({
   authStepBeforeLocation: null,
   passwordResetUid: '',
   passwordResetToken: '',
+  checkEmailPurpose: null,
   authLegalDocument: null,
   legalWebView: null,
   authEmail: '',
@@ -520,6 +539,11 @@ export const initialAppState = (): AppState => ({
   guestId: null,
   guestAccessAllowed: null,
   guestAccessReason: null,
+  guestTrialExpiresAt: null,
+  guestHasTriedArView: false,
+  guestHasTried2dView: false,
+  guestArGatePrompt: null,
+  guestArGateLoading: false,
   pseudoNameDraft: '',
   pseudoNameHint: '',
   selectedInterests: [],

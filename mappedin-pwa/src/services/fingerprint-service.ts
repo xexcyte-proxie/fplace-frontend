@@ -1,5 +1,5 @@
 /**
- * FingerprintService — browser fingerprinting only (FingerprintJS).
+ * FingerprintService - browser fingerprinting only (FingerprintJS).
  * Does not talk to any backend; guest API calls live in guest-access-service.
  */
 import FingerprintJS, { type Agent } from '@fingerprintjs/fingerprintjs';

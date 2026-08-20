@@ -5,7 +5,7 @@
   const params = new URLSearchParams(window.location.search);
 
   window.FPLACES_AR_CONFIG = {
-    /** Bumped when AR camera/SLAM boot changes — check console on load. */
+    /** Bumped when AR camera/SLAM boot changes - check console on load. */
     buildId: "20260727-arrow-density-v1",
     eighthWallAppKey: "",
     xrMode: "auto",
@@ -18,7 +18,7 @@
     slamPoseCorrectionM: 3,
     useWebGlArrows: true,
     usePathRibbon: false,
-    /** Incremental world-anchored path — append segments as user walks (default on). */
+    /** Incremental world-anchored path - append segments as user walks (default on). */
     useIncrementalPath: true,
     /** Hard cap on how far ahead arrows may ever exist. */
     incrementalPathHorizonM: 22,
@@ -49,9 +49,9 @@
     turnCurveArrowSpacingM: 2.0,
     floorArrowCount: 4,
     floorArrowLeadInM: 1.6,
-    /** Single leading guidance arrow — meters ahead along path floor. */
+    /** Single leading guidance arrow - meters ahead along path floor. */
     leadingArrowDistanceM: 2.2,
-    /** Visual scale — match trail chevrons (Google shows uniform row). */
+    /** Visual scale - match trail chevrons (Google shows uniform row). */
     leadingArrowScale: 1.05,
     /** Advance to next path node when within this distance (Google AR: 2–5 m). */
     waypointAdvanceThresholdM: 3,

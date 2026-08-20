@@ -235,7 +235,7 @@
 
   function resolveStartAlongM(points, camera) {
     const nav = window.__fplacesNavigator;
-    // Prefer snapshot fields — do NOT call getDisplayAlongPathMeters (it can tick sim).
+    // Prefer snapshot fields - do NOT call getDisplayAlongPathMeters (it can tick sim).
     let along =
       (typeof nav?._displayAlongPathM === "number" &&
         Number.isFinite(nav._displayAlongPathM) &&
@@ -309,7 +309,7 @@
     if (!scene || !cachedRouteInput || !cachedAnchorEngine?.isCalibrated) {
       DBG?.logThrottled?.(
         "IncrementalPath",
-        "Extend skipped — not ready",
+        "Extend skipped - not ready",
         {
           hasScene: !!scene,
           hasRoute: !!cachedRouteInput,
@@ -356,7 +356,7 @@
     if (!scene || !cachedRouteInput || !cachedAnchorEngine?.isCalibrated) {
       DBG?.logThrottled?.(
         "Align",
-        "Trail refresh skipped — not ready",
+        "Trail refresh skipped - not ready",
         {
           hasScene: !!scene,
           hasRoute: !!cachedRouteInput,
@@ -410,7 +410,7 @@
     ) {
       DBG?.logThrottled?.(
         "Align",
-        "Trail refresh skipped — progress unchanged",
+        "Trail refresh skipped - progress unchanged",
         {
           rawAlongM: Math.round(rawAlong * 100) / 100,
           startAlongM,
@@ -458,7 +458,7 @@
     if (!scene || !cachedRouteInput || !cachedAnchorEngine?.isCalibrated) {
       DBG?.logThrottled?.(
         "Align",
-        "Leading update skipped — pathGeometry not ready",
+        "Leading update skipped - pathGeometry not ready",
         {
           hasScene: !!scene,
           hasRoute: !!cachedRouteInput,
@@ -479,7 +479,7 @@
     if (points.length < 2) {
       DBG?.logThrottled?.(
         "Align",
-        "Leading update skipped — floor path too short",
+        "Leading update skipped - floor path too short",
         { pointCount: points.length, floorId: floorId || cachedFloorId },
         2000,
         "align:pathgeom-leading:short",
@@ -528,7 +528,7 @@
     if (points.length < 2) {
       window.FplacesArDebug?.warn(
         "PathGeometry",
-        "Path build failed — insufficient points",
+        "Path build failed - insufficient points",
         {
           inputPoints: coordinatesList.length,
           calibrated: !!anchorEngine?.isCalibrated,
@@ -601,7 +601,7 @@
       ? resolveStartAlongM(points, camera) ?? 0
       : lastArrowRefreshAlongM;
 
-    // Floating .cone turn markers removed — turn is shown as curved path on the floor.
+    // Floating .cone turn markers removed - turn is shown as curved path on the floor.
     disposeTurnMarkers(threeScene);
 
     window.FplacesArDebug?.log("PathGeometry", "Floor path visuals built", {

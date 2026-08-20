@@ -1,4 +1,4 @@
-# Product Requirements Document — Fplaces Indoor Navigation (PWA)
+# Product Requirements Document - Fplaces Indoor Navigation (PWA)
 
 **Version:** 1.1  
 **Status:** Active  
@@ -11,7 +11,7 @@
 
 Fplaces is a **Progressive Web App** that helps visitors orient themselves inside complex venues (malls, campuses, airports) using interactive 3D floor plans, search, static wayfinding, and optional camera-based AR guidance.
 
-The product uses **Mappedin JS v6** directly (Vite + TypeScript) — no native shell or WebView bridge. Users can search for places, pick start and end points on the map, view turn-by-turn directions, switch floors, and open AR guidance that follows the same planned route.
+The product uses **Mappedin JS v6** directly (Vite + TypeScript) - no native shell or WebView bridge. Users can search for places, pick start and end points on the map, view turn-by-turn directions, switch floors, and open AR guidance that follows the same planned route.
 
 ---
 
@@ -19,7 +19,7 @@ The product uses **Mappedin JS v6** directly (Vite + TypeScript) — no native s
 
 Visitors inside large indoor venues often lack intuitive wayfinding. Paper maps and static signage do not adapt to the user's chosen destination, floor changes, or multi-stop journeys. Outdoor navigation apps lose accuracy indoors and do not understand venue floor plans.
 
-The product combines Mappedin indoor maps with a mobile-first **web/PWA** experience: search, visual routing on the correct floor, and optional AR turn hints — installable from the browser without an app store.
+The product combines Mappedin indoor maps with a mobile-first **web/PWA** experience: search, visual routing on the correct floor, and optional AR turn hints - installable from the browser without an app store.
 
 ---
 
@@ -40,7 +40,7 @@ The product combines Mappedin indoor maps with a mobile-first **web/PWA** experi
 
 - Custom real-time GPS streaming or route-anchored simulation
 - Live navigation progress (ETA, travelled-fraction from device movement)
-- Production indoor positioning (beacons, Apple IMDF) — future phase
+- Production indoor positioning (beacons, Apple IMDF) - future phase
 - Venue CMS / map authoring (Mappedin Maker is external)
 - User accounts, analytics dashboard
 - Native iOS/Android apps (Flutter removed)
@@ -51,8 +51,8 @@ The product combines Mappedin indoor maps with a mobile-first **web/PWA** experi
 
 | Surface | Implementation |
 |---------|----------------|
-| **Web / PWA** | `mappedin-pwa/` — Vite build, `vite-plugin-pwa` |
-| **AR module** | `ar-nav/` — self-hosted static site, linked via `VITE_AR_URL` |
+| **Web / PWA** | `mappedin-pwa/` - Vite build, `vite-plugin-pwa` |
+| **AR module** | `ar-nav/` - self-hosted static site, linked via `VITE_AR_URL` |
 
 **Default venue:** Mappedin Demo Mall (free-tier credentials in `.env.example`).  
 **Production:** Set `VITE_MAPPEDIN_*` in `mappedin-pwa/.env`.
@@ -61,7 +61,7 @@ The product combines Mappedin indoor maps with a mobile-first **web/PWA** experi
 
 ## 6. Core User Flows
 
-### 6.1 First open — map load
+### 6.1 First open - map load
 
 1. User opens the PWA.
 2. Loading overlay shows map initialization.

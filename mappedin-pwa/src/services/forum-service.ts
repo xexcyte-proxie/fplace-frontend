@@ -1,5 +1,5 @@
 /**
- * Forum service façade — presentation and MapApp talk to this module only.
+ * Forum service façade - presentation and MapApp talk to this module only.
  * HTTP + venue-room WebSocket live behind the forum repository (clean architecture).
  */
 import type {

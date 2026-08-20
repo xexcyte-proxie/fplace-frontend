@@ -2,7 +2,7 @@
   command = "npm ci --prefix mappedin-pwa && npm run build --prefix mappedin-pwa"
   publish = "mappedin-pwa/dist"
 
-# Netlify cannot proxy WebSocket upgrades — connect the PWA directly to the backend WS host.
+# Netlify cannot proxy WebSocket upgrades - connect the PWA directly to the backend WS host.
 [build.environment]
   VITE_WS_URL = "wss://fplaces-backend.vercel.app"
 
@@ -25,7 +25,20 @@
   status = 200
   force = true
 
-# PWA SPA fallback — do not rewrite static assets (assets/, ar/, etc.)
+# Password-reset email deep links → SPA (then opens Set new password).
+[[redirects]]
+  from = "/reset-password"
+  to = "/index.html"
+  status = 200
+  force = false
+
+[[redirects]]
+  from = "/reset-password/"
+  to = "/index.html"
+  status = 200
+  force = false
+
+# PWA SPA fallback - do not rewrite static assets (assets/, ar/, etc.)
 [[redirects]]
   from = "/*"
   to = "/index.html"

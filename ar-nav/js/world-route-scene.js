@@ -1,5 +1,5 @@
 /**
- * Map-anchored world route — calibrated floor ribbon (shim over pathGeometry).
+ * Map-anchored world route - calibrated floor ribbon (shim over pathGeometry).
  * Route geometry lives in stable world space; only camera pose updates each frame.
  */
 (function () {

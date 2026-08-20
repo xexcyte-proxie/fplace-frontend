@@ -54,7 +54,7 @@ export function estimateWalkSeconds(
 }
 
 export function formatWalkTime(seconds: number | null | undefined): string {
-  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return '—';
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return '-';
   const total = Math.round(seconds);
   const mins = Math.floor(total / 60);
   const secs = total % 60;
@@ -63,7 +63,7 @@ export function formatWalkTime(seconds: number | null | undefined): string {
 }
 
 export function formatWalkDistance(meters: number | null | undefined): string {
-  if (meters == null || !Number.isFinite(meters) || meters <= 0) return '— M WALK';
+  if (meters == null || !Number.isFinite(meters) || meters <= 0) return '- M WALK';
   return `${Math.round(meters)} M WALK`;
 }
 
@@ -78,7 +78,7 @@ export interface RouteSheetSummary {
   walkTime: string;
   walkDistance: string;
   isCalculating: boolean;
-  /** True when the current points cannot produce a route — user should Reset. */
+  /** True when the current points cannot produce a route - user should Reset. */
   needsReset: boolean;
 }
 
@@ -114,7 +114,7 @@ export function buildRouteSheetSummary(state: AppState): RouteSheetSummary {
       title,
       locationLine:
         'No route between these points. Reset to start again, or pick a different place.',
-      walkTime: '—',
+      walkTime: '-',
       walkDistance: 'NO ROUTE',
       isCalculating: false,
       needsReset: true,

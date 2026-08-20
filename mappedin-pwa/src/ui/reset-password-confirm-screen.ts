@@ -2,7 +2,8 @@ import type { AppState } from '../types';
 
 const AUTH_ASSETS = {
   back: '/auth/back-chevron.svg',
-  eye: '/auth/eye-icon.svg',
+  eye: '/auth/eye.svg',
+  eyeOff: '/auth/eye-off.svg',
 } as const;
 
 function fieldError(errors: Record<string, string>, key: string): string {
@@ -17,11 +18,21 @@ function escapeHtml(value: string): string {
     .replaceAll('"', '&quot;');
 }
 
+export interface ResetPasswordConfirmScreenView {
+  authLoading: boolean;
+  authFieldErrors: Record<string, string>;
+  passwordVisible?: boolean;
+}
+
 export function renderResetPasswordConfirmScreen(
-  state: Pick<AppState, 'authLoading' | 'authFieldErrors'>,
+  state:
+    | ResetPasswordConfirmScreenView
+    | Pick<AppState, 'authLoading' | 'authFieldErrors'>,
 ): string {
   const passwordError = fieldError(state.authFieldErrors, 'new_password');
   const generalError = fieldError(state.authFieldErrors, '_form');
+  const passwordVisible =
+    'passwordVisible' in state ? Boolean(state.passwordVisible) : false;
 
   return `
     <div class="auth-screen reset-password-confirm-screen">
@@ -50,13 +61,13 @@ export function renderResetPasswordConfirmScreen(
             : ''
         }
 
-        <label class="auth-field">
-          <span class="auth-label">New password</span>
+        <div class="auth-field">
+          <label class="auth-label" for="reset-password-new">New password</label>
           <div class="auth-input-wrap">
             <input
               id="reset-password-new"
               name="new_password"
-              type="password"
+              type="${passwordVisible ? 'text' : 'password'}"
               class="auth-input auth-input--with-toggle${passwordError ? ' auth-input--error' : ''}"
               placeholder="••••••••"
               autocomplete="new-password"
@@ -67,12 +78,13 @@ export function renderResetPasswordConfirmScreen(
               type="button"
               class="auth-password-toggle"
               data-password-toggle="reset-password-new"
-              aria-label="Show password"
+              aria-label="${passwordVisible ? 'Hide password' : 'Show password'}"
+              aria-pressed="${passwordVisible ? 'true' : 'false'}"
               ${state.authLoading ? 'disabled' : ''}
             >
               <img
                 class="auth-password-toggle-icon"
-                src="${AUTH_ASSETS.eye}"
+                src="${passwordVisible ? AUTH_ASSETS.eyeOff : AUTH_ASSETS.eye}"
                 alt=""
                 width="24"
                 height="24"
@@ -85,7 +97,7 @@ export function renderResetPasswordConfirmScreen(
               ? `<span class="auth-field-error" role="alert">${escapeHtml(passwordError)}</span>`
               : `<span class="auth-field-hint">At least 8 characters with a letter and a number.</span>`
           }
-        </label>
+        </div>
 
         <div class="auth-actions">
           <button

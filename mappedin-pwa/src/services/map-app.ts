@@ -46,16 +46,20 @@ import {
   verifyEmail,
   type VenueSelection,
 } from './auth-service';
-import {
-  clearPasswordResetLinkFromUrl,
-  parsePasswordResetLink,
-} from '../auth/domain/password-reset-link';
+import { isAuthCredentialFailure } from '../auth/data/datasources/api-client';
+import { consumePasswordResetLink } from '../auth/domain/password-reset-link';
 import { evaluatePasswordStrength } from '../auth/domain/password-strength';
 import {
+  guestDenialUserMessage,
   initializeFingerprint,
+  isGuestMode,
+  markGuest2dViewTried,
+  markGuestArViewTried,
   registerCurrentGuestFingerprint,
+  resolveGuestArEligibility,
   validateCurrentGuestAccess,
 } from './guest-access-service';
+import { resolveMappedinMapCredentials } from './maps-service';
 import {
   clearDeviceHasUsedApp,
   clearReturningSession,
@@ -69,7 +73,7 @@ import {
 } from './session-service';
 import { homeRepository } from '../home/data/home-repository-impl';
 import { venueVisitRepository } from '../home/data/venue-visit-repository-impl';
-import type { HomeExperience } from '../home/domain/entities';
+import { resolveHomeExperience, type HomeExperience } from '../home/domain/entities';
 import { isCompleteOtpCode } from '../auth/domain/otp-code';
 import {
   loadAppPreferences,
@@ -82,6 +86,7 @@ import {
   deleteForumPost,
   flagForumPost,
   listAllVenues,
+  getForumVenue,
   listForumComments,
   loadInitialVenueFeed,
   loadVenueCatalog,
@@ -186,12 +191,14 @@ export class MapApp {
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private searchGeneration = 0;
   private authFlowBootstrapped = false;
+  /** When session dies during splash, finish map load then open sign-in. */
+  private pendingSignInAfterSessionExpiry = false;
   private authResumeInFlight = false;
   private venueEnterInFlight = false;
   private handlingSessionExpiry = false;
   /** One-shot: focus map search after the next UI paint (Try AR flow). */
   private pendingMapSearchFocus = false;
-  /** In-memory only — used to obtain JWTs after email verification. */
+  /** In-memory only - used to obtain JWTs after email verification. */
   private pendingAuthPassword: string | null = null;
   private socialMapMarkers: SocialMapMarkerService | null = null;
   /** Receive-only venue room socket; opened right after the initial feed fetch. */
@@ -245,12 +252,17 @@ export class MapApp {
           loadingMessage: 'Loading cached map…',
           loadingProgress: 35,
         });
+      } else {
+        this.store.patch({
+          loadingMessage: 'Getting map credentials…',
+          loadingProgress: 32,
+        });
       }
 
+      const mapCredentials = await resolveMappedinMapCredentials();
       const resolved = await resolveMapData({
-        key: appConfig.mappedin.key,
-        secret: appConfig.mappedin.secret,
-        mapId: appConfig.mappedin.mapId,
+        accessToken: mapCredentials.accessToken,
+        mapId: mapCredentials.mapId,
         ...(preferredLanguage ? { language: preferredLanguage } : {}),
         fallbackToNavigatorLanguage: true,
       });
@@ -268,7 +280,7 @@ export class MapApp {
       this.routePlanner = new RoutePlanner(
         this.mapView,
         this.mapData,
-        appConfig.mappedin.mapId,
+        mapCredentials.mapId,
       );
       this.blueDotService = new BlueDotService(this.mapView);
       this.blueDotService.attachHandlers({
@@ -320,6 +332,24 @@ export class MapApp {
       const message =
         error instanceof Error ? error.message : 'Map failed to load';
       appWarn('Map', 'Init failed', error);
+
+      if (isAuthCredentialFailure(error)) {
+        clearStoredAuthTokens();
+        clearStoredAuthUser();
+        clearReturningSession();
+        markDeviceHasUsedApp();
+        this.pendingSignInAfterSessionExpiry = true;
+        this.store.patch({
+          authUser: null,
+          onboardingComplete: false,
+          mapStatus: 'error',
+          mapError: message,
+          loadingMessage: 'Your session expired. Refresh to sign in again.',
+          loadingProgress: 0,
+        });
+        return;
+      }
+
       this.store.patch({
         mapStatus: 'error',
         mapError: message,
@@ -412,7 +442,7 @@ export class MapApp {
     ) {
       this.store.patch({
         navigateView: 'home',
-        homeExperience: state.selectedVenueId ? 'first-visit' : state.homeExperience,
+        homeExperience: this.resolveHomeExperience(state.selectedVenueId),
         homeVenueSearchQuery: '',
         profileView: 'main',
         settingsConfirm: null,
@@ -442,6 +472,7 @@ export class MapApp {
       navigateView: 'map',
       homeVenueSearchQuery: '',
     });
+    void this.consumeGuest2dMapTrial();
   }
 
   selectHomeRecentVenue(venueId: string): void {
@@ -462,6 +493,7 @@ export class MapApp {
         navigateView: 'map',
         activeTab: 'map',
       });
+      void this.consumeGuest2dMapTrial();
       this.showToast(`Opening ${matchedForumVenue.name}`);
       return;
     }
@@ -472,6 +504,7 @@ export class MapApp {
       navigateView: 'map',
       activeTab: 'map',
     });
+    void this.consumeGuest2dMapTrial();
     if (recent) {
       this.showToast(`Opening ${recent.name}`);
     }
@@ -991,9 +1024,14 @@ export class MapApp {
     });
   }
 
-  completeOnboarding(): void {
+  completeOnboarding(options?: { homeExperience?: HomeExperience }): void {
     const state = this.store.get();
-    const homeExperience = this.resolveHomeExperience(state.selectedVenueId);
+    const homeExperience =
+      options?.homeExperience ??
+      this.resolveHomeExperience(state.selectedVenueId);
+    if (state.selectedVenueId) {
+      venueVisitRepository.markVisited(state.selectedVenueId);
+    }
     markDeviceHasUsedApp();
     saveReturningSession({
       onboardingComplete: true,
@@ -1018,13 +1056,12 @@ export class MapApp {
 
   /**
    * First enter of a venue → first-visit dashboard; later visits → returning home.
-   * Temporarily always treats a selected venue as a first visit so we can preview
-   * that home experience.
    */
   private resolveHomeExperience(venueId: string | null): HomeExperience {
-    if (!venueId?.trim()) return 'returning';
-    venueVisitRepository.clear();
-    return 'first-visit';
+    return resolveHomeExperience(
+      venueId,
+      venueId ? venueVisitRepository.hasVisited(venueId) : false,
+    );
   }
 
   /** Discover / See all posts from the first-visit venue home. */
@@ -1039,6 +1076,25 @@ export class MapApp {
 
   /** Try AR from the first-visit venue home. */
   async openVenueArFromHome(): Promise<void> {
+    if (isGuestMode()) {
+      this.store.patch({ guestArGateLoading: true });
+      try {
+        const eligibility = await resolveGuestArEligibility();
+        this.store.patch({
+          guestHasTriedArView: eligibility.preferences.hasTriedArView,
+          guestHasTried2dView: eligibility.preferences.hasTried2dView,
+          guestArGateLoading: false,
+        });
+        if (!eligibility.allowed) {
+          this.store.patch({ guestArGatePrompt: 'already-used' });
+          return;
+        }
+      } catch (error) {
+        this.store.patch({ guestArGateLoading: false });
+        appWarn('Guest', 'Could not resolve AR eligibility from home', error);
+      }
+    }
+
     if (this.store.get().route) {
       this.store.patch({ arRoutePromptOpen: false });
       this.openNavigateMap();
@@ -1046,7 +1102,7 @@ export class MapApp {
       return;
     }
 
-    // Stay on venue home — dialog explains start/end, then user opens the map.
+    // Stay on venue home - dialog explains start/end, then user opens the map.
     this.store.patch({ arRoutePromptOpen: true });
   }
 
@@ -1068,6 +1124,7 @@ export class MapApp {
       isSearching: false,
       arRouteSetupActive: true,
     });
+    void this.consumeGuest2dMapTrial();
   }
 
   /** Whether the map search field should be focused after render. */
@@ -1293,6 +1350,7 @@ export class MapApp {
       void this.enterSelectedVenue({
         skipLocationGate: true,
         welcomeToast: false,
+        homeExperience: 'returning',
       });
       return;
     }
@@ -1415,6 +1473,8 @@ export class MapApp {
     welcomeToast?: boolean;
     /** Location was already granted after create / sign-in / guest. */
     skipLocationGate?: boolean;
+    /** Signed-in session restore lands on Recently visited, not first-visit. */
+    homeExperience?: HomeExperience;
   }): Promise<void> {
     if (this.venueEnterInFlight) return;
 
@@ -1440,13 +1500,31 @@ export class MapApp {
       venueId: state.selectedVenueId,
       sectionId: state.selectedGateId,
     };
-    const venue = state.forumVenues.find(
+    let venue = state.forumVenues.find(
       (item) => String(item.id) === state.selectedVenueId,
     );
+    let forumVenues = state.forumVenues;
 
     this.venueEnterInFlight = true;
     this.store.patch({ authLoading: true, authFieldErrors: {} });
     try {
+      if (!venue) {
+        try {
+          const fetched = await getForumVenue(venueId);
+          venue = {
+            id: fetched.id,
+            name: fetched.name,
+            location: fetched.location,
+          };
+          forumVenues = [
+            ...state.forumVenues.filter((item) => item.id !== fetched.id),
+            venue,
+          ];
+        } catch (error) {
+          appWarn('Venue', 'Could not load venue name', error);
+        }
+      }
+
       let sections = state.forumSections;
       let categories = state.forumCategories;
       if (sections.length === 0 || categories.length === 0) {
@@ -1490,6 +1568,7 @@ export class MapApp {
 
       this.store.patch({
         authUser: refreshedUser ?? user,
+        forumVenues,
         forumSections: sections,
         forumCategories: categories,
         selectedVenueId: selection.venueId,
@@ -1513,9 +1592,11 @@ export class MapApp {
         );
       }
 
-      // Location dialog only after create / sign-in / guest — not after venue pick.
+      // Location dialog only after create / sign-in / guest - not after venue pick.
       if (options?.skipLocationGate || this.store.get().userLocation) {
-        this.completeOnboarding();
+        this.completeOnboarding({
+          homeExperience: options?.homeExperience,
+        });
       } else {
         this.beginLocationPermissionGate();
       }
@@ -1663,16 +1744,29 @@ export class MapApp {
     if (this.authFlowBootstrapped) return;
     this.authFlowBootstrapped = true;
 
+    // Password-reset email deep links (uid + token → confirm screen) must win
+    // over guest/auth routing so /api/users/password-reset-confirm/ can complete.
+    if (this.tryOpenPasswordResetFromUrl()) {
+      return;
+    }
+
+    // Expired session during splash → open sign-in once the map is ready.
+    if (this.pendingSignInAfterSessionExpiry) {
+      this.pendingSignInAfterSessionExpiry = false;
+      this.resetAuthState({
+        showLogin: true,
+        formError: 'Your session expired. Please log in again.',
+        toast: 'Session expired. Please log in again.',
+      });
+      return;
+    }
+
     // Fingerprint + guest validation before deciding welcome vs create-account.
     // Registered users with JWTs still get fingerprinted for future association,
     // but are not blocked by guest limits.
     this.store.patch({ authLoading: true, authFieldErrors: {} });
     const guestGatePassed = await this.resolveGuestFingerprintGate();
     if (!guestGatePassed) {
-      return;
-    }
-
-    if (this.tryOpenPasswordResetFromUrl()) {
       return;
     }
 
@@ -1685,7 +1779,7 @@ export class MapApp {
     });
 
     if (destination === 'app' && isReturningSession(returning)) {
-      // Skip welcome/marketing — restore home for auth or guest returners.
+      // Skip welcome/marketing - restore home for auth or guest returners.
       await this.restoreReturningSession(returning);
       return;
     }
@@ -1713,7 +1807,7 @@ export class MapApp {
       return;
     }
 
-    // Brand-new device — Find places / marketing onboarding.
+    // Brand-new device - Find places / marketing onboarding.
     this.store.patch({
       authStep: 'none',
       authLoading: false,
@@ -1760,9 +1854,9 @@ export class MapApp {
       }
     }
 
-    const homeExperience: HomeExperience = venueId
-      ? 'first-visit'
-      : 'returning';
+    if (venueId) {
+      venueVisitRepository.markVisited(venueId);
+    }
 
     this.store.patch({
       selectedVenueId: venueId,
@@ -1773,7 +1867,7 @@ export class MapApp {
       authLoading: true,
       authFieldErrors: {},
       navigateView: 'home',
-      homeExperience,
+      homeExperience: 'returning',
     });
 
     if (hasStoredAuthTokens()) {
@@ -1807,6 +1901,7 @@ export class MapApp {
         await this.enterSelectedVenue({
           skipLocationGate: true,
           welcomeToast: false,
+          homeExperience: 'returning',
         });
         return;
       } catch (error) {
@@ -1848,6 +1943,7 @@ export class MapApp {
       await this.enterSelectedVenue({
         skipLocationGate: true,
         welcomeToast: false,
+        homeExperience: 'returning',
       });
       return;
     }
@@ -1857,8 +1953,9 @@ export class MapApp {
   }
 
   /**
-   * Generate the browser fingerprint and validate it with the (mock) guest API.
-   * Returns false when guest access is denied and the user was redirected to create account.
+   * Generate the browser fingerprint and obtain/refresh a guest JWT via
+   * POST /api/users/guest/. Returns false when the trial is exhausted and the
+   * user was redirected to create account / sign-in.
    */
   private async resolveGuestFingerprintGate(): Promise<boolean> {
     try {
@@ -1868,12 +1965,16 @@ export class MapApp {
         guestId: result.guestId ?? null,
         guestAccessAllowed: result.allowed,
         guestAccessReason: result.reason,
+        guestTrialExpiresAt: result.session?.trialExpiresAt ?? null,
+        guestHasTriedArView: result.session?.hasTriedArView === true,
+        guestHasTried2dView: result.session?.hasTried2dView === true,
       });
-      appLog('Guest', 'Fingerprint validated', {
+      appLog('Guest', 'Guest session validated', {
         visitorId: result.visitorId,
         allowed: result.allowed,
         guestId: result.guestId,
         reason: result.reason,
+        trialExpiresAt: result.session?.trialExpiresAt,
       });
 
       // Authenticated sessions bypass the guest denial redirect.
@@ -1886,28 +1987,29 @@ export class MapApp {
             guestAccessReason: result.reason,
           });
           this.showLogin();
-          this.showToast(
-            result.reason === 'Guest limit reached'
-              ? 'Guest access is no longer available on this device. Please sign in.'
-              : result.reason ?? 'Please sign in to continue.',
-          );
+          this.showToast(guestDenialUserMessage(result.reason));
           return false;
         }
         this.redirectToCreateAccountForGuestDenial(
-          result.reason ?? 'Guest limit reached',
+          result.reason ?? 'Guest trial expired',
         );
         return false;
       }
 
       return true;
     } catch (error) {
-      // Fail open for anonymous users so a fingerprint outage does not brick onboarding.
-      appWarn('Guest', 'Fingerprint validation failed; continuing', error);
+      // Fail open for anonymous users so a guest-API outage does not brick onboarding.
+      appWarn('Guest', 'Guest token validation failed; continuing', error);
       this.store.patch({
         visitorId: null,
         guestId: null,
         guestAccessAllowed: null,
         guestAccessReason: null,
+        guestTrialExpiresAt: null,
+        guestHasTriedArView: false,
+        guestHasTried2dView: false,
+        guestArGatePrompt: null,
+        guestArGateLoading: false,
       });
       return true;
     }
@@ -1921,11 +2023,7 @@ export class MapApp {
       guestAccessAllowed: false,
       guestAccessReason: reason,
     });
-    this.showToast(
-      reason === 'Guest limit reached'
-        ? 'Guest access is no longer available on this device. Create an account to continue.'
-        : reason,
-    );
+    this.showToast(guestDenialUserMessage(reason));
   }
 
   private async resumeAuthSession(): Promise<void> {
@@ -1990,12 +2088,7 @@ export class MapApp {
   async continueAsGuest(): Promise<void> {
     const state = this.store.get();
     if (state.guestAccessAllowed === false) {
-      this.showToast(
-        state.guestAccessReason === 'Guest limit reached'
-          ? 'Guest access is no longer available on this device. Create an account to continue.'
-          : state.guestAccessReason ||
-              'Guest access is not available on this device.',
-      );
+      this.showToast(guestDenialUserMessage(state.guestAccessReason));
       return;
     }
 
@@ -2008,11 +2101,14 @@ export class MapApp {
         guestId: result.guestId ?? null,
         guestAccessAllowed: result.allowed,
         guestAccessReason: result.reason ?? null,
+        guestTrialExpiresAt: result.session?.trialExpiresAt ?? null,
+        guestHasTriedArView: result.session?.hasTriedArView === true,
+        guestHasTried2dView: result.session?.hasTried2dView === true,
       });
 
       if (!result.allowed) {
         this.redirectToCreateAccountForGuestDenial(
-          result.reason ?? 'Guest limit reached',
+          result.reason ?? 'Guest trial expired',
         );
         return;
       }
@@ -2027,10 +2123,14 @@ export class MapApp {
       this.beginLocationPermissionGate();
     } catch (error) {
       appWarn('Guest', 'Continue as guest failed', error);
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Could not continue as guest. Please try again.';
       this.store.patch({
         authLoading: false,
         authFieldErrors: {
-          _form: 'Could not continue as guest. Please try again.',
+          _form: message,
         },
       });
     }
@@ -2049,7 +2149,7 @@ export class MapApp {
     }
 
     this.store.patch({
-      authStep: 'features',
+      authStep: 'none',
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
@@ -2060,6 +2160,7 @@ export class MapApp {
     markDeviceHasUsedApp();
     this.store.patch({
       authStep: 'login',
+      checkEmailPurpose: null,
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
@@ -2068,7 +2169,7 @@ export class MapApp {
 
   dismissLogin(): void {
     this.store.patch({
-      authStep: 'create',
+      authStep: 'none',
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
@@ -2095,20 +2196,18 @@ export class MapApp {
 
   /** Opens the reset-confirm screen when the email deep link is present. */
   tryOpenPasswordResetFromUrl(): boolean {
-    const params = parsePasswordResetLink(
-      window.location.search,
-      window.location.hash,
-    );
+    const params = consumePasswordResetLink();
     if (!params) return false;
 
-    clearPasswordResetLinkFromUrl();
     markDeviceHasUsedApp();
+    this.pendingSignInAfterSessionExpiry = false;
     this.store.patch({
       onboardingComplete: false,
       authStep: 'reset-password-confirm',
       authStepBeforeLocation: null,
       passwordResetUid: params.uid,
       passwordResetToken: params.token,
+      checkEmailPurpose: null,
       authLoading: false,
       authFieldErrors: {},
       authLegalDocument: null,
@@ -2172,6 +2271,7 @@ export class MapApp {
         authLoading: false,
         authFieldErrors: {},
         authStep: 'login',
+        checkEmailPurpose: null,
         passwordResetUid: '',
         passwordResetToken: '',
       });
@@ -2213,7 +2313,9 @@ export class MapApp {
       this.store.patch({
         authLoading: false,
         authFieldErrors: {},
-        authStep: 'login',
+        authEmail: trimmedEmail,
+        authStep: 'check-email',
+        checkEmailPurpose: 'password-reset',
       });
       this.showToast(message || 'Reset link sent. Check your email.');
     } catch (error) {
@@ -2310,7 +2412,41 @@ export class MapApp {
   }
 
   dismissCheckEmail(): void {
-    this.store.patch({ authStep: 'create', authFieldErrors: {} });
+    const purpose = this.store.get().checkEmailPurpose;
+    this.store.patch({
+      authStep: purpose === 'password-reset' ? 'forgot-password' : 'create',
+      checkEmailPurpose: null,
+      authFieldErrors: {},
+    });
+  }
+
+  /** Resend from the check-email screen — verify OTP or password-reset link. */
+  async resendCheckEmail(): Promise<boolean> {
+    const state = this.store.get();
+    if (state.checkEmailPurpose === 'password-reset') {
+      const email = state.authEmail.trim();
+      if (!email) {
+        this.showToast('Missing email for password reset.');
+        return false;
+      }
+      this.store.patch({ authLoading: true });
+      try {
+        const message = await requestPasswordReset(email);
+        this.store.patch({ authLoading: false });
+        this.showToast(message || 'Reset link sent. Check your email.');
+        return true;
+      } catch (error) {
+        this.store.patch({ authLoading: false });
+        const message =
+          error instanceof AuthApiError
+            ? error.summary
+            : 'Could not resend the reset link.';
+        this.showToast(message);
+        appWarn('Auth', 'Resend password reset failed', error);
+        return false;
+      }
+    }
+    return this.resendVerificationCode();
   }
 
   dismissVerifyEmail(): void {
@@ -2578,6 +2714,14 @@ export class MapApp {
       locationGateLoading: false,
       locationPermanentlyDenied: false,
       locationGateError: null,
+      guestId: null,
+      guestAccessAllowed: null,
+      guestAccessReason: null,
+      guestTrialExpiresAt: null,
+      guestHasTriedArView: false,
+      guestHasTried2dView: false,
+      guestArGatePrompt: null,
+      guestArGateLoading: false,
       pseudoNameDraft: '',
       pseudoNameHint: '',
       selectedInterests: [],
@@ -2626,12 +2770,25 @@ export class MapApp {
 
   private handleAuthSessionExpired(): void {
     if (this.handlingSessionExpiry) return;
-    if (!this.store.get().authUser && !this.store.get().onboardingComplete) {
-      return;
-    }
     this.handlingSessionExpiry = true;
     try {
       this.disconnectVenueLiveFeed();
+      this.disconnectPersonalNotifications();
+      clearReturningSession();
+      clearStoredAuthUser();
+      markDeviceHasUsedApp();
+
+      // Map still booting: finish as guest, then route to sign-in in bootstrap.
+      if (this.store.get().mapStatus !== 'ready') {
+        this.pendingSignInAfterSessionExpiry = true;
+        this.store.patch({
+          authUser: null,
+          onboardingComplete: false,
+          authLoading: false,
+        });
+        return;
+      }
+
       this.resetAuthState({
         showLogin: true,
         formError: 'Your session expired. Please log in again.',
@@ -2667,6 +2824,7 @@ export class MapApp {
     markDeviceHasUsedApp();
     const selection = loadVenueSelection(user.id);
     if (selection) {
+      venueVisitRepository.markVisited(selection.venueId);
       this.store.patch({
         selectedVenueId: selection.venueId,
         selectedGateId: selection.sectionId,
@@ -2680,7 +2838,7 @@ export class MapApp {
       legalWebView: null,
     });
 
-    // Location dialog only after explicit create / sign-in / guest — never on
+    // Location dialog only after explicit create / sign-in / guest - never on
     // silent session restore over the welcome screen.
     if (options?.promptLocation) {
       this.beginLocationPermissionGate();
@@ -2702,7 +2860,7 @@ export class MapApp {
     const user = state.authUser;
 
     // Do not clear authStepBeforeLocation here while authStep is still a
-    // location-gate step — that briefly renders Find places behind the dialog.
+    // location-gate step - that briefly renders Find places behind the dialog.
     // Destination helpers clear it in the same patch as the next authStep.
 
     if (!user) {
@@ -2744,6 +2902,7 @@ export class MapApp {
     await this.enterSelectedVenue({
       skipLocationGate: true,
       welcomeToast: true,
+      homeExperience: 'returning',
     });
   }
 
@@ -3031,7 +3190,7 @@ export class MapApp {
         this.showToast('Post reported and removed.');
       } else {
         this.mergeForumPostIntoFeed(updated);
-        this.showToast('Thanks — post reported.');
+        this.showToast('Thanks. Post reported.');
       }
     } catch (error) {
       const message =
@@ -3728,6 +3887,102 @@ export class MapApp {
       return;
     }
 
+    if (isGuestMode()) {
+      this.store.patch({ guestArGateLoading: true });
+      try {
+        const eligibility = await resolveGuestArEligibility();
+        this.store.patch({
+          guestHasTriedArView: eligibility.preferences.hasTriedArView,
+          guestHasTried2dView: eligibility.preferences.hasTried2dView,
+          guestArGateLoading: false,
+        });
+
+        if (!eligibility.allowed) {
+          this.store.patch({ guestArGatePrompt: 'already-used' });
+          return;
+        }
+
+        // First-time guests must acknowledge the one-time trial before AR opens.
+        if (this.store.get().guestArGatePrompt !== 'one-time-info') {
+          this.store.patch({ guestArGatePrompt: 'one-time-info' });
+          return;
+        }
+      } catch (error) {
+        this.store.patch({ guestArGateLoading: false });
+        appWarn('Guest', 'Could not resolve AR eligibility', error);
+        this.showToast('Could not verify your AR trial. Please try again.');
+        return;
+      }
+    }
+
+    await this.enterArFullscreen();
+  }
+
+  /** Dismiss the guest AR trial dialog without opening AR. */
+  dismissGuestArGate(): void {
+    this.store.patch({
+      guestArGatePrompt: null,
+      guestArGateLoading: false,
+    });
+  }
+
+  /**
+   * Guest acknowledged the one-time AR notice - consume the trial on the
+   * backend immediately, then open AR.
+   */
+  async confirmGuestArOneTimeTrial(): Promise<void> {
+    if (!isGuestMode()) {
+      this.store.patch({ guestArGatePrompt: null });
+      await this.openAr();
+      return;
+    }
+
+    if (!this.store.get().route) {
+      this.store.patch({ guestArGatePrompt: null });
+      this.showToast('Generate a route before opening AR.');
+      return;
+    }
+
+    this.store.patch({ guestArGateLoading: true });
+    try {
+      const preferences = await markGuestArViewTried();
+      this.store.patch({
+        guestHasTriedArView: preferences.hasTriedArView,
+        guestHasTried2dView: preferences.hasTried2dView,
+        guestArGatePrompt: null,
+        guestArGateLoading: false,
+      });
+      await this.enterArFullscreen();
+    } catch (error) {
+      this.store.patch({ guestArGateLoading: false });
+      appWarn('Guest', 'Could not mark AR trial as used', error);
+      this.showToast('Could not start your AR trial. Please try again.');
+    }
+  }
+
+  /** PATCH has_tried_2d_view=true the first time a guest opens the 2D map. */
+  private async consumeGuest2dMapTrial(): Promise<void> {
+    if (!isGuestMode()) return;
+    if (this.store.get().guestHasTried2dView) return;
+
+    try {
+      const preferences = await markGuest2dViewTried();
+      this.store.patch({
+        guestHasTriedArView: preferences.hasTriedArView,
+        guestHasTried2dView: preferences.hasTried2dView,
+      });
+    } catch (error) {
+      appWarn('Guest', 'Could not mark 2D map trial as used', error);
+    }
+  }
+
+  private async enterArFullscreen(): Promise<void> {
+    const state = this.store.get();
+    if (!state.route) {
+      this.showToast('Generate a route before opening AR.');
+      return;
+    }
+
     const progress = this.getNavigationProgressSnapshot();
     const userPosition =
       progress.latitude != null && progress.longitude != null
@@ -3757,7 +4012,11 @@ export class MapApp {
       progress,
     );
     openArFullscreen(url, routePayload);
-    this.store.patch({ arPresentation: 'fullscreen' });
+    this.store.patch({
+      arPresentation: 'fullscreen',
+      guestArGatePrompt: null,
+      guestArGateLoading: false,
+    });
     this.resumeRouteNavigation(progress);
     appLog('AR', 'Opened', { url, alongPathMeters: progress.alongPathMeters });
 
@@ -4040,7 +4299,7 @@ export class MapApp {
     const state = this.store.get();
     if (!state.route?.pathCoordinates?.length) {
       this.showToast('Generate a route before starting navigation.');
-      console.warn('[PWA Bridge] startRouteMovement skipped — no route path');
+      console.warn('[PWA Bridge] startRouteMovement skipped - no route path');
       return;
     }
 
@@ -4092,7 +4351,7 @@ export class MapApp {
 
     if (!provider) {
       this.showToast('Could not start route simulation.');
-      console.error('[PWA Bridge] startRouteMovement failed — simulator provider unavailable');
+      console.error('[PWA Bridge] startRouteMovement failed - simulator provider unavailable');
       return;
     }
 
@@ -4221,7 +4480,7 @@ export class MapApp {
       alongPathMeters: traveled,
       offRouteMeters: options?.offRouteMeters,
     });
-    // Arrived only when on/near the path end — not while still off-route.
+    // Arrived only when on/near the path end - not while still off-route.
     const atEnd =
       total > 0 &&
       traveled >= total - 0.75 &&
@@ -4597,7 +4856,7 @@ export class MapApp {
       currentFloorId &&
       frame.floorId !== currentFloorId
     ) {
-      appLog('Position', 'Floor ID mismatch — frame floor differs from map view', {
+      appLog('Position', 'Floor ID mismatch - frame floor differs from map view', {
         frameFloorId: frame.floorId,
         currentFloorId,
         source: frame.source,
@@ -4644,7 +4903,7 @@ export class MapApp {
 
     if (isArFrameVisible() || isArSessionActive(this.store.get().arPresentation)) {
       if (projected.source === 'simulator') {
-        // Full simulator clock at 10 Hz — single source of truth for AR.
+        // Full simulator clock at 10 Hz - single source of truth for AR.
         syncNavigationToAr(this.getNavigationProgressSnapshot());
       } else if (this.liveRouteTracking || this.store.get().routeSimulating) {
         const now = performance.now();
@@ -4759,7 +5018,7 @@ export class MapApp {
   }
 
   /**
-   * Enable Location CTA — request permission via Geolocation API, then read coords.
+   * Enable Location CTA - request permission via Geolocation API, then read coords.
    */
   async enableLocationPermission(): Promise<void> {
     await this.runLocationGateRequest({ fromPermissionRequired: false });
@@ -4780,7 +5039,7 @@ export class MapApp {
     await this.runLocationGateRequest({ fromPermissionRequired: true });
   }
 
-  /** Retry on Location Error — permission already granted; re-read position. */
+  /** Retry on Location Error - permission already granted; re-read position. */
   async retryLocationRetrieval(): Promise<void> {
     await this.runLocationGateRequest({ fromPermissionRequired: false });
   }

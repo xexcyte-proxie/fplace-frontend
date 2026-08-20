@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the Mappedin JS PWA (official Blue Dot stack — no Flutter bridge).
+# Run the Mappedin JS PWA (official Blue Dot stack - no Flutter bridge).
 set -e
 cd "$(dirname "$0")/mappedin-pwa"
 

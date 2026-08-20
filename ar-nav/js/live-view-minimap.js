@@ -1,5 +1,5 @@
 /**
- * Compact circular minimap — user-fixed center, route in flat geographic meters.
+ * Compact circular minimap - user-fixed center, route in flat geographic meters.
  * Heading matches 2D travel direction when the parent simulator drives position.
  */
 (function () {
@@ -136,7 +136,7 @@
   }
 
   /**
-   * Equirectangular projection — same model as 3D world space (FplacesGeoMath).
+   * Equirectangular projection - same model as 3D world space (FplacesGeoMath).
    */
   function projectMinimap(path, snap, headingDeg, alongM) {
     const geo = window.FplacesRouteGeometry;
@@ -227,7 +227,7 @@
     }
     if (wedgeEl) {
       // Heading-up map: route rotator already uses −heading, so phone-forward is
-      // always screen-up. Keep the glow fixed at top — do not double-rotate.
+      // always screen-up. Keep the glow fixed at top - do not double-rotate.
       wedgeEl.setAttribute(
         'transform',
         `translate(${CENTER} ${CENTER})`,

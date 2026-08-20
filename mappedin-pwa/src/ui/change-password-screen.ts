@@ -1,7 +1,8 @@
 import type { AppState } from '../types';
 
 const AUTH_ASSETS = {
-  eye: '/auth/eye-icon.svg',
+  eye: '/auth/eye.svg',
+  eyeOff: '/auth/eye-off.svg',
 } as const;
 
 function fieldError(errors: Record<string, string>, key: string): string {
@@ -16,12 +17,25 @@ function escapeHtml(value: string): string {
     .replaceAll('"', '&quot;');
 }
 
+export interface ChangePasswordScreenView {
+  authLoading: boolean;
+  authFieldErrors: Record<string, string>;
+  /** When true, current-password field is shown as plain text. */
+  oldPasswordVisible?: boolean;
+  /** When true, new-password field is shown as plain text. */
+  newPasswordVisible?: boolean;
+}
+
 export function renderChangePasswordScreen(
-  state: Pick<AppState, 'authLoading' | 'authFieldErrors'>,
+  state: ChangePasswordScreenView | Pick<AppState, 'authLoading' | 'authFieldErrors'>,
 ): string {
   const oldError = fieldError(state.authFieldErrors, 'old_password');
   const newError = fieldError(state.authFieldErrors, 'new_password');
   const generalError = fieldError(state.authFieldErrors, '_form');
+  const oldVisible =
+    'oldPasswordVisible' in state ? Boolean(state.oldPasswordVisible) : false;
+  const newVisible =
+    'newPasswordVisible' in state ? Boolean(state.newPasswordVisible) : false;
 
   return `
     <div class="settings-screen">
@@ -45,13 +59,13 @@ export function renderChangePasswordScreen(
           <section class="settings-group">
             <h2 class="settings-group-label">Current password</h2>
             <div class="settings-card settings-card--padded">
-              <label class="auth-field">
-                <span class="auth-label visually-hidden">Current password</span>
+              <div class="auth-field">
+                <label class="auth-label visually-hidden" for="change-password-old">Current password</label>
                 <div class="auth-input-wrap">
                   <input
                     id="change-password-old"
                     name="old_password"
-                    type="password"
+                    type="${oldVisible ? 'text' : 'password'}"
                     class="auth-input auth-input--with-toggle${oldError ? ' auth-input--error' : ''}"
                     placeholder="••••••••"
                     autocomplete="current-password"
@@ -62,12 +76,13 @@ export function renderChangePasswordScreen(
                     type="button"
                     class="auth-password-toggle"
                     data-password-toggle="change-password-old"
-                    aria-label="Show password"
+                    aria-label="${oldVisible ? 'Hide password' : 'Show password'}"
+                    aria-pressed="${oldVisible ? 'true' : 'false'}"
                     ${state.authLoading ? 'disabled' : ''}
                   >
                     <img
                       class="auth-password-toggle-icon"
-                      src="${AUTH_ASSETS.eye}"
+                      src="${oldVisible ? AUTH_ASSETS.eyeOff : AUTH_ASSETS.eye}"
                       alt=""
                       width="24"
                       height="24"
@@ -76,20 +91,20 @@ export function renderChangePasswordScreen(
                   </button>
                 </div>
                 ${oldError ? `<span class="auth-field-error" role="alert">${escapeHtml(oldError)}</span>` : ''}
-              </label>
+              </div>
             </div>
           </section>
 
           <section class="settings-group">
             <h2 class="settings-group-label">New password</h2>
             <div class="settings-card settings-card--padded">
-              <label class="auth-field">
-                <span class="auth-label visually-hidden">New password</span>
+              <div class="auth-field">
+                <label class="auth-label visually-hidden" for="change-password-new">New password</label>
                 <div class="auth-input-wrap">
                   <input
                     id="change-password-new"
                     name="new_password"
-                    type="password"
+                    type="${newVisible ? 'text' : 'password'}"
                     class="auth-input auth-input--with-toggle${newError ? ' auth-input--error' : ''}"
                     placeholder="••••••••"
                     autocomplete="new-password"
@@ -100,12 +115,13 @@ export function renderChangePasswordScreen(
                     type="button"
                     class="auth-password-toggle"
                     data-password-toggle="change-password-new"
-                    aria-label="Show password"
+                    aria-label="${newVisible ? 'Hide password' : 'Show password'}"
+                    aria-pressed="${newVisible ? 'true' : 'false'}"
                     ${state.authLoading ? 'disabled' : ''}
                   >
                     <img
                       class="auth-password-toggle-icon"
-                      src="${AUTH_ASSETS.eye}"
+                      src="${newVisible ? AUTH_ASSETS.eyeOff : AUTH_ASSETS.eye}"
                       alt=""
                       width="24"
                       height="24"
@@ -118,7 +134,7 @@ export function renderChangePasswordScreen(
                     ? `<span class="auth-field-error" role="alert">${escapeHtml(newError)}</span>`
                     : `<p class="settings-field-hint">At least 8 characters with a letter and a number.</p>`
                 }
-              </label>
+              </div>
             </div>
           </section>
 

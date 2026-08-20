@@ -103,7 +103,7 @@
     const onOrientation = (event) => {
       const raw = readDeviceHeading(event);
       if (raw != null && !Number.isNaN(raw)) {
-        // Always keep the raw magnetometer reading — SLAM calibration needs it
+        // Always keep the raw magnetometer reading - SLAM calibration needs it
         // even while FplacesSlamHeading owns the displayed heading.
         lastRawCompassDeg = ((raw % 360) + 360) % 360;
         lastRawCompassAt = performance.now();

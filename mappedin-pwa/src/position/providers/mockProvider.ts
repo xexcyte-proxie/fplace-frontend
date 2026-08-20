@@ -16,7 +16,7 @@ import {
 import { appLog } from '../../utils/logger';
 
 const TICK_MS = 100;
-/** ~1.3 m/s walk at 10 Hz — matches realistic indoor pace on the 2D map. */
+/** ~1.3 m/s walk at 10 Hz - matches realistic indoor pace on the 2D map. */
 const STEP_METERS_PER_TICK = 0.13;
 
 interface BeaconMatrixEntry {
@@ -54,7 +54,7 @@ export class HighFrequencyMockProvider extends PositionProvider {
 
   startSimulationMove(): void {
     if (!this.path.length) {
-      appLog('Simulator', 'startSimulationMove skipped — empty path');
+      appLog('Simulator', 'startSimulationMove skipped - empty path');
       return;
     }
     const alreadyActive = this.isMoving && this.timer != null;
@@ -144,7 +144,7 @@ export class HighFrequencyMockProvider extends PositionProvider {
 
     if (!this.path.length) {
       if (this.source === 'simulator') {
-        appLog('Simulator', 'onStart aborted — empty path, interval not scheduled');
+        appLog('Simulator', 'onStart aborted - empty path, interval not scheduled');
       }
       return;
     }
@@ -156,7 +156,7 @@ export class HighFrequencyMockProvider extends PositionProvider {
       });
     }
 
-    // Seed one frame at the route origin — do NOT tick until movement is armed.
+    // Seed one frame at the route origin - do NOT tick until movement is armed.
     this.emitFrame();
   }
 

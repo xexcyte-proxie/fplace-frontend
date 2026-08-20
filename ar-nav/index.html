@@ -124,7 +124,7 @@
       </div>
 
       <div id="hero-distance" class="lv-hero hidden">
-        <span id="hero-distance-value">—</span>
+        <span id="hero-distance-value">-</span>
         <span id="hero-distance-unit">m</span>
       </div>
 
@@ -160,8 +160,8 @@
             <span class="material-symbols-rounded">location_on</span>
           </div>
           <div class="lv-dest-copy">
-            <div id="trip-dest" class="lv-dest-name">—</div>
-            <div id="trip-dest-meta" class="lv-dest-subtitle">—</div>
+            <div id="trip-dest" class="lv-dest-name">-</div>
+            <div id="trip-dest-meta" class="lv-dest-subtitle">-</div>
           </div>
           <span
             id="lv-sheet-chevron"
@@ -175,15 +175,15 @@
           <div class="lv-stats-row">
             <div class="lv-stat">
               <span class="lv-stat-label">ETA</span>
-              <span id="trip-eta" class="lv-stat-value">—</span>
+              <span id="trip-eta" class="lv-stat-value">-</span>
             </div>
             <div class="lv-stat">
               <span class="lv-stat-label">Distance</span>
-              <span id="trip-dist" class="lv-stat-value">—</span>
+              <span id="trip-dist" class="lv-stat-value">-</span>
             </div>
             <div class="lv-stat">
               <span class="lv-stat-label">Arrive</span>
-              <span id="trip-arrive" class="lv-stat-value">—</span>
+              <span id="trip-arrive" class="lv-stat-value">-</span>
             </div>
           </div>
           <button type="button" id="lv-end-nav-btn" class="lv-end-nav-btn">
@@ -203,7 +203,7 @@
         if (!window.isSecureContext) return;
         const cfg = window.FPLACES_AR_CONFIG || {};
         if (cfg.xrMode === "fallback") return;
-        // Mark before append — bootstrap must not inject a second THREE/XR8 copy.
+        // Mark before append - bootstrap must not inject a second THREE/XR8 copy.
         // (#xr-bootstrap may not exist yet in DOM at this point in the document.)
         window.__fplacesXrScriptsInjected = true;
         const three = document.createElement("script");

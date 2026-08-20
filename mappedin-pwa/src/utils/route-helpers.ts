@@ -28,7 +28,7 @@ export function serializePathCoordinates(coords: unknown[] | undefined): RouteCo
   return coordinateTransformationService.serializePathCoordinates(coords);
 }
 
-/** @deprecated Use buildProductionRoutePayload — kept for backward compatibility. */
+/** @deprecated Use buildProductionRoutePayload - kept for backward compatibility. */
 export function buildLegs(instructions: Directions['instructions'] | undefined): RouteLeg[] {
   return buildIntelligentLegs(instructions, [], 'legacy');
 }
@@ -127,7 +127,7 @@ function base64UrlEncode(text: string): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-/** Max URL hash length — large routes must use bridge/session transport. */
+/** Max URL hash length - large routes must use bridge/session transport. */
 const MAX_ROUTE_HASH_CHARS = 1800;
 
 export function encodeRouteForAr(payload: Record<string, unknown>): string {

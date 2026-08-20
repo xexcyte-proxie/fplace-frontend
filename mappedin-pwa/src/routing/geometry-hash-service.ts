@@ -2,7 +2,7 @@ import type { RouteCoordinate, RouteLeg, RouteStep } from '../types';
 
 /**
  * Deterministic geometry fingerprint over the full route polyline,
- * floor assignments, legs, and maneuvers. Used for deduplication —
+ * floor assignments, legs, and maneuvers. Used for deduplication -
  * only truly identical routes share the same hash.
  */
 export function computeGeometryHash(input: {
@@ -59,7 +59,7 @@ export function computeGeometryHash(input: {
   return (hash >>> 0).toString(36);
 }
 
-/** Payload checksum — geometry hash plus identity fields for transport integrity. */
+/** Payload checksum - geometry hash plus identity fields for transport integrity. */
 export function computeRouteChecksum(input: {
   routeId: string;
   routeVersion: number;
@@ -82,7 +82,7 @@ export function computeRouteChecksum(input: {
   return (hash >>> 0).toString(36);
 }
 
-/** @deprecated Use computeGeometryHash — kept for callers expecting path-only hash. */
+/** @deprecated Use computeGeometryHash - kept for callers expecting path-only hash. */
 export function pathGeometryHash(path: RouteCoordinate[]): string {
   return computeGeometryHash({ pathCoordinates: path });
 }

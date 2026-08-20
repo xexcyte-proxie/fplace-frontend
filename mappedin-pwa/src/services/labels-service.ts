@@ -27,7 +27,7 @@ function profileAnchor(
 }
 
 /**
- * Mappedin does not show store/room names automatically — labels must be added
+ * Mappedin does not show store/room names automatically - labels must be added
  * via mapView.Labels (same as the Flutter embedded map).
  */
 export function addLocationLabels(mapView: MapView, mapData: MapData): number {
