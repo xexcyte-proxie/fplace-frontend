@@ -139,6 +139,7 @@ describe('first-visit venue home', () => {
     expect(html).toContain('Live from the crowd');
     expect(html).toContain('id="first-visit-discover-btn"');
     expect(html).toContain('id="first-visit-ar-btn"');
+    expect(html).toContain('data-tour-id="home-hero"');
     expect(html).toContain('See all posts');
   });
 

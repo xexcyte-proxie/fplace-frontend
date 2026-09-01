@@ -3,6 +3,7 @@
   --brand-orange: #e07a33;
   /* Self-hosted via @fontsource-variable/source-serif-4 - never fall back to Times. */
   --brand-serif: "Source Serif 4 Variable", "Source Serif 4", Georgia, ui-serif, serif;
+  --brand-sans: "Plus Jakarta Sans", system-ui, sans-serif;
   --app-bg: #f0ece7;
   --app-text: #15151f;
   --app-text-muted: #5c5f69;
@@ -264,7 +265,7 @@ body,
 }
 
 .onboarding-title {
-  font-family: "Inria Serif", Georgia, ui-serif, serif;
+  font-family: var(--brand-serif);
   font-size: 34px;
   font-weight: 400;
   line-height: 1.18;
@@ -566,7 +567,7 @@ body,
 }
 
 .auth-label {
-  font-family: "Space Grotesk", system-ui, sans-serif;
+  font-family: var(--brand-sans);
   font-size: 13px;
   font-weight: 500;
   font-style: normal;
@@ -728,7 +729,7 @@ body,
 }
 
 .auth-terms-copy {
-  font-family: Inter, system-ui, sans-serif;
+  font-family: var(--brand-sans);
   font-size: 13.5px;
   font-weight: 600;
   font-style: normal;
@@ -2366,9 +2367,14 @@ body,
   filter: drop-shadow(0 1px 2px rgba(21, 21, 31, 0.25));
 }
 
-#mappedin-map.is-hidden {
+#mappedin-map.is-hidden,
+#mappedin-map.is-ar-paused {
   visibility: hidden;
   pointer-events: none;
+}
+
+#mappedin-map.is-ar-paused canvas {
+  display: none;
 }
 
 .social-screen {

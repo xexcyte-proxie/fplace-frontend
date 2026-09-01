@@ -2,6 +2,10 @@ import { BlueDot } from '@mappedin/blue-dot';
 import type { Coordinate, MapView } from '@mappedin/mappedin-js';
 
 import type { FplacesPositionFrame } from '../position/types';
+import {
+  createCompassHeadingFilter,
+  resolveNavigationConeHeading,
+} from '../position/domain/cone-heading';
 import type { RouteCoordinate } from '../types';
 import { appLog, appWarn } from '../utils/logger';
 
@@ -17,16 +21,12 @@ export interface BlueDotPosition {
 
 const MARKER_OVERLAY_ID = 'fplaces-nav-marker-overlay';
 
-/**
- * TEMP diagnostic: glow follows phone compass even while Begin uses simulated position.
- * Compare 2D cone vs AR arrows while turning in place (not about movement).
- * Set false to restore path-travel heading on the cone.
- */
-const TEMP_COMPASS_GLOW_OVER_SIM_HEADING = true;
+/** Path/GPS bearing drives the cone during simulated walk; live compass still wins once locked. */
+const TEMP_COMPASS_GLOW_OVER_SIM_HEADING = false;
 
 const HEADING_CONE = {
   visible: true,
-  opacity: 0.7,
+  opacity: 0.85,
   color: '#2266ff',
   displayWhenInactive: true,
 } as const;
@@ -55,6 +55,7 @@ export class MapMarkerService {
   private simulatorDrivesAvatar = false;
   private deviceHeadingActive = false;
   private lastDeviceHeading: number | null = null;
+  private readonly compassFilter = createCompassHeadingFilter();
   private lastPosition: BlueDotPosition | null = null;
   private overlayShell: HTMLElement | null = null;
   private overlayArrow: HTMLElement | null = null;
@@ -132,6 +133,7 @@ export class MapMarkerService {
       } else {
         this.deviceHeadingActive = false;
         this.lastDeviceHeading = null;
+        this.compassFilter.reset();
         this.blueDot.Sensors.get('deviceorientation')?.disable();
         this.blueDot.watchDeviceOrientation(false).catch(() => undefined);
       }
@@ -145,17 +147,14 @@ export class MapMarkerService {
   }
 
   applyProviderFrame(frame: FplacesPositionFrame): void {
+    const heading = this.resolveConeHeading(frame.heading);
+
     if (this.simulatorDrivesAvatar) {
-      const useCompassGlow =
-        TEMP_COMPASS_GLOW_OVER_SIM_HEADING && this.deviceHeadingActive;
       this.blueDot.update(
         {
           latitude: frame.latitude,
           longitude: frame.longitude,
-          // Omit simulated path bearing so the cone tracks the phone.
-          ...(useCompassGlow
-            ? { heading: 'device' as const }
-            : { heading: frame.heading ?? undefined }),
+          ...(heading != null ? { heading } : {}),
           accuracy: Math.min(
             frame.accuracy ?? MAX_INJECTED_ACCURACY_METERS,
             MAX_INJECTED_ACCURACY_METERS,
@@ -165,24 +164,17 @@ export class MapMarkerService {
         { animate: true },
       );
     } else {
-      // When compass is live, omit GPS course so the heading cone follows the phone.
-      const headingForDot = this.deviceHeadingActive
-        ? undefined
-        : frame.heading;
-      if (headingForDot != null) this.applyHeading(headingForDot);
       this.blueDot.reportPosition({
         latitude: frame.latitude,
         longitude: frame.longitude,
-        ...(headingForDot != null ? { heading: headingForDot } : {}),
+        ...(heading != null ? { heading } : {}),
         accuracy: frame.accuracy,
         confidence: 0.75,
       });
     }
 
-    const heading =
-      this.deviceHeadingActive && this.lastDeviceHeading != null
-        ? this.lastDeviceHeading
-        : frame.heading;
+    if (heading != null) this.applyHeading(heading);
+
     const position = this.toPosition(
       {
         latitude: frame.latitude,
@@ -213,6 +205,12 @@ export class MapMarkerService {
     }
   }
 
+  /** Compass-only tick: rotate the cone without re-reporting lat/lng. */
+  applyHeadingOnly(heading: number | null | undefined): void {
+    if (heading == null || Number.isNaN(heading)) return;
+    this.pushConeHeading(heading);
+  }
+
   get isTracking(): boolean {
     return this.tracking;
   }
@@ -229,10 +227,79 @@ export class MapMarkerService {
     return this.lastPosition;
   }
 
-  async startTracking(options?: { follow?: boolean }): Promise<void> {
-    this.onStatus?.('starting');
+  /**
+   * Make the user marker visible and place it at a GPS fix, then pan the camera.
+   * Used by the My location control so a tap always shows "you are here".
+   */
+  showLivePosition(
+    input: {
+      latitude: number;
+      longitude: number;
+      accuracy?: number | null;
+      heading?: number | null;
+      floorId?: string;
+    },
+    options?: { follow?: boolean },
+  ): void {
+    this.enableVisibleBlueDot();
 
-    if (!this.simulatorDrivesAvatar) {
+    const accuracy = Math.min(
+      input.accuracy ?? MAX_INJECTED_ACCURACY_METERS,
+      MAX_INJECTED_ACCURACY_METERS,
+    );
+    const heading =
+      input.heading != null && Number.isFinite(input.heading)
+        ? ((input.heading % 360) + 360) % 360
+        : undefined;
+    const floor = this.mapView.currentFloor;
+    const floorId = input.floorId ?? floor?.id;
+
+    this.blueDot.update(
+      {
+        latitude: input.latitude,
+        longitude: input.longitude,
+        accuracy,
+        ...(heading != null ? { heading } : {}),
+        ...(floorId ? { floorOrFloorId: floorId } : {}),
+      },
+      { animate: false },
+    );
+
+    const mapCoordinate =
+      this.mapView.createCoordinate?.(
+        input.latitude,
+        input.longitude,
+        floor ?? undefined,
+      ) ?? this.blueDot.coordinate;
+
+    this.lastPosition = {
+      coordinate: {
+        latitude: input.latitude,
+        longitude: input.longitude,
+        floorId: floorId ?? 'unknown',
+      },
+      mapCoordinate: mapCoordinate as Coordinate | undefined,
+      accuracy: input.accuracy ?? undefined,
+      heading,
+      floorId,
+    };
+
+    if (options?.follow !== false) {
+      this.follow();
+    }
+    this.focusOnUser();
+  }
+
+  async startTracking(options?: {
+    follow?: boolean;
+    watchDevicePosition?: boolean;
+  }): Promise<void> {
+    this.onStatus?.('starting');
+    this.enableVisibleBlueDot();
+
+    const watchGps =
+      options?.watchDevicePosition ?? !this.simulatorDrivesAvatar;
+    if (watchGps) {
       const geolocation = this.blueDot.Sensors.get('geolocation');
       await geolocation?.enable();
       this.blueDot.watchDevicePosition(true);
@@ -266,14 +333,13 @@ export class MapMarkerService {
 
     try {
       const orientation = this.blueDot.Sensors.get('deviceorientation');
-      await orientation?.enable();
-      await this.blueDot.watchDeviceOrientation(true);
+      // Start the watch in this tick so iOS still counts a user tap as the gesture.
+      const watch = this.blueDot.watchDeviceOrientation(true);
+      const enable = orientation?.enable() ?? Promise.resolve();
+      await Promise.all([watch, enable]);
       this.deviceHeadingActive = true;
-
-      if (this.blueDot.isEnabled) {
-        // Prefer live compass over GPS / simulated path bearing for the cone.
-        this.blueDot.update({ heading: 'device' });
-      }
+      const heading = this.resolveConeHeading();
+      if (heading != null) this.pushConeHeading(heading);
     } catch (error) {
       this.deviceHeadingActive = false;
       appWarn('MapMarker', 'Compass unavailable - cone follows provider heading', error);
@@ -291,6 +357,7 @@ export class MapMarkerService {
   async disableHeading(): Promise<void> {
     this.deviceHeadingActive = false;
     this.lastDeviceHeading = null;
+    this.compassFilter.reset();
     this.blueDot.Sensors.get('deviceorientation')?.disable();
     await this.blueDot.watchDeviceOrientation(false).catch(() => undefined);
     if (this.blueDot.isEnabled) {
@@ -329,9 +396,22 @@ export class MapMarkerService {
   }
 
   focusOnUser(): void {
-    const coordinate = this.blueDot.coordinate;
+    const coordinate =
+      this.blueDot.coordinate ?? this.lastPosition?.mapCoordinate;
     if (!coordinate) return;
     this.mapView.Camera?.focusOn?.(coordinate, { maxZoomLevel: 20 });
+  }
+
+  /** Restore the visible navigation avatar after ambient/simulator boot hides it. */
+  private enableVisibleBlueDot(): void {
+    if (this.blueDot.isEnabled) {
+      this.blueDot.updateState({ ...NAV_BLUE_DOT_STATE });
+      return;
+    }
+    this.blueDot.enable({
+      watchDevicePosition: false,
+      ...NAV_BLUE_DOT_STATE,
+    });
   }
 
   stopTracking(): void {
@@ -341,6 +421,7 @@ export class MapMarkerService {
     this.blueDot.watchDeviceOrientation(false).catch(() => undefined);
     this.deviceHeadingActive = false;
     this.lastDeviceHeading = null;
+    this.compassFilter.reset();
     this.stopFollow();
     this.tracking = false;
     this.onStatus?.('off');
@@ -354,6 +435,31 @@ export class MapMarkerService {
     this.overlayArrow = null;
     this.blueDot.disable();
     this.blueDot.destroy();
+  }
+
+  /**
+   * Mappedin hides the glow when `heading` is `undefined` or `'device'` with no
+   * compass sample yet. Use a settled compass when we have one; otherwise the
+   * path/GPS bearing so the cone does not jump to an uncalibrated reading.
+   */
+  private resolveConeHeading(fallback?: number | null): number | undefined {
+    const compassReady =
+      this.deviceHeadingActive &&
+      this.compassFilter.isLocked() &&
+      this.lastDeviceHeading != null &&
+      Number.isFinite(this.lastDeviceHeading);
+
+    return resolveNavigationConeHeading({
+      compassHeading: compassReady ? this.lastDeviceHeading : null,
+      compassAgeMs: compassReady ? 0 : null,
+      pathHeading: fallback,
+    });
+  }
+
+  private pushConeHeading(heading: number): void {
+    this.applyHeading(heading);
+    if (!this.blueDot.isEnabled) return;
+    this.blueDot.update({ heading }, { silent: true, animate: false });
   }
 
   private mountCustomOverlay(): void {
@@ -401,8 +507,10 @@ export class MapMarkerService {
         return;
       }
       if (event.heading == null || Number.isNaN(event.heading)) return;
-      this.lastDeviceHeading = ((event.heading % 360) + 360) % 360;
-      this.applyHeading(this.lastDeviceHeading);
+      const heading = this.compassFilter.ingestHeading(event.heading);
+      if (heading == null) return;
+      this.lastDeviceHeading = heading;
+      this.pushConeHeading(heading);
       if (this.lastPosition) {
         this.lastPosition = {
           ...this.lastPosition,

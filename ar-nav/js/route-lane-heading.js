@@ -25,9 +25,18 @@
     return normalizeDegrees(current + delta * alpha);
   }
 
-  function setInstantHeading(rawHeading) {
+  function setInstantHeading(rawHeading, options) {
     if (rawHeading == null || Number.isNaN(rawHeading)) return instantHeading;
-    instantHeading = normalizeDegrees(rawHeading);
+    const next = normalizeDegrees(rawHeading);
+    if (options?.smooth && instantHeading != null) {
+      const alpha =
+        typeof options.alpha === 'number' && !Number.isNaN(options.alpha)
+          ? options.alpha
+          : 0.28;
+      instantHeading = lerpAngleDegrees(instantHeading, next, alpha);
+      return instantHeading;
+    }
+    instantHeading = next;
     return instantHeading;
   }
 

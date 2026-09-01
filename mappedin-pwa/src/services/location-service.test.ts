@@ -55,11 +55,16 @@ describe('LocationService', () => {
     });
 
     const service = new LocationService();
-    await expect(service.requestLocation()).resolves.toEqual({
+    await expect(service.requestLocation({ timeoutMs: 15_000 })).resolves.toEqual({
       latitude: 1.23,
       longitude: 4.56,
       accuracy: 8,
     });
+    expect(getCurrentPosition).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.any(Function),
+      expect.objectContaining({ timeout: 15_000, enableHighAccuracy: true }),
+    );
   });
 
   it('rejects when getCurrentPosition fails', async () => {

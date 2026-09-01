@@ -37,7 +37,9 @@ export class LocationService {
     return (await this.queryPermission()) === 'denied';
   }
 
-  async getCurrentPosition(): Promise<GeolocationPosition> {
+  async getCurrentPosition(options?: {
+    timeoutMs?: number;
+  }): Promise<GeolocationPosition> {
     if (!navigator.geolocation) {
       throw new Error('Geolocation is not supported in this browser.');
     }
@@ -45,15 +47,17 @@ export class LocationService {
     return new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, {
         enableHighAccuracy: true,
-        timeout: 8000,
+        timeout: options?.timeoutMs ?? 8000,
         maximumAge: 0,
       });
     });
   }
 
   /** Request permission (via position read) and return coordinates. */
-  async requestLocation(): Promise<UserCoordinates> {
-    const position = await this.getCurrentPosition();
+  async requestLocation(options?: {
+    timeoutMs?: number;
+  }): Promise<UserCoordinates> {
+    const position = await this.getCurrentPosition(options);
     return coordinatesFromPosition(position);
   }
 

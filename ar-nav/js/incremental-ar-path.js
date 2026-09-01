@@ -385,6 +385,7 @@
     if (!destPoint) return null;
     if (destinationGroup && scene.getObjectByName(DESTINATION_GROUP_NAME)) {
       destinationGroup.position.set(destPoint.x, floorY, destPoint.z);
+      destinationGroup.visible = true;
       return destinationGroup;
     }
 
@@ -438,6 +439,7 @@
     destinationGroup.add(ring, pin, glow, core);
     destinationGroup.position.set(destPoint.x, floorY, destPoint.z);
     destinationGroup.userData.isDestination = true;
+    destinationGroup.visible = true;
     scene.add(destinationGroup);
 
     window.FplacesArDebug?.log?.("IncrementalPath", "Destination marker placed", {
@@ -446,6 +448,11 @@
     });
 
     return destinationGroup;
+  }
+
+  function hideDestinationMarker() {
+    if (!destinationGroup) return;
+    destinationGroup.visible = false;
   }
 
   function applyFadeIn(mesh, now) {
@@ -573,13 +580,16 @@
     const { totalLen } = buildSegmentTable(points);
     const density = resolveTrailDensity(findAlong, totalLen);
     const { revealAheadM, spacing, maxVisible, clearTrail } = density;
+    const remaining = Math.max(0, totalLen - findAlong);
+    const destRevealM = c.destinationRevealRemainingM ?? 20;
 
     const group = ensureTrailGroup(THREE, scene);
 
-    // Destination pin can remain even when trail chevrons clear near arrival.
-    if (clearTrail || findAlong + Math.max(revealAheadM, 4) >= totalLen - 0.2) {
+    if (remaining <= destRevealM) {
       const dest = points[points.length - 1];
       ensureDestinationMarker(THREE, scene, dest, floorY);
+    } else {
+      hideDestinationMarker();
     }
 
     if (clearTrail) {

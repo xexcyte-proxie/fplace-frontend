@@ -1,6 +1,12 @@
-/** Venue map defaults - Mappedin tokens always come from the backend. */
+/** Venue map defaults. Tokens come from the backend unless local key/secret is set. */
 export const appConfig = {
   mappedin: {
+    /**
+     * Optional local testing override. When both are set, getMapData uses
+     * key/secret instead of the backend Mappedin token.
+     */
+    key: (import.meta.env.VITE_MAPPEDIN_KEY ?? '').trim(),
+    secret: (import.meta.env.VITE_MAPPEDIN_SECRET ?? '').trim(),
     /**
      * Default map until a venue's `mappedin_map_id` is selected.
      * Not a secret; override with VITE_MAPPEDIN_MAP_ID.
@@ -26,7 +32,7 @@ export const appConfig = {
   googleClientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '').trim(),
   arUrl: import.meta.env.VITE_AR_URL ?? '/ar/',
   /** Must match ar-nav/config.js buildId - busts iframe cache after AR deploys. */
-  arBuildId: import.meta.env.VITE_AR_BUILD_ID ?? '20260727-arrow-density-v1',
+  arBuildId: import.meta.env.VITE_AR_BUILD_ID ?? '20260901-start-btn-v1',
   mapInitTimeoutMs: 45_000,
   positioning: {
     bleRssiThresholdDbm: -70,

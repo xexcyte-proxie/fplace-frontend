@@ -20,6 +20,10 @@ export { coordinateTransformationService } from './coordinate-transformation-ser
 export {
   computeLiveRemainingMeters,
   estimateLiveWalkSeconds,
+  hasArrivedAtDestination,
+  shouldRevealDestinationMarker,
+  DESTINATION_MARKER_REVEAL_M,
+  LiveAlongPathStabilizer,
 } from './route-progress';
 export {
   navigationStateSynchronizer,

@@ -51,7 +51,7 @@
 
 .first-visit-section {
   margin: 0;
-  font-family: Times, "Times New Roman", ui-serif, serif;
+  font-family: var(--brand-serif);
   font-size: 14.5px;
   font-weight: 400;
   font-style: normal;
@@ -192,7 +192,7 @@
 }
 
 .first-visit-action-copy {
-  font-family: Times, "Times New Roman", ui-serif, serif;
+  font-family: var(--brand-serif);
   font-size: 12.5px;
   font-weight: 400;
   font-style: normal;
@@ -253,7 +253,7 @@
   flex-shrink: 0;
   padding: 3px 8px;
   border-radius: 999px;
-  font-family: Times, "Times New Roman", ui-serif, serif;
+  font-family: var(--brand-serif);
   font-size: 10.5px;
   font-weight: 600;
   font-style: normal;
@@ -289,7 +289,7 @@
 
 .first-visit-post-body {
   margin: 0;
-  font-family: Times, "Times New Roman", ui-serif, serif;
+  font-family: var(--brand-serif);
   font-size: 13.5px;
   font-weight: 400;
   font-style: normal;

@@ -90,7 +90,7 @@ export function renderReturningHomeScreen(
         <p class="returning-home-prompt">${escapeHtml(view.prompt)}</p>
       </header>
 
-      <label class="returning-home-search">
+      <label class="returning-home-search" data-tour-id="returning-search">
         <svg class="returning-home-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.75"></circle>
           <path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
@@ -105,7 +105,7 @@ export function renderReturningHomeScreen(
         />
       </label>
 
-      <div class="returning-home-section">
+      <div class="returning-home-section" data-tour-id="returning-recent">
         <h2 class="returning-home-section-title">Recently visited</h2>
         <div class="returning-home-venue-list">
           ${recentRows}

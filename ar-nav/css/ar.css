@@ -25,6 +25,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 #camera {
   position: fixed;
   inset: 0;
@@ -87,7 +93,13 @@ body.lv-compass-camera #camera {
   background: transparent;
 }
 
-body.lv-compass-camera #camerafeed {
+body.lv-slam-active:not(.lv-compass-camera) #fplaces-orientation-compass {
+  display: none !important;
+}
+
+body.lv-compass-camera #camerafeed,
+body.lv-compass-camera canvas.camerafeed,
+body.lv-compass-camera #camerafeed canvas {
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;
@@ -102,43 +114,187 @@ body.lv-compass-camera #camerafeed {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.72);
+  padding: 24px 20px calc(24px + env(safe-area-inset-bottom, 0px));
+  background: rgba(0, 0, 0, 0.78);
   pointer-events: auto;
 }
 
 .camera-start-card {
   width: min(100%, 320px);
-  padding: 24px 20px;
-  border-radius: 20px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 28px 24px 24px;
+  border-radius: 24px;
   background: rgba(28, 28, 30, 0.96);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  text-align: center;
+  overflow: hidden;
+}
+
+.camera-start-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 4px;
+  border-radius: 16px;
+  background: rgba(69, 212, 240, 0.14);
+  color: var(--lv-cyan);
+  flex-shrink: 0;
+}
+
+.camera-start-icon .material-symbols-rounded {
+  font-size: 26px;
+}
+
+.camera-start-title {
+  margin: 0;
+  width: 100%;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: #fff;
   text-align: center;
 }
 
 .camera-start-copy {
-  margin: 0 0 18px;
+  margin: 0;
+  width: 100%;
+  max-width: 28ch;
   font-size: 15px;
   line-height: 1.45;
-  color: rgba(255, 255, 255, 0.92);
+  color: rgba(255, 255, 255, 0.72);
+  text-align: center;
 }
 
 .lv-start-btn {
-  width: 100%;
-  margin-top: 4px;
-  padding: 14px 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  margin: 8px auto 0;
+  padding: 11px 22px;
+  align-self: center;
   border: none;
   border-radius: 999px;
   background: var(--lv-cyan);
   color: #042028;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
   box-shadow: 0 4px 18px rgba(69, 212, 240, 0.35);
   pointer-events: auto;
   cursor: pointer;
 }
 
 .lv-start-btn:disabled {
+  opacity: 0.88;
+  cursor: progress;
+}
+
+.camera-start-card .lv-start-btn:disabled::before {
+  content: '';
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(4, 32, 40, 0.28);
+  border-top-color: #042028;
+  border-radius: 50%;
+  animation: lv-start-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes lv-start-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+body.lv-awaiting-camera .lv-mode-badge,
+body.lv-awaiting-camera #status,
+body.lv-awaiting-camera #hud .lv-status,
+body.lv-awaiting-camera #scan-overlay,
+body.lv-awaiting-camera #align-banner {
+  display: none !important;
+}
+
+body.lv-awaiting-camera #hud::before {
+  opacity: 0.35;
+}
+
+.lv-dialog-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 20px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+  background: rgba(0, 0, 0, 0.58);
+  pointer-events: auto;
+}
+
+.lv-dialog-layer.hidden {
+  display: none;
+}
+
+.lv-dialog-card {
+  width: min(100%, 360px);
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 22px 20px 18px;
+  border-radius: 22px;
+  background: rgba(28, 28, 30, 0.96);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  text-align: center;
+  overflow: hidden;
+}
+
+.lv-dialog-title {
+  margin: 0 0 8px;
+  width: 100%;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #fff;
+  text-align: center;
+}
+
+.lv-dialog-body {
+  margin: 0 0 18px;
+  width: 100%;
+  font-size: 15px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.88);
+  text-align: center;
+}
+
+.lv-dialog-secondary {
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lv-dialog-secondary:active {
   opacity: 0.72;
 }
 
@@ -365,9 +521,11 @@ body.lv-active #hud::before {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 14px;
-  width: min(calc(100% - 40px), 340px);
-  padding: 14px 18px;
+  gap: 12px;
+  width: max-content;
+  max-width: calc(100% - 64px);
+  margin: 0;
+  padding: 12px 16px;
   border-radius: 16px;
   background: var(--lv-teal-card);
   border: 1px solid var(--lv-cyan-dim);
@@ -419,33 +577,83 @@ body.lv-active #hud::before {
   display: none !important;
 }
 
-/* Alignment pill */
+/* Alignment cue — Google Live View style: left/right of camera, not under Level */
 .lv-align {
+  --cue-intensity: 1;
+  --cue-scale: 1;
+  --cue-tilt: 0deg;
   position: absolute;
-  top: max(148px, calc(env(safe-area-inset-top) + 132px));
-  left: 50%;
-  transform: translateX(-50%);
+  z-index: 8;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-radius: 999px;
-  background: var(--lv-chrome-bg);
-  font-size: 14px;
-  font-weight: 500;
-  z-index: 6;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  gap: 2px;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  pointer-events: none;
+  will-change: transform, opacity;
 }
 
-.lv-align .material-symbols-rounded {
-  font-size: 20px;
+.lv-align-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  filter: drop-shadow(0 6px 22px rgba(255, 214, 10, 0.55));
+}
+
+.lv-align-glyph .material-symbols-rounded {
+  font-size: clamp(64px, 18vw, 104px);
   color: #ffd60a;
+  font-variation-settings: 'FILL' 1, 'wght' 700, 'GRAD' 0, 'opsz' 48;
+  transform: rotate(var(--cue-tilt));
+}
+
+.lv-align-label {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #ffd60a;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85);
+  white-space: nowrap;
+}
+
+.lv-align--left {
+  top: 38%;
+  left: max(6px, calc(env(safe-area-inset-left, 0px) + (1 - var(--cue-intensity)) * 22px));
+  right: auto;
+  transform: translateX(calc(-6px * (1 - var(--cue-intensity))))
+    scale(var(--cue-scale));
+  transform-origin: left center;
+}
+
+.lv-align--right {
+  top: 38%;
+  right: max(6px, calc(env(safe-area-inset-right, 0px) + (1 - var(--cue-intensity)) * 22px));
+  left: auto;
+  transform: translateX(calc(6px * (1 - var(--cue-intensity))))
+    scale(var(--cue-scale));
+  transform-origin: right center;
+}
+
+.lv-align--around {
+  left: 50%;
+  right: auto;
+  top: auto;
+  bottom: max(236px, calc(env(safe-area-inset-bottom, 0px) + 216px));
+  transform: translateX(-50%) scale(var(--cue-scale));
+  transform-origin: center bottom;
+}
+
+.lv-align--around .lv-align-glyph .material-symbols-rounded {
+  font-size: clamp(52px, 14vw, 80px);
 }
 
 /* Floor banner */
 .lv-floor {
   position: absolute;
-  top: max(148px, calc(env(safe-area-inset-top) + 132px));
+  top: max(176px, calc(env(safe-area-inset-top) + 160px));
   left: 50%;
   transform: translateX(-50%);
   display: flex;

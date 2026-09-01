@@ -2,6 +2,7 @@ import { show3dMap } from '@mappedin/mappedin-js';
 import type { MapData, MapView } from '@mappedin/mappedin-js';
 
 import { appConfig } from '../config';
+import { isHeadingOnlyPositionFix } from '../position/domain/heading-only-frame';
 import { FloorOrchestrator } from '../position/debug/floorOrchestrator';
 import { positionTelemetry } from '../position/debug/telemetryLogger';
 import {
@@ -10,6 +11,8 @@ import {
   buildArRoutePayloadForHandoff,
   dispatchPositionToAr,
   isArFrameVisible,
+  isArSameOrigin,
+  notifyArIframePermissions,
   notifyArSimulatorStarted,
   openArFullscreen,
   setArMaximized,
@@ -21,7 +24,11 @@ import {
 import { coordinateTransformationService } from '../routing/coordinate-transformation-service';
 import { navigationStateSynchronizer } from '../routing/navigation-state-synchronizer';
 import { routeLifecycleManager } from '../routing/route-lifecycle-manager';
-import { computeLiveRemainingMeters } from '../routing/route-progress';
+import {
+  computeLiveRemainingMeters,
+  hasArrivedAtDestination,
+  LiveAlongPathStabilizer,
+} from '../routing/route-progress';
 import {
   AuthApiError,
   clearStoredAuthTokens,
@@ -59,7 +66,10 @@ import {
   resolveGuestArEligibility,
   validateCurrentGuestAccess,
 } from './guest-access-service';
-import { resolveMappedinMapCredentials } from './maps-service';
+import {
+  resolveMappedinMapCredentials,
+  toGetMapDataAuth,
+} from './maps-service';
 import {
   clearDeviceHasUsedApp,
   clearReturningSession,
@@ -79,6 +89,16 @@ import {
   loadAppPreferences,
   patchAppPreferences,
 } from './app-preferences-service';
+import {
+  clearProductTourProgress,
+  hasCompletedProductTour,
+  markProductTourCompleted,
+  nextProductTourIndex,
+  previousProductTourIndex,
+  shouldAutoStartProductTour,
+  stepsForHomeExperience,
+  type ProductTourSurface,
+} from './product-tour-service';
 import {
   createForumComment,
   createForumPost,
@@ -126,6 +146,11 @@ import type { PositionProvider } from '../position/positionProvider';
 import { HighFrequencyMockProvider } from '../position/providers/mockProvider';
 import { PositionProviderRegistry } from '../position/providerRegistry';
 import { requestDeviceOrientationPermission } from '../position/providers/gpsProvider';
+import {
+  beginArMediaPermissionPrime,
+  consumeArMediaPermissionPrime,
+  shouldReuseGrantedArCamera,
+} from './media-permission-service';
 import type { FplacesPositionFrame, PositionSourceType } from '../position/types';
 import { scheduleSocialMapMarkers, type LocationCardSelection, type SocialMapMarkerService } from '../map/social-map-markers';
 import { LocationService } from './location-service';
@@ -142,6 +167,7 @@ import { RoutePlanner } from './route-planner';
 import { resolveMapTarget, getLocationChips, searchVenue } from './search-service';
 import { AppStore } from '../state/app-store';
 import type {
+  AppState,
   AppTab,
   BlueDotStatus,
   FloorInfo,
@@ -158,6 +184,7 @@ import {
   loadStoredUser,
   storeAuthUser,
 } from '../types';
+import { installCameraFollowRelease } from '../map/camera-follow-release';
 import { inferAreaHint } from '../ui/route-summary';
 import { INITIAL_SOCIAL_POSTS, SOCIAL_CATEGORY_LABELS, SOCIAL_LOCATIONS_BY_ID, SOCIAL_QUICK_TAG_LABELS } from '../ui/social-data';
 import { mapForumPostToVenueFeed, mapForumPostsToVenueFeed } from '../ui/venue-feed-data';
@@ -188,6 +215,10 @@ export class MapApp {
   private lastProgressUiAt = 0;
   /** True while GPS/live navigation is actively tracking along the route (Begin pressed or mid-switch). */
   private liveRouteTracking = false;
+  /** Holds remaining distance/time while indoor GPS jitters and the user is standing still. */
+  private readonly alongPathStabilizer = new LiveAlongPathStabilizer();
+  private lastProviderFix: { latitude: number; longitude: number } | null = null;
+  private cameraFollowReleaseUnsub: (() => void) | null = null;
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private searchGeneration = 0;
   private authFlowBootstrapped = false;
@@ -216,6 +247,7 @@ export class MapApp {
     this.store.patch({
       notificationsEnabled: preferences.notificationsEnabled,
       simulationEnabled: preferences.simulationEnabled,
+      productTourCompleted: hasCompletedProductTour(),
     });
     onAuthSessionCleared(() => {
       this.handleAuthSessionExpired();
@@ -261,7 +293,7 @@ export class MapApp {
 
       const mapCredentials = await resolveMappedinMapCredentials();
       const resolved = await resolveMapData({
-        accessToken: mapCredentials.accessToken,
+        ...toGetMapDataAuth(mapCredentials),
         mapId: mapCredentials.mapId,
         ...(preferredLanguage ? { language: preferredLanguage } : {}),
         fallbackToNavigatorLanguage: true,
@@ -318,6 +350,13 @@ export class MapApp {
         currentFloorId: this.mapView.currentFloor?.id,
         searchChips: getLocationChips(this.mapData),
       });
+
+      warmArIframe();
+      this.cameraFollowReleaseUnsub?.();
+      this.cameraFollowReleaseUnsub = installCameraFollowRelease(
+        mapContainer,
+        () => this.releaseCameraFollowFromUserPan(),
+      );
 
       void this.bootstrapAuthFlow();
 
@@ -1052,6 +1091,117 @@ export class MapApp {
       homeVenueSearchQuery: '',
     });
     void this.loadReturningHomeContent();
+    this.maybeStartProductTour();
+  }
+
+  /** Replay the coach-mark tour from Settings. */
+  startProductTour(): void {
+    this.beginProductTour({ replay: true });
+  }
+
+  advanceProductTour(): void {
+    const state = this.store.get();
+    if (state.productTourStepIndex == null) return;
+    const steps = stepsForHomeExperience(state.homeExperience);
+    const next = nextProductTourIndex(state.productTourStepIndex, steps.length);
+    if (next === 'complete') {
+      this.finishProductTour();
+      return;
+    }
+    this.applyProductTourIndex(next);
+  }
+
+  backProductTour(): void {
+    const state = this.store.get();
+    if (state.productTourStepIndex == null) return;
+    this.applyProductTourIndex(
+      previousProductTourIndex(state.productTourStepIndex),
+    );
+  }
+
+  skipProductTour(): void {
+    this.finishProductTour();
+  }
+
+  private maybeStartProductTour(): void {
+    const state = this.store.get();
+    if (
+      !shouldAutoStartProductTour({
+        onboardingComplete: state.onboardingComplete,
+        tourCompleted: state.productTourCompleted,
+        tourActive: state.productTourStepIndex != null,
+      })
+    ) {
+      return;
+    }
+    this.beginProductTour({ replay: false });
+  }
+
+  private beginProductTour(options: { replay: boolean }): void {
+    const state = this.store.get();
+    if (!state.onboardingComplete) return;
+    if (!options.replay && state.productTourCompleted) return;
+    const steps = stepsForHomeExperience(state.homeExperience);
+    if (!steps.length) return;
+    this.applyProductTourIndex(0);
+  }
+
+  private finishProductTour(): void {
+    markProductTourCompleted();
+    this.store.patch({
+      productTourStepIndex: null,
+      productTourCompleted: true,
+      activeTab: 'map',
+      navigateView: 'home',
+      profileView: 'main',
+      settingsConfirm: null,
+      notificationsOpen: false,
+      postCommentsOpen: false,
+    });
+  }
+
+  private applyProductTourIndex(index: number): void {
+    const state = this.store.get();
+    const steps = stepsForHomeExperience(state.homeExperience);
+    const step = steps[index];
+    if (!step) {
+      this.finishProductTour();
+      return;
+    }
+    this.store.patch({
+      ...this.productTourSurfacePatch(step.surface),
+      productTourStepIndex: index,
+    });
+  }
+
+  private productTourSurfacePatch(
+    surface: ProductTourSurface,
+  ): Partial<AppState> {
+    const common: Partial<AppState> = {
+      profileView: 'main',
+      settingsConfirm: null,
+      notificationsOpen: false,
+      postCommentsOpen: false,
+      locationActionPrompt: null,
+      arrivalDialogOpen: false,
+      guestArGatePrompt: null,
+      arRoutePromptOpen: false,
+    };
+    switch (surface) {
+      case 'home':
+        return { ...common, activeTab: 'map', navigateView: 'home' };
+      case 'map':
+        return {
+          ...common,
+          activeTab: 'map',
+          navigateView: 'map',
+          showRouteSheet: false,
+        };
+      case 'social':
+        return { ...common, activeTab: 'social' };
+      case 'profile':
+        return { ...common, activeTab: 'profile' };
+    }
   }
 
   /**
@@ -2757,7 +2907,14 @@ export class MapApp {
       postCommentsError: null,
       profileView: 'main',
       settingsConfirm: null,
+      productTourStepIndex: null,
+      productTourCompleted: options?.preserveAsNewDevice
+        ? false
+        : this.store.get().productTourCompleted,
     });
+    if (options?.preserveAsNewDevice) {
+      clearProductTourProgress();
+    }
     if (options?.showLogin) {
       this.showLogin();
     } else if (options?.showCreate !== false) {
@@ -3782,44 +3939,75 @@ export class MapApp {
   }
 
   async goToMyLocation(): Promise<void> {
-    if (!this.mapView || !this.routePlanner || !this.blueDotService) return;
+    if (!this.mapView || !this.blueDotService) {
+      this.showToast('Map is still loading. Try again in a moment.');
+      return;
+    }
 
     try {
+      const coords = await this.locationService.requestLocation({
+        timeoutMs: 15_000,
+      });
+      const floorId =
+        this.mapView.currentFloor?.id ??
+        this.store.get().currentFloorId ??
+        undefined;
+
+      this.blueDotService.showLivePosition(
+        {
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy: coords.accuracy,
+          floorId,
+        },
+        { follow: true },
+      );
+
       if (!this.blueDotService.isTracking) {
-        await this.blueDotService.startTracking({ follow: true });
-        await this.blueDotService.enableHeading();
-        this.store.patch({ blueDotFollowing: true });
-        this.showToast('Live location tracking on.');
-      } else if (this.blueDotService.isFollowing) {
-        this.blueDotService.stopFollow();
-        this.blueDotService.focusOnUser();
-        this.store.patch({ blueDotFollowing: false });
-        this.showToast('Stopped following. Blue dot still active.');
+        await this.blueDotService.startTracking({
+          follow: true,
+          watchDevicePosition: true,
+        });
+        await this.blueDotService.enableHeading().catch(() => undefined);
       } else {
         this.blueDotService.follow();
-        this.store.patch({ blueDotFollowing: true });
+        this.blueDotService.focusOnUser();
       }
 
-      const liveCoordinate =
+      this.store.patch({
+        blueDotFollowing: true,
+        blueDotStatus: 'active',
+      });
+
+      const origin =
         this.blueDotService.coordinate ??
-        (await this.waitForBlueDotCoordinate(6000));
-      if (!liveCoordinate) {
-        throw new Error('Waiting for your location on the map…');
+        this.mapView.createCoordinate?.(
+          coords.latitude,
+          coords.longitude,
+          this.mapView.currentFloor ?? undefined,
+        );
+      if (origin && this.routePlanner) {
+        try {
+          this.routePlanner.setOrigin(origin, 'my location');
+          this.store.patch({ markers: this.routePlanner.markersState });
+          this.scheduleAutoRoute();
+        } catch {
+          // GPS can fall outside indoor geometry; the marker still shows you.
+        }
       }
 
-      this.routePlanner.setOrigin(liveCoordinate, 'my location');
-      this.store.patch({ markers: this.routePlanner.markersState });
-
-      const accuracy = this.blueDotService.getLastPosition()?.accuracy;
-      if (accuracy != null) {
-        this.showToast(`Tracking your location (±${Math.round(accuracy)} m).`);
-      }
-
-      this.scheduleAutoRoute();
+      this.showToast(
+        coords.accuracy != null
+          ? `You are here (±${Math.round(coords.accuracy)} m).`
+          : 'You are here.',
+      );
     } catch (error) {
       const message =
-        error instanceof GeolocationPositionError
-          ? this.locationService.geolocationErrorMessage(error)
+        error instanceof GeolocationPositionError ||
+        this.locationService.isPermissionDeniedError(error)
+          ? this.locationService.geolocationErrorMessage(
+              error as GeolocationPositionError | Error,
+            )
           : toUserFacingRouteError(error, 'Could not get your location.');
       this.showToast(message);
     }
@@ -3850,7 +4038,9 @@ export class MapApp {
   async clearRoute(): Promise<void> {
     if (!this.routePlanner) return;
     this.routePlanner.clearRoute();
+    this.routePlanner.endGuidedNavigation();
     this.routePlanner.setRoutePlanningPaused(false);
+    this.alongPathStabilizer.reset(0);
     this.store.patch({
       route: null,
       showRouteSheet: false,
@@ -3860,6 +4050,8 @@ export class MapApp {
       routeRemainingMeters: null,
       routeSimulating: false,
       routeSimulationComplete: false,
+      arrivalDialogOpen: false,
+      arrivalDialogHandled: false,
       routeNotFound: false,
     });
 
@@ -3885,6 +4077,11 @@ export class MapApp {
     if (!state.route) {
       this.showToast('Generate a route before opening AR.');
       return;
+    }
+
+    if (!isGuestMode()) {
+      // Start Chrome's camera prompt on this click before any guest/network awaits.
+      beginArMediaPermissionPrime();
     }
 
     if (isGuestMode()) {
@@ -3943,6 +4140,8 @@ export class MapApp {
       return;
     }
 
+    beginArMediaPermissionPrime();
+
     this.store.patch({ guestArGateLoading: true });
     try {
       const preferences = await markGuestArViewTried();
@@ -3983,6 +4182,12 @@ export class MapApp {
       return;
     }
 
+    const permissions = await consumeArMediaPermissionPrime();
+    const cameraReady = shouldReuseGrantedArCamera(
+      permissions.camera,
+      isArSameOrigin(),
+    );
+
     const progress = this.getNavigationProgressSnapshot();
     const userPosition =
       progress.latitude != null && progress.longitude != null
@@ -4010,8 +4215,16 @@ export class MapApp {
       userPosition,
       this.store.get().floors,
       progress,
+      { cameraReady },
     );
     openArFullscreen(url, routePayload);
+    notifyArIframePermissions(
+      cameraReady
+        ? 'granted'
+        : isArSameOrigin()
+          ? permissions.camera
+          : 'prompt',
+    );
     this.store.patch({
       arPresentation: 'fullscreen',
       guestArGatePrompt: null,
@@ -4056,6 +4269,15 @@ export class MapApp {
   closeAr(): void {
     closeArFullscreen();
     this.store.patch({ arPresentation: 'closed' });
+    this.maybeRevealArrivalDialog(this.store.get().routeSimulationComplete);
+  }
+
+  async dismissArrivalDialog(): Promise<void> {
+    this.store.patch({
+      arrivalDialogOpen: false,
+      arrivalDialogHandled: true,
+    });
+    await this.clearRoutePoints();
   }
 
   /** Exit AR and clear the active route (Figma “End navigation”). */
@@ -4134,6 +4356,7 @@ export class MapApp {
           routeTraveledMeters: traveled,
           routeRemainingMeters: Math.max(0, total - traveled),
         });
+        this.maybeRevealArrivalDialog(atEnd && traveled > 0);
         if (isArSessionActive(this.store.get().arPresentation)) {
           const snapshot = this.getNavigationProgressSnapshot();
           notifyArSimulatorStarted({
@@ -4154,6 +4377,7 @@ export class MapApp {
     }
 
     // Live indoor positioning (GPS / beacons / IPS) projected onto the route.
+    this.alongPathStabilizer.reset(alongPathMeters);
     this.liveRouteTracking = true;
     this.blueDotService?.follow();
     this.store.patch({
@@ -4323,6 +4547,7 @@ export class MapApp {
     }
 
     if (!this.isSimulationNavigation()) {
+      this.alongPathStabilizer.reset(targetAlong);
       this.applyNavigationPositionMode({
         path: state.route.pathCoordinates,
         resumeNavigating: true,
@@ -4406,6 +4631,7 @@ export class MapApp {
     this.routePlanner?.clearTravelledPathTracking();
 
     this.lastProgressUiAt = 0;
+    this.alongPathStabilizer.reset(0);
     this.store.patch({
       routeTraveledMeters: 0,
       routeRemainingMeters: state.route.distanceMeters ?? null,
@@ -4456,6 +4682,8 @@ export class MapApp {
       routeSimulating: provider.moving && !atEnd,
       routeSimulationComplete: atEnd && traveled > 0,
     });
+    this.routePlanner?.updateDestinationProximity(remaining, total);
+    this.maybeRevealArrivalDialog(atEnd && traveled > 0);
   }
 
   private syncLiveRouteProgress(
@@ -4474,17 +4702,21 @@ export class MapApp {
     const total =
       state.route.distanceMeters ??
       coordinateTransformationService.totalPathLengthMeters(state.route.pathCoordinates);
-    const traveled = Math.max(0, Math.min(total, alongPathMeters));
+    const stabilizedAlong = this.alongPathStabilizer.update({
+      nextAlongMeters: alongPathMeters,
+      offRouteMeters: options?.offRouteMeters,
+    });
+    const traveled = Math.max(0, Math.min(total, stabilizedAlong));
     const remaining = computeLiveRemainingMeters({
       totalPathMeters: total,
       alongPathMeters: traveled,
       offRouteMeters: options?.offRouteMeters,
     });
-    // Arrived only when on/near the path end - not while still off-route.
-    const atEnd =
-      total > 0 &&
-      traveled >= total - 0.75 &&
-      (options?.offRouteMeters ?? 0) <= 4;
+    const atEnd = hasArrivedAtDestination({
+      totalPathMeters: total,
+      alongPathMeters: traveled,
+      offRouteMeters: options?.offRouteMeters,
+    });
 
     this.liveRouteTracking = !atEnd;
     this.store.patch({
@@ -4493,6 +4725,16 @@ export class MapApp {
       routeSimulating: !atEnd,
       routeSimulationComplete: atEnd && traveled > 0,
     });
+    this.routePlanner?.updateDestinationProximity(remaining, total);
+    this.maybeRevealArrivalDialog(atEnd && traveled > 0);
+  }
+
+  private maybeRevealArrivalDialog(atEnd: boolean): void {
+    if (!atEnd) return;
+    const state = this.store.get();
+    if (state.arrivalDialogHandled || state.arrivalDialogOpen) return;
+    if (state.arPresentation === 'fullscreen') return;
+    this.store.patch({ arrivalDialogOpen: true });
   }
 
   private suppressNativeMapBlueDot(): void {
@@ -4605,6 +4847,7 @@ export class MapApp {
       // Keep the sheet open with Reset available so the user can start over.
       this.routePlanner.setRoutePlanningPaused(false);
       this.stopPositionProvider();
+      this.alongPathStabilizer.reset(0);
       this.store.patch({
         route: null,
         routeNotFound: true,
@@ -4629,6 +4872,7 @@ export class MapApp {
 
     routeLifecycleManager.transition('recalculating');
     this.liveRouteTracking = false;
+    this.alongPathStabilizer.reset(0);
 
     this.store.patch({
       route,
@@ -4640,11 +4884,14 @@ export class MapApp {
       routeRemainingMeters: route.distanceMeters ?? null,
       routeSimulating: false,
       routeSimulationComplete: false,
+      arrivalDialogOpen: false,
+      arrivalDialogHandled: false,
       routeNotFound: false,
       arRouteSetupActive: false,
     });
 
     this.startPositionProvider(route.pathCoordinates);
+    this.routePlanner.beginGuidedNavigation(route.distanceMeters ?? null);
     warmArIframe();
 
     if (wasArOpen) {
@@ -4830,11 +5077,13 @@ export class MapApp {
     this.blueDotService?.setSimulatorParallelMode(false);
     this.lastArStreamAt = 0;
     this.lastArProviderStreamAt = 0;
+    this.lastProviderFix = null;
     this.floorOrchestrator.reset();
     positionTelemetry.setOrchestratorState(this.floorOrchestrator.getState());
     positionTelemetry.setActiveSource('none');
     if (!options?.preserveProgress) {
       this.liveRouteTracking = false;
+      this.alongPathStabilizer.reset(0);
       if (
         this.store.get().routeSimulating ||
         this.store.get().routeSimulationComplete
@@ -4893,7 +5142,32 @@ export class MapApp {
     this.store.patch({ currentFloorId: floorId });
   }
 
+  private releaseCameraFollowFromUserPan(): void {
+    if (!this.blueDotService?.isFollowing) return;
+    this.blueDotService.stopFollow();
+    this.store.patch({ blueDotFollowing: false });
+  }
+
   private handleProviderFrame(frame: FplacesPositionFrame): void {
+    if (
+      frame.source !== 'simulator' &&
+      isHeadingOnlyPositionFix(this.lastProviderFix, frame)
+    ) {
+      this.blueDotService?.applyHeadingOnly(frame.heading);
+      if (isArFrameVisible() || isArSessionActive(this.store.get().arPresentation)) {
+        const now = performance.now();
+        if (now - this.lastArProviderStreamAt >= 90) {
+          this.lastArProviderStreamAt = now;
+          dispatchPositionToAr(frame);
+        }
+      }
+      return;
+    }
+    this.lastProviderFix = {
+      latitude: frame.latitude,
+      longitude: frame.longitude,
+    };
+
     const projected =
       frame.source === 'simulator'
         ? frame
@@ -4910,7 +5184,6 @@ export class MapApp {
         if (now - this.lastArProviderStreamAt >= 90) {
           this.lastArProviderStreamAt = now;
           syncNavigationToAr(this.getNavigationProgressSnapshot());
-          dispatchPositionToAr(projected);
         }
       } else {
         const now = performance.now();
@@ -4977,27 +5250,6 @@ export class MapApp {
     } catch (error) {
       appWarn('BlueDot', 'Could not query geolocation permission', error);
     }
-  }
-
-  private waitForBlueDotCoordinate(timeoutMs: number): Promise<import('@mappedin/mappedin-js').Coordinate | null> {
-    const existing = this.blueDotService?.coordinate;
-    if (existing) return Promise.resolve(existing);
-
-    return new Promise((resolve) => {
-      const started = performance.now();
-      const timer = window.setInterval(() => {
-        const coordinate = this.blueDotService?.coordinate;
-        if (coordinate) {
-          window.clearInterval(timer);
-          resolve(coordinate);
-          return;
-        }
-        if (performance.now() - started >= timeoutMs) {
-          window.clearInterval(timer);
-          resolve(null);
-        }
-      }, 200);
-    });
   }
 
   private maybePromptLocation(): void {

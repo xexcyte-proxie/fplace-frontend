@@ -85,6 +85,9 @@ export function applyPipShellLayout(mode: ArPresentation): void {
   const frame = getFrame();
   if (!shell || !frame) return;
 
+  const map = document.getElementById('mappedin-map');
+  map?.classList.toggle('is-ar-paused', mode === 'fullscreen');
+
   shell.classList.remove('ar-pip-shell--fullscreen', 'ar-pip-shell--minimized');
   shell.hidden = mode === 'closed';
 

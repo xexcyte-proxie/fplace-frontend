@@ -47,15 +47,32 @@ import {
 import { renderNotificationsScreen } from "./notifications-screen";
 import { renderNotificationDetailScreen } from "./notification-detail-screen";
 import { renderGuestArGateDialog } from "./guest-ar-gate-dialog";
+import { renderArrivalDialog } from "./arrival-dialog";
 import { renderArNavigationScreen } from "./ar-navigation-screen";
 import { renderReturningHomeScreen } from "./returning-home-screen";
 import { renderFirstVisitVenueScreen } from "./first-visit-venue-screen";
 import { renderLocationActionSheet } from "./location-action-sheet";
 import {
+  layoutProductTourOverlay,
+  renderProductTour,
+} from "./product-tour";
+import { stepsForHomeExperience } from "../tour/domain/entities";
+import {
   bottomNavNavigateIcon,
   bottomNavProfileIcon,
   bottomNavSocialIcon,
 } from "./bottom-nav-icons";
+import {
+  applyLiveNavigationUiPatch,
+  applyToastUiPatch,
+  classifyUiStateChange,
+  myLocationFabPresentation,
+  renderToastHtml,
+} from "./live-navigation-ui";
+import {
+  installUiRootEventDelegation,
+  syncAuthPasswordStrength,
+} from "./ui-root-events";
 
 function escapeHtml(value: string): string {
   return value
@@ -81,17 +98,94 @@ export class UiRoot {
   private otpDraft = "";
   private verifyResendEndsAt: number | null = null;
   private verifyResendInterval: number | null = null;
+  private lastRenderedState: AppState | null = null;
+  private app: MapApp | null = null;
 
   constructor(container: HTMLElement) {
     this.root = container;
     this.root.className = "ui-root";
+    installUiRootEventDelegation(this.root, {
+      root: this.root,
+      app: () => this.app,
+      setAuthEmailDraft: (value) => {
+        this.authEmailDraft = value;
+      },
+      setAuthPasswordDraft: (value) => {
+        this.authPasswordDraft = value;
+      },
+      setCreatePasswordDraft: (value) => {
+        this.createPasswordDraft = value;
+      },
+      setCreatePasswordConfirmDraft: (value) => {
+        this.createPasswordConfirmDraft = value;
+      },
+      setCreateTermsAcceptedDraft: (value) => {
+        this.createTermsAcceptedDraft = value;
+      },
+      setChangePasswordOldDraft: (value) => {
+        this.changePasswordOldDraft = value;
+      },
+      setChangePasswordNewDraft: (value) => {
+        this.changePasswordNewDraft = value;
+      },
+      setChangePasswordOldVisible: (value) => {
+        this.changePasswordOldVisible = value;
+      },
+      setChangePasswordNewVisible: (value) => {
+        this.changePasswordNewVisible = value;
+      },
+      setPseudoNameDraft: (value) => {
+        this.pseudoNameDraft = value;
+      },
+      setVenueSearchDraft: (value) => {
+        this.venueSearchDraft = value;
+      },
+      getPseudoNameDraft: () => this.pseudoNameDraft,
+      restartVerifyResendCountdown: () => this.restartVerifyResendCountdown(),
+      readOtpValue: () => this.readOtpValue(),
+    });
+    window.addEventListener("resize", () => this.layoutProductTour());
+    window.visualViewport?.addEventListener("resize", () =>
+      this.layoutProductTour(),
+    );
+  }
+
+  private layoutProductTour(): void {
+    requestAnimationFrame(() => {
+      layoutProductTourOverlay(this.root);
+      requestAnimationFrame(() => layoutProductTourOverlay(this.root));
+    });
   }
 
   render(state: AppState, app: MapApp): void {
+    this.app = app;
     // Keep the splash DOM intact while only loading progress changes so the
     // bottom loader stays visible.
     if (this.patchSplashProgress(state)) {
       return;
+    }
+
+    if (this.lastRenderedState) {
+      const kind = classifyUiStateChange(this.lastRenderedState, state);
+      if (kind === "live") {
+        applyLiveNavigationUiPatch(this.root, state);
+        this.lastRenderedState = state;
+        return;
+      }
+      if (kind === "toast") {
+        applyToastUiPatch(this.root, state.toast);
+        this.lastRenderedState = state;
+        return;
+      }
+      if (kind === "search") {
+        this.applySearchPatch(state);
+        this.lastRenderedState = state;
+        return;
+      }
+      if (kind === "heatmap-map") {
+        this.lastRenderedState = state;
+        return;
+      }
     }
 
     const activeEl = document.activeElement;
@@ -181,6 +275,11 @@ export class UiRoot {
       onProfileAbout ||
       onProfilePrivacy;
     const showTermsWebView = state.legalWebView === "terms";
+    const tourSteps = stepsForHomeExperience(state.homeExperience);
+    const tourStep =
+      showOverlays && state.productTourStepIndex != null
+        ? (tourSteps[state.productTourStepIndex] ?? null)
+        : null;
     const onNotificationDetail =
       showOverlays &&
       onSocialTab &&
@@ -409,27 +508,27 @@ export class UiRoot {
             })
           : ""
       }
-      ${showTermsWebView ? renderTermsWebViewSheet() : ""}
       ${
-        state.toast
-          ? `<div class="toast" role="status">
-              <div class="toast-icon" aria-hidden="true">
-                <img
-                  class="toast-icon-logo"
-                  src="/onboarding/map-pin-logo.svg"
-                  alt=""
-                  width="22"
-                  height="22"
-                  decoding="async"
-                />
-              </div>
-              <p class="toast-message">${escapeHtml(state.toast)}</p>
-            </div>`
+        onNavigateMap && state.arrivalDialogOpen
+          ? renderArrivalDialog(
+              state.route?.destinationName ?? state.markers.destinationLabel,
+            )
+          : ""
+      }
+      ${showTermsWebView ? renderTermsWebViewSheet() : ""}
+      ${state.toast ? renderToastHtml(state.toast) : ""}
+      ${
+        tourStep && state.productTourStepIndex != null
+          ? renderProductTour({
+              step: tourStep,
+              index: state.productTourStepIndex,
+              total: tourSteps.length,
+            })
           : ""
       }
     `;
 
-    this.bindEvents(app);
+    this.afterFullRender();
     this.bindOtpInputs(app, focusedOtpIndex);
     this.restoreLoginPasswordDraft(showLogin);
     this.restoreCreateAccountDrafts(showCreateAccount);
@@ -484,7 +583,7 @@ export class UiRoot {
       }
     }
 
-    if (focusedSearch) {
+    if (focusedSearch && !tourStep) {
       const searchInput =
         this.root.querySelector<HTMLInputElement>("#search-input");
       if (searchInput) {
@@ -493,14 +592,14 @@ export class UiRoot {
           searchInput.setSelectionRange(selectionStart, selectionEnd);
         }
       }
-    } else if (onNavigateMap && app.shouldFocusMapSearch()) {
+    } else if (onNavigateMap && !tourStep && app.shouldFocusMapSearch()) {
       app.consumeMapSearchFocus();
       requestAnimationFrame(() => {
         this.root.querySelector<HTMLInputElement>("#search-input")?.focus();
       });
     }
 
-    if (focusedVenueInput) {
+    if (focusedVenueInput && !tourStep) {
       const venueInput =
         this.root.querySelector<HTMLInputElement>("#venue-feed-input");
       if (venueInput) {
@@ -510,6 +609,9 @@ export class UiRoot {
         }
       }
     }
+
+    this.layoutProductTour();
+    this.lastRenderedState = state;
   }
 
   /**
@@ -583,7 +685,7 @@ export class UiRoot {
         : "Search your start point..."
       : "Search a store or place...";
     return `
-      <div class="search-bar ${state.arRouteSetupActive ? "search-bar--ar-setup" : ""}">
+      <div class="search-bar ${state.arRouteSetupActive ? "search-bar--ar-setup" : ""}" data-tour-id="map-search">
         <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"></circle>
           <path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
@@ -654,13 +756,7 @@ export class UiRoot {
         : hintVisible
           ? "calc(var(--bottom-nav-height) + 108px + env(safe-area-inset-bottom))"
           : "calc(var(--bottom-nav-height) + 48px + env(safe-area-inset-bottom))";
-    const trackingActive =
-      state.blueDotStatus === "active" || state.blueDotStatus === "inactive";
-    const myLocationLabel = state.blueDotFollowing
-      ? "Following your location"
-      : trackingActive
-        ? "Live location active"
-        : "My location";
+    const locationFab = myLocationFabPresentation(state);
     const aboveSheetClass = state.showRouteSheet ? " fabs--above-sheet" : "";
 
     return `
@@ -683,10 +779,10 @@ export class UiRoot {
         </div>
         <button
           type="button"
-          id="my-location-btn"
-          class="fab ${trackingActive ? "fab--tracking" : ""} ${state.blueDotFollowing ? "fab--following" : ""}"
-          aria-label="${escapeHtml(myLocationLabel)}"
-          title="${escapeHtml(myLocationLabel)}"
+            id="my-location-btn"
+          class="fab ${locationFab.trackingActive ? "fab--tracking" : ""} ${locationFab.following ? "fab--following" : ""}"
+          aria-label="${escapeHtml(locationFab.label)}"
+          title="${escapeHtml(locationFab.label)}"
         >⊕</button>
       </div>
     `;
@@ -793,9 +889,10 @@ export class UiRoot {
           >Reset</button>
           <button type="button" id="open-ar-btn" class="route-sheet-ar-btn" ${arDisabled ? "disabled" : ""}>
             <svg class="ar-nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M12 2l8 4v6c0 5.25-3.5 10-8 11-4.5-1-8-5.75-8-11V6l8-4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+              <path d="M12 3.5 20 8v8l-8 4.5L4 16V8l8-4.5Z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
+              <path d="M12 12.5 20 8M12 12.5v8.5M12 12.5 4 8" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
             </svg>
-            Start AR navigation
+            AR Mode
           </button>
               `
           }
@@ -839,1036 +936,61 @@ export class UiRoot {
     `;
   }
 
-  private bindEvents(app: MapApp): void {
-    const searchInput =
-      this.root.querySelector<HTMLInputElement>("#search-input");
-    searchInput?.addEventListener("input", () => {
-      app.onSearchInput(searchInput.value);
-    });
-    searchInput?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        void app.submitSearch(searchInput.value);
+  private applySearchPatch(state: AppState): void {
+    const input = this.root.querySelector<HTMLInputElement>("#search-input");
+    if (input && document.activeElement !== input) {
+      input.value = state.searchQuery;
+    }
+
+    const bar = this.root.querySelector(".search-bar");
+    if (bar) {
+      const clear = bar.querySelector("#search-clear");
+      if (state.searchQuery && !clear) {
+        bar.insertAdjacentHTML(
+          "beforeend",
+          '<button type="button" id="search-clear" class="icon-btn" aria-label="Clear search">×</button>',
+        );
+      } else if (!state.searchQuery && clear) {
+        clear.remove();
       }
-    });
-
-    const homeVenueSearchInput =
-      this.root.querySelector<HTMLInputElement>("#home-venue-search-input");
-    homeVenueSearchInput?.addEventListener("input", () => {
-      app.setHomeVenueSearchQuery(homeVenueSearchInput.value);
-    });
-
-    this.root.querySelectorAll<HTMLButtonElement>("[data-home-venue-id]").forEach(
-      (button) => {
-        button.addEventListener("click", () => {
-          const venueId = button.dataset.homeVenueId;
-          if (venueId) app.selectHomeRecentVenue(venueId);
-        });
-      },
-    );
-
-    this.root
-      .querySelector("#first-visit-discover-btn")
-      ?.addEventListener("click", () => {
-        app.openVenueDiscover();
-      });
-    this.root
-      .querySelector("#first-visit-see-all-btn")
-      ?.addEventListener("click", () => {
-        app.openVenueDiscover();
-      });
-    this.root
-      .querySelector("#first-visit-ar-btn")
-      ?.addEventListener("click", () => {
-        void app.openVenueArFromHome();
-      });
-    this.root
-      .querySelector("#first-visit-ar-open-map-btn")
-      ?.addEventListener("click", () => {
-        app.confirmArRoutePrompt();
-      });
-    this.root
-      .querySelector("#first-visit-ar-prompt-dismiss")
-      ?.addEventListener("click", () => {
-        app.dismissArRoutePrompt();
-      });
-
-    this.root.querySelector("#search-clear")?.addEventListener("click", () => {
-      void app.clearSearch();
-    });
+    }
 
     this.root
       .querySelectorAll<HTMLButtonElement>(".category-pill")
       .forEach((button) => {
-        button.addEventListener("click", () => {
-          const category = button.dataset.category ?? null;
-          void app.setCategoryFilter(category);
-        });
-      });
-
-    this.root.querySelector("#zoom-in-btn")?.addEventListener("click", () => {
-      app.zoomIn();
-    });
-
-    this.root.querySelector("#zoom-out-btn")?.addEventListener("click", () => {
-      app.zoomOut();
-    });
-
-    this.root
-      .querySelector("#my-location-btn")
-      ?.addEventListener("click", () => {
-        void app.goToMyLocation();
-      });
-
-    this.root
-      .querySelector("#reset-points-btn")
-      ?.addEventListener("click", () => {
-        void app.clearRoutePoints();
-      });
-
-    this.root
-      .querySelector("#close-route-btn")
-      ?.addEventListener("click", () => {
-        void app.dismissRouteSheet();
-      });
-
-    this.root.querySelector("#prev-leg-btn")?.addEventListener("click", () => {
-      app.routePreviousLeg();
-    });
-
-    this.root.querySelector("#next-leg-btn")?.addEventListener("click", () => {
-      app.routeNextLeg();
-    });
-
-    this.root
-      .querySelector("#focus-start-btn")
-      ?.addEventListener("click", () => {
-        app.focusRouteStart();
-      });
-
-    this.root.querySelector("#focus-end-btn")?.addEventListener("click", () => {
-      app.focusRouteEnd();
-    });
-
-    this.root
-      .querySelector("#reset-route-points-btn")
-      ?.addEventListener("click", () => {
-        void app.clearRoutePoints();
-      });
-
-    this.root.querySelector("#open-ar-btn")?.addEventListener("click", () => {
-      void app.openAr();
-    });
-
-    this.root
-      .querySelector("#guest-ar-gate-continue-btn")
-      ?.addEventListener("click", () => {
-        void app.confirmGuestArOneTimeTrial();
-      });
-
-    this.root
-      .querySelector("#guest-ar-gate-cancel-btn")
-      ?.addEventListener("click", () => {
-        app.dismissGuestArGate();
-      });
-
-    this.root
-      .querySelector("#guest-ar-gate-dismiss-btn")
-      ?.addEventListener("click", () => {
-        app.dismissGuestArGate();
-      });
-
-    this.root
-      .querySelector("#ar-nav-close-btn")
-      ?.addEventListener("click", () => {
-        app.closeAr();
-      });
-
-    this.root
-      .querySelector("#ar-nav-minimize-btn")
-      ?.addEventListener("click", () => {
-        app.minimizeAr();
-      });
-
-    this.root
-      .querySelector("#ar-nav-end-btn")
-      ?.addEventListener("click", () => {
-        void app.endArNavigation();
-      });
-
-    this.root.querySelector("#begin-route-btn")?.addEventListener("click", () => {
-      app.beginOrResetRoute();
-    });
-
-    this.root
-      .querySelector("#reset-route-sheet-btn")
-      ?.addEventListener("click", () => {
-        void app.clearRoutePoints();
-      });
-
-    this.root
-      .querySelectorAll<HTMLButtonElement>(".search-result")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-        const id = button.dataset.locationId;
-        const name = button.dataset.locationName;
-        const floorName = button.dataset.floorName;
-        if (id && name) void app.selectSearchResult(id, name, floorName || undefined);
-        });
-      });
-
-    this.root
-      .querySelectorAll<HTMLButtonElement>("[data-focus]")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          const which = button.dataset.focus;
-          if (which === "start") app.focusRouteStart();
-          if (which === "end") app.focusRouteEnd();
-        });
-      });
-
-    this.root
-      .querySelector("#onboarding-create-account")
-      ?.addEventListener("click", () => {
-        app.showCreateAccount();
-      });
-
-    this.root
-      .querySelector("#onboarding-login")
-      ?.addEventListener("click", () => {
-        app.showLogin();
-      });
-
-    this.root
-      .querySelector("#ar-teaser-skip-btn")
-      ?.addEventListener("click", () => {
-        app.showCreateAccount();
-      });
-
-    this.root
-      .querySelector("#ar-teaser-continue")
-      ?.addEventListener("click", () => {
-        app.showCreateAccount();
-      });
-
-    this.root
-      .querySelector("#introduction-continue")
-      ?.addEventListener("click", () => {
-        app.showFeatures();
-      });
-
-    this.root
-      .querySelector("#features-continue")
-      ?.addEventListener("click", () => {
-        app.showCreateAccount();
-      });
-
-    this.root
-      .querySelector("#auth-back-btn")
-      ?.addEventListener("click", () => {
-        app.dismissCreateAccount();
-      });
-
-    this.root
-      .querySelector("#auth-login-link")
-      ?.addEventListener("click", () => {
-        app.showLogin();
-      });
-
-    this.root
-      .querySelector("#auth-google-btn")
-      ?.addEventListener("click", () => {
-        void app.submitGoogleSignIn();
-      });
-
-    this.root
-      .querySelector("#auth-guest-btn")
-      ?.addEventListener("click", () => {
-        void app.continueAsGuest();
-      });
-
-    this.root
-      .querySelector("#login-back-btn")
-      ?.addEventListener("click", () => {
-        app.dismissLogin();
-      });
-
-    this.root
-      .querySelector("#login-create-link")
-      ?.addEventListener("click", () => {
-        app.showCreateAccount();
-      });
-
-    this.root
-      .querySelector("#login-forgot-link")
-      ?.addEventListener("click", () => {
-        app.showForgotPassword();
-      });
-
-    this.root
-      .querySelector("#login-google-btn")
-      ?.addEventListener("click", () => {
-        void app.submitGoogleSignIn();
-      });
-
-    this.root
-      .querySelector("#forgot-password-back-btn")
-      ?.addEventListener("click", () => {
-        app.dismissForgotPassword();
-      });
-
-    this.root
-      .querySelector("#forgot-password-login-link")
-      ?.addEventListener("click", () => {
-        app.dismissForgotPassword();
-      });
-
-    this.root
-      .querySelector("#forgot-password-email")
-      ?.addEventListener("input", (event) => {
-        this.authEmailDraft = (event.currentTarget as HTMLInputElement).value;
-      });
-
-    this.root
-      .querySelector("#forgot-password-form")
-      ?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const form = event.currentTarget as HTMLFormElement;
-        const email =
-          form.querySelector<HTMLInputElement>("#forgot-password-email")
-            ?.value ?? "";
-        void app.submitForgotPassword(email);
-      });
-
-    this.root
-      .querySelector("#reset-password-back-btn")
-      ?.addEventListener("click", () => {
-        app.dismissResetPasswordConfirm();
-      });
-
-    this.root
-      .querySelector("#reset-password-login-link")
-      ?.addEventListener("click", () => {
-        app.dismissResetPasswordConfirm();
-      });
-
-    this.root
-      .querySelector("#reset-password-confirm-form")
-      ?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const password =
-          this.root.querySelector<HTMLInputElement>("#reset-password-new")
-            ?.value ?? "";
-        void app.submitResetPasswordConfirm(password);
-      });
-
-    this.root
-      .querySelector("#location-enable-btn")
-      ?.addEventListener("click", () => {
-        void app.enableLocationPermission();
-      });
-
-    this.root
-      .querySelector("#location-try-again-btn")
-      ?.addEventListener("click", () => {
-        void app.retryLocationPermission();
-      });
-
-    this.root
-      .querySelector("#location-retry-btn")
-      ?.addEventListener("click", () => {
-        void app.retryLocationRetrieval();
-      });
-
-    this.root
-      .querySelector("#login-email")
-      ?.addEventListener("input", (event) => {
-        this.authEmailDraft = (event.currentTarget as HTMLInputElement).value;
-      });
-
-    this.root
-      .querySelector("#login-password")
-      ?.addEventListener("input", (event) => {
-        this.authPasswordDraft = (
-          event.currentTarget as HTMLInputElement
-        ).value;
-      });
-
-    this.root
-      .querySelector("#login-password")
-      ?.addEventListener("change", (event) => {
-        this.authPasswordDraft = (
-          event.currentTarget as HTMLInputElement
-        ).value;
-      });
-
-    this.root
-      .querySelector("#login-form")
-      ?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const form = event.currentTarget as HTMLFormElement;
-        const email =
-          form.querySelector<HTMLInputElement>("#login-email")?.value ?? "";
-        const password =
-          form.querySelector<HTMLInputElement>("#login-password")?.value ?? "";
-        this.authPasswordDraft = password;
-        void app.submitLogin(email, password);
-      });
-
-    this.root
-      .querySelector("#auth-email")
-      ?.addEventListener("input", (event) => {
-        this.authEmailDraft = (event.currentTarget as HTMLInputElement).value;
-      });
-
-    this.root
-      .querySelector("#auth-password")
-      ?.addEventListener("input", (event) => {
-        this.createPasswordDraft = (
-          event.currentTarget as HTMLInputElement
-        ).value;
-      });
-
-    this.root
-      .querySelector("#auth-password-confirm")
-      ?.addEventListener("input", (event) => {
-        this.createPasswordConfirmDraft = (
-          event.currentTarget as HTMLInputElement
-        ).value;
-      });
-
-    this.root
-      .querySelector("#auth-terms")
-      ?.addEventListener("change", (event) => {
-        this.createTermsAcceptedDraft = (
-          event.currentTarget as HTMLInputElement
-        ).checked;
-      });
-
-    this.root
-      .querySelector("#create-account-form")
-      ?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const form = event.currentTarget as HTMLFormElement;
-        const email = form.querySelector<HTMLInputElement>("#auth-email")?.value ?? "";
-        const password =
-          form.querySelector<HTMLInputElement>("#auth-password")?.value ?? "";
-        const passwordConfirm =
-          form.querySelector<HTMLInputElement>("#auth-password-confirm")?.value ?? "";
-        const termsAccepted =
-          form.querySelector<HTMLInputElement>("#auth-terms")?.checked ?? false;
-        this.createPasswordDraft = password;
-        this.createPasswordConfirmDraft = passwordConfirm;
-        this.createTermsAcceptedDraft = termsAccepted;
-        void app.submitRegistration(
-          email,
-          password,
-          passwordConfirm,
-          termsAccepted,
+        button.classList.toggle(
+          "is-active",
+          state.categoryFilter === button.dataset.category,
         );
       });
 
+    const nextHtml = state.searchQuery.trim() ? this.searchResults(state) : "";
+    const existing = this.root.querySelector(".search-results");
+    if (!nextHtml) {
+      existing?.remove();
+      return;
+    }
+    if (existing) {
+      existing.outerHTML = nextHtml;
+      return;
+    }
     this.root
-      .querySelectorAll<HTMLButtonElement>("[data-password-toggle]")
-      .forEach((button) => {
-        button.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const inputId = button.dataset.passwordToggle;
-          if (!inputId) return;
-          const input = this.root.querySelector<HTMLInputElement>(`#${inputId}`);
-          if (!input) return;
-          const showing = input.type === "text";
-          const nextVisible = !showing;
-          input.type = nextVisible ? "text" : "password";
-          button.setAttribute(
-            "aria-label",
-            nextVisible ? "Hide password" : "Show password",
-          );
-          button.setAttribute("aria-pressed", nextVisible ? "true" : "false");
+      .querySelector(".home-header")
+      ?.insertAdjacentHTML("afterend", nextHtml);
+  }
 
-          const icon = button.querySelector<HTMLImageElement>(
-            ".auth-password-toggle-icon",
-          );
-          if (icon) {
-            icon.src = nextVisible ? "/auth/eye-off.svg" : "/auth/eye.svg";
-          }
-
-          if (inputId === "change-password-old") {
-            this.changePasswordOldVisible = nextVisible;
-          } else if (inputId === "change-password-new") {
-            this.changePasswordNewVisible = nextVisible;
-          }
-        });
-      });
-
-    const passwordInput =
-      this.root.querySelector<HTMLInputElement>("#auth-password");
-    const strengthHint = this.root.querySelector<HTMLElement>(
-      "#auth-password-strength",
-    );
-    const syncPasswordStrength = (): void => {
-      if (!passwordInput || !strengthHint) return;
-      const strength = evaluatePasswordStrength(passwordInput.value);
-      strengthHint.hidden = strength !== "strong";
-    };
-    passwordInput?.addEventListener("input", syncPasswordStrength);
-    syncPasswordStrength();
-
-    this.root
-      .querySelector("#auth-terms-link")
-      ?.addEventListener("click", () => {
-        app.openAuthTerms();
-      });
-
-    this.root
-      .querySelector("#auth-privacy-link")
-      ?.addEventListener("click", () => {
-        app.openAuthPrivacy();
-      });
-
-    this.root
-      .querySelector("#auth-legal-back-btn")
-      ?.addEventListener("click", () => {
-        app.dismissAuthLegal();
-      });
-
-    this.root
-      .querySelector("#legal-webview-cancel")
-      ?.addEventListener("click", () => {
-        app.dismissLegalWebView();
-      });
-
-    this.root
-      .querySelector("#legal-webview-dismiss")
-      ?.addEventListener("click", (event) => {
-        if (event.target === event.currentTarget) {
-          app.dismissLegalWebView();
-        }
-      });
-
-    this.root
-      .querySelector("#check-email-back-btn")
-      ?.addEventListener("click", () => {
-        app.dismissCheckEmail();
-      });
-
-    this.root
-      .querySelector("#check-email-login-link")
-      ?.addEventListener("click", () => {
-        app.showLogin();
-      });
-
-    this.root
-      .querySelector("#check-email-resend-btn")
-      ?.addEventListener("click", () => {
-        void app.resendCheckEmail();
-      });
-
-    this.root
-      .querySelector("#verify-back-btn")
-      ?.addEventListener("click", () => {
-        app.dismissVerifyEmail();
-      });
-
-    this.root
-      .querySelector("#verify-resend-btn")
-      ?.addEventListener("click", () => {
-        void app.resendVerificationCode().then((ok) => {
-          if (ok) this.restartVerifyResendCountdown();
-        });
-      });
-
-    this.root
-      .querySelector("#verify-email-form")
-      ?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        void app.submitVerification(this.readOtpValue());
-      });
-
+  private afterFullRender(): void {
+    const tourOverlay = this.root.querySelector<HTMLElement>(".product-tour");
+    if (tourOverlay) {
+      tourOverlay.tabIndex = -1;
+      if (!tourOverlay.contains(document.activeElement)) {
+        tourOverlay.focus({ preventScroll: true });
+      }
+    }
+    syncAuthPasswordStrength(this.root);
     if (this.root.querySelector("#verify-resend-status")) {
       this.ensureVerifyResendCountdown();
     }
-
-    this.root
-      .querySelector("#pseudo-name-back-btn")
-      ?.addEventListener("click", () => {
-        app.dismissPseudoNameSetup();
-      });
-
-    this.root
-      .querySelector("#pseudo-name-input")
-      ?.addEventListener("input", (event) => {
-        this.pseudoNameDraft = (
-          event.currentTarget as HTMLInputElement
-        ).value;
-      });
-
-    this.root
-      .querySelector("#pseudo-name-shuffle-btn")
-      ?.addEventListener("click", () => {
-        this.pseudoNameDraft = null;
-        app.shufflePseudoName();
-      });
-
-    this.root
-      .querySelectorAll<HTMLButtonElement>(".interest-chip")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          const interest = button.dataset.interest;
-          if (interest) app.toggleInterest(interest);
-        });
-      });
-
-    this.root
-      .querySelector("#pseudo-name-form")
-      ?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const input =
-          this.root.querySelector<HTMLInputElement>("#pseudo-name-input");
-        void app.submitPseudoNameSetup(
-          input?.value ?? this.pseudoNameDraft ?? "",
-        );
-      });
-
-    this.root
-      .querySelector("#venue-select-back-btn")
-      ?.addEventListener("click", () => {
-        app.dismissVenueSelect();
-      });
-
-    this.root
-      .querySelector("#venue-select-search-input")
-      ?.addEventListener("input", (event) => {
-        const value = (event.currentTarget as HTMLInputElement).value;
-        this.venueSearchDraft = value;
-        app.setVenueSearchQuery(value);
-      });
-
-    this.root
-      .querySelectorAll<HTMLButtonElement>("[data-venue-id]")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          const venueId = button.dataset.venueId;
-          if (venueId) app.selectOnboardingVenue(venueId);
-        });
-      });
-
-    this.root
-      .querySelectorAll<HTMLButtonElement>("[data-gate-id]")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          const gateId = button.dataset.gateId;
-          if (gateId) app.selectOnboardingGate(gateId);
-        });
-      });
-
-    this.root
-      .querySelector("#venue-select-enter-btn")
-      ?.addEventListener("click", () => {
-        app.submitVenueSelect();
-      });
-
-    this.root.querySelector("#nav-map")?.addEventListener("click", () => {
-      app.setActiveTab("map");
-    });
-
-    this.root.querySelector("#nav-social")?.addEventListener("click", () => {
-      app.setActiveTab("social");
-    });
-
-    this.root.querySelector("#nav-profile")?.addEventListener("click", () => {
-      app.setActiveTab("profile");
-    });
-
-    this.root
-      .querySelector("#profile-settings-btn")
-      ?.addEventListener("click", () => {
-        app.openProfileSettings();
-      });
-
-    this.root
-      .querySelector("#settings-back-btn")
-      ?.addEventListener("click", () => {
-        app.closeProfileSettings();
-      });
-
-    this.root
-      .querySelector("#settings-edit-profile-btn")
-      ?.addEventListener("click", () => {
-        app.openEditProfileFromSettings();
-      });
-
-    this.root
-      .querySelector("#settings-change-password-btn")
-      ?.addEventListener("click", () => {
-        app.openChangePasswordFromSettings();
-      });
-
-    this.root
-      .querySelector("#settings-interests-btn")
-      ?.addEventListener("click", () => {
-        app.openEditProfileFromSettings();
-      });
-
-    this.root
-      .querySelector("#settings-language-btn")
-      ?.addEventListener("click", () => {
-        app.openMapLanguageSettings();
-      });
-
-    this.root
-      .querySelector("#settings-language-back-btn")
-      ?.addEventListener("click", () => {
-        app.closeMapLanguageSettings();
-      });
-
-    this.root
-      .querySelector("#edit-profile-back-btn")
-      ?.addEventListener("click", () => {
-        app.closeEditProfileSettings();
-      });
-
-    this.root
-      .querySelector("#edit-profile-form")
-      ?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const input =
-          this.root.querySelector<HTMLInputElement>("#pseudo-name-input");
-        void app.submitProfileEditFromSettings(
-          input?.value ?? this.pseudoNameDraft ?? "",
-        );
-      });
-
-    this.root
-      .querySelector("#change-password-back-btn")
-      ?.addEventListener("click", () => {
-        this.changePasswordOldDraft = "";
-        this.changePasswordNewDraft = "";
-        this.changePasswordOldVisible = false;
-        this.changePasswordNewVisible = false;
-        app.closeChangePasswordSettings();
-      });
-
-    this.root
-      .querySelector("#change-password-old")
-      ?.addEventListener("input", (event) => {
-        this.changePasswordOldDraft = (
-          event.currentTarget as HTMLInputElement
-        ).value;
-      });
-
-    this.root
-      .querySelector("#change-password-new")
-      ?.addEventListener("input", (event) => {
-        this.changePasswordNewDraft = (
-          event.currentTarget as HTMLInputElement
-        ).value;
-      });
-
-    this.root
-      .querySelector("#change-password-form")
-      ?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const oldPassword =
-          this.root.querySelector<HTMLInputElement>("#change-password-old")
-            ?.value ?? "";
-        const newPassword =
-          this.root.querySelector<HTMLInputElement>("#change-password-new")
-            ?.value ?? "";
-        this.changePasswordOldDraft = oldPassword;
-        this.changePasswordNewDraft = newPassword;
-        void app.submitChangePassword(oldPassword, newPassword);
-      });
-
-    this.root
-      .querySelector("#settings-privacy-btn")
-      ?.addEventListener("click", () => {
-        app.openPrivacySettings();
-      });
-
-    this.root
-      .querySelector("#settings-terms-btn")
-      ?.addEventListener("click", () => {
-        app.openTermsSettings();
-      });
-
-    this.root
-      .querySelector("#settings-about-btn")
-      ?.addEventListener("click", () => {
-        app.openAboutSettings();
-      });
-
-    this.root
-      .querySelector("#settings-privacy-back-btn")
-      ?.addEventListener("click", () => {
-        app.closeSecondarySettings();
-      });
-
-    this.root
-      .querySelector("#settings-about-back-btn")
-      ?.addEventListener("click", () => {
-        app.closeSecondarySettings();
-      });
-
-    this.root
-      .querySelectorAll<HTMLButtonElement>("[data-map-language]")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          const code = button.dataset.mapLanguage;
-          if (!code) return;
-          void app.setMapLanguage(code);
-        });
-      });
-
-    this.root
-      .querySelector("#settings-notifications-toggle")
-      ?.addEventListener("click", () => {
-        app.toggleNotifications();
-      });
-
-    this.root
-      .querySelector("#settings-change-venue-btn")
-      ?.addEventListener("click", () => {
-        app.openVenueSelectFromSettings();
-      });
-
-    this.root
-      .querySelector("#settings-simulation-toggle")
-      ?.addEventListener("click", () => {
-        app.toggleSimulation();
-      });
-
-    this.root
-      .querySelector("#settings-logout-btn")
-      ?.addEventListener("click", () => {
-        app.requestLogoutConfirm();
-      });
-
-    this.root
-      .querySelector("#settings-delete-account-btn")
-      ?.addEventListener("click", () => {
-        app.requestDeleteAccountConfirm();
-      });
-
-    this.root
-      .querySelector("#settings-confirm-cancel-btn")
-      ?.addEventListener("click", () => {
-        app.dismissSettingsConfirm();
-      });
-
-    this.root
-      .querySelector("#settings-confirm-dismiss")
-      ?.addEventListener("click", (event) => {
-        if (event.target === event.currentTarget) {
-          app.dismissSettingsConfirm();
-        }
-      });
-
-    this.root
-      .querySelector("#settings-confirm-logout-btn")
-      ?.addEventListener("click", () => {
-        void app.logout();
-      });
-
-    this.root
-      .querySelector("#settings-confirm-delete-btn")
-      ?.addEventListener("click", () => {
-        void app.deleteAccount();
-      });
-
-    this.root
-      .querySelector("#venue-feed-notify-btn")
-      ?.addEventListener("click", () => {
-        app.openNotifications();
-      });
-
-    this.root
-      .querySelector("#notifications-back-btn")
-      ?.addEventListener("click", () => {
-        app.closeNotifications();
-      });
-
-    this.root
-      .querySelector("#notification-detail-back-btn")
-      ?.addEventListener("click", () => {
-        app.closeNotificationDetail();
-      });
-
-    this.root
-      .querySelector("#notifications-mark-all-btn")
-      ?.addEventListener("click", () => {
-        void app.markAllNotificationsAsRead();
-      });
-
-    this.root
-      .querySelector("#notifications-load-more-btn")
-      ?.addEventListener("click", () => {
-        void app.loadMoreNotifications();
-      });
-
-    this.root
-      .querySelectorAll<HTMLButtonElement>("[data-notification-id]")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          const notificationId = button.dataset.notificationId;
-          if (notificationId) void app.openNotificationDetail(notificationId);
-        });
-      });
-
-    this.root
-      .querySelector("#post-comments-back-btn")
-      ?.addEventListener("click", () => {
-        app.closePostComments();
-      });
-
-    this.root
-      .querySelector("#post-comments-input")
-      ?.addEventListener("input", (event) => {
-        app.setPostCommentsDraft(
-          (event.currentTarget as HTMLInputElement).value,
-        );
-      });
-
-    this.root
-      .querySelector("#post-comments-form")
-      ?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        void app.submitPostComment();
-      });
-
-    this.root
-      .querySelector("#post-comments-edit-btn")
-      ?.addEventListener("click", () => {
-        app.beginEditVenueFeedPost();
-      });
-
-    this.root
-      .querySelector("#post-comments-edit-cancel-btn")
-      ?.addEventListener("click", () => {
-        app.cancelEditVenueFeedPost();
-      });
-
-    this.root
-      .querySelector("#post-comments-edit-save-btn")
-      ?.addEventListener("click", () => {
-        const content =
-          this.root.querySelector<HTMLTextAreaElement>(
-            "#post-comments-edit-input",
-          )?.value ?? "";
-        void app.saveEditedVenueFeedPost(content);
-      });
-
-    this.root
-      .querySelector("#post-comments-delete-post-btn")
-      ?.addEventListener("click", () => {
-        void app.deleteOpenVenueFeedPost();
-      });
-
-    this.root
-      .querySelectorAll<HTMLButtonElement>("[data-delete-comment-id]")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          const commentId = button.dataset.deleteCommentId;
-          if (commentId) void app.deletePostComment(commentId);
-        });
-      });
-
-    this.root
-      .querySelectorAll<HTMLButtonElement>("[data-comments-id]")
-      .forEach((button) => {
-        button.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const postId = button.dataset.commentsId;
-          if (postId) app.openPostComments(postId);
-        });
-      });
-
-    this.root
-      .querySelectorAll<HTMLButtonElement>("[data-venue-filter]")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          app.setVenueFeedFilter(
-            button.dataset.venueFilter as AppState["venueFeedFilter"],
-          );
-        });
-      });
-
-    this.root
-      .querySelectorAll<HTMLButtonElement>("[data-venue-quick-reply]")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          const reply = button.dataset.venueQuickReply;
-          if (reply) app.setVenueQuickReply(reply);
-        });
-      });
-
-    this.root
-      .querySelectorAll<HTMLButtonElement>("[data-upvote-id]")
-      .forEach((button) => {
-        button.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const postId = button.dataset.upvoteId;
-          if (postId) void app.toggleVenueFeedUpvote(postId);
-        });
-      });
-
-    this.root
-      .querySelectorAll<HTMLButtonElement>("[data-flag-id]")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          const postId = button.dataset.flagId;
-          if (postId) void app.flagVenueFeedPost(postId);
-        });
-      });
-
-    const venueFeedInput =
-      this.root.querySelector<HTMLInputElement>("#venue-feed-input");
-    venueFeedInput?.addEventListener("input", () => {
-      app.setVenueFeedDraft(venueFeedInput.value);
-    });
-    venueFeedInput?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") void app.submitVenueFeedPost();
-    });
-
-    this.root
-      .querySelector("#venue-feed-send-btn")
-      ?.addEventListener("click", () => {
-        void app.submitVenueFeedPost();
-      });
-
-    this.root
-      .querySelector("#location-action-dismiss")
-      ?.addEventListener("click", (event) => {
-        if (event.target === event.currentTarget) {
-          app.dismissLocationActionPrompt();
-        }
-      });
-
-    this.root
-      .querySelector("#location-action-cancel")
-      ?.addEventListener("click", () => {
-        app.dismissLocationActionPrompt();
-      });
-
-    this.root
-      .querySelector("#location-action-conversation")
-      ?.addEventListener("click", () => {
-        app.confirmLocationConversation();
-      });
-
-    this.root
-      .querySelector("#location-action-navigate")
-      ?.addEventListener("click", () => {
-        app.confirmLocationNavigate();
-      });
-
-    this.root
-      .querySelector(".location-action-sheet")
-      ?.addEventListener("click", (event) => {
-        event.stopPropagation();
-      });
   }
 
   private restoreLoginPasswordDraft(showLogin: boolean): void {

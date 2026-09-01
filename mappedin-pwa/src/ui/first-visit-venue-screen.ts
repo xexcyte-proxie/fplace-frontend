@@ -110,7 +110,7 @@ export function renderFirstVisitVenueScreen(
 
   return `
     <section class="first-visit-venue-screen" aria-label="Venue home">
-      <header class="first-visit-hero">
+      <header class="first-visit-hero" data-tour-id="home-hero">
         <p class="first-visit-greeting">${escapeHtml(view.greeting)}</p>
         ${
           view.venueName

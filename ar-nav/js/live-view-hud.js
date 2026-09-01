@@ -2,7 +2,8 @@
  * AR navigation HUD - matches design spec (instruction card + bottom sheet).
  */
 (function () {
-  const WALK_MPS = 1.3;
+  /** Match PWA `WALKING_SPEED_MPS` so map sheet and AR HUD agree on ETA. */
+  const WALK_MPS = 1.4;
 
   function symbolHtml(name, sizeClass) {
     return (
@@ -114,6 +115,65 @@
     document.body.classList.toggle('lv-active', active);
   }
 
+  let cueWasVisible = false;
+  let lastCueSide = '';
+  let lastCueLabel = '';
+  let lastCueSymbol = '';
+
+  function hideAlignCue(alignBanner) {
+    cueWasVisible = false;
+    lastCueSide = '';
+    lastCueLabel = '';
+    lastCueSymbol = '';
+    if (!alignBanner) return;
+    alignBanner.classList.add('hidden');
+    alignBanner.classList.remove(
+      'lv-align--left',
+      'lv-align--right',
+      'lv-align--around',
+    );
+  }
+
+  function applyAlignCue(alignBanner, alignText, deltaDeg) {
+    const resolve = window.FplacesTurnCue?.resolveTurnCue;
+    const cue = resolve
+      ? resolve(deltaDeg, cueWasVisible)
+      : { visible: false };
+    cueWasVisible = !!cue.visible;
+
+    if (!alignBanner) return !cue.visible;
+    if (!cue.visible) {
+      hideAlignCue(alignBanner);
+      return true;
+    }
+
+    const sideClass = `lv-align--${cue.side}`;
+    if (lastCueSide !== sideClass) {
+      alignBanner.classList.remove(
+        'lv-align--left',
+        'lv-align--right',
+        'lv-align--around',
+      );
+      alignBanner.classList.add(sideClass);
+      lastCueSide = sideClass;
+    }
+    alignBanner.classList.remove('hidden');
+    alignBanner.style.setProperty('--cue-intensity', cue.intensity.toFixed(3));
+    alignBanner.style.setProperty('--cue-scale', cue.scale.toFixed(3));
+    alignBanner.style.setProperty('--cue-tilt', `${cue.tiltDeg.toFixed(1)}deg`);
+
+    const icon = document.getElementById('align-icon');
+    if (icon && lastCueSymbol !== cue.symbol) {
+      icon.textContent = cue.symbol;
+      lastCueSymbol = cue.symbol;
+    }
+    if (alignText && lastCueLabel !== cue.label) {
+      alignText.textContent = cue.label;
+      lastCueLabel = cue.label;
+    }
+    return false;
+  }
+
   function setScanOverlay(visible, message) {
     const overlay = document.getElementById('scan-overlay');
     const copy = document.getElementById('scan-copy');
@@ -129,13 +189,13 @@
     if (!badge || !label) return;
 
     if (window.FplacesCameraStart?.isAwaiting?.()) {
-      label.textContent = 'Tap Start for camera';
-      badge.className = 'lv-mode-badge lv-mode-badge--loading';
-      badge.classList.remove('hidden');
+      badge.classList.add('hidden');
       return;
     }
 
-    window.__fplacesArMode = mode;
+    if (mode === 'slam' || mode === 'compass') {
+      window.__fplacesArMode = mode;
+    }
 
     if (mode === 'slam-loading') {
       label.textContent = detail || 'Starting AR…';
@@ -144,7 +204,14 @@
       return;
     }
 
-    label.textContent = 'AR mode active';
+    if (mode === 'compass') {
+      label.textContent = detail || 'Compass mode';
+      badge.className = 'lv-mode-badge lv-mode-badge--compass';
+      badge.classList.remove('hidden');
+      return;
+    }
+
+    label.textContent = detail || 'AR mode active';
     badge.className = 'lv-mode-badge';
     badge.classList.remove('hidden');
   }
@@ -168,6 +235,7 @@
         liveNav.classList.add('hidden');
         tripFooter?.classList.add('hidden');
         arrivalCard?.classList.add('hidden');
+        hideAlignCue(alignBanner);
         setNavigating(false);
         return;
       }
@@ -179,7 +247,7 @@
         liveNav.classList.add('hidden');
         tripFooter?.classList.add('hidden');
         arrivalCard?.classList.add('hidden');
-        alignBanner?.classList.add('hidden');
+        hideAlignCue(alignBanner);
         setNavigating(false);
         return;
       }
@@ -192,8 +260,13 @@
         null;
       const guidance = navigator?.getLiveGuidance?.(deviceHeading) || {};
       const primary = guidance.primary || { label: 'Follow route', symbol: 'straight' };
-      const aligned =
-        guidance.alignmentDelta == null || Math.abs(guidance.alignmentDelta) < 18;
+      const compassDelta = window.FplacesSlamHeading?.isActive?.()
+        ? null
+        : window.FplacesOrientationCompass?.getAlignmentDelta?.(state);
+      const headingDelta =
+        compassDelta != null && Number.isFinite(compassDelta)
+          ? compassDelta
+          : guidance.alignmentDelta;
 
       const liveDist =
         navigator?.getDisplayDistanceMeters?.() ??
@@ -209,7 +282,7 @@
       if (state.arrived) {
         liveNav.classList.add('hidden');
         tripFooter?.classList.add('hidden');
-        alignBanner?.classList.add('hidden');
+        hideAlignCue(alignBanner);
         statusEl?.classList.add('hidden');
         arrivalCard?.classList.remove('hidden');
         if (arrivalDest) arrivalDest.textContent = destName;
@@ -223,6 +296,7 @@
       liveNav.classList.remove('hidden');
       tripFooter?.classList.remove('hidden');
       statusEl?.classList.add('hidden');
+      const aligned = applyAlignCue(alignBanner, alignText, headingDelta);
 
       const turnIconEl = document.getElementById('turn-icon');
       const turnTextEl = document.getElementById('turn-text');
@@ -231,7 +305,10 @@
 
       if (turnIconEl) {
         const icon = isStraight ? 'arrow_upward' : primary.symbol;
-        turnIconEl.innerHTML = symbolHtml(icon, 'lv-sym-lg');
+        if (turnIconEl.dataset.icon !== icon) {
+          turnIconEl.dataset.icon = icon;
+          turnIconEl.innerHTML = symbolHtml(icon, 'lv-sym-lg');
+        }
       }
 
       if (turnTextEl && distBar) {
@@ -285,22 +362,6 @@
         }
       }
 
-      if (alignBanner && alignText) {
-        if (!aligned && deviceHeading != null) {
-          const delta = guidance.alignmentDelta ?? 0;
-          if (Math.abs(delta) >= 135) {
-            alignText.textContent = 'Turn around';
-          } else if (delta > 0) {
-            alignText.textContent = 'Turn right';
-          } else {
-            alignText.textContent = 'Turn left';
-          }
-          alignBanner.classList.remove('hidden');
-        } else {
-          alignBanner.classList.add('hidden');
-        }
-      }
-
       const floorBanner = document.getElementById('floor-banner');
       const floorBannerText = document.getElementById('floor-banner-text');
       if (floorBanner && floorBannerText) {
@@ -324,18 +385,21 @@
       if (!statusEl) return;
 
       statusEl.textContent = message;
-      statusEl.classList.remove('hidden');
       statusEl.classList.toggle('lv-status--error', !!isError);
+
+      if (window.__fplacesAwaitingCameraStart && !isError) {
+        statusEl.classList.add('hidden');
+        return;
+      }
+
+      statusEl.classList.remove('hidden');
 
       if (isError) {
         setScanOverlay(false);
         document.getElementById('live-nav')?.classList.add('hidden');
         document.getElementById('arrival-card')?.classList.add('hidden');
+        hideAlignCue(document.getElementById('align-banner'));
         setNavigating(false);
-        return;
-      }
-
-      if (window.__fplacesAwaitingCameraStart) {
         return;
       }
 

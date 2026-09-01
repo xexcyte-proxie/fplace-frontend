@@ -169,8 +169,6 @@
         navigator.startGps();
       }
       navigator.notify();
-
-      window.FplacesRouteBridge.sendToFlutter({ event: 'trackingGood' });
       return hud;
     },
   };

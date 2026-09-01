@@ -69,15 +69,15 @@ export function renderArNavigationScreen(
         <div class="ar-nav-stats" role="group" aria-label="Route stats">
           <div class="ar-nav-stat">
             <span class="ar-nav-stat-label">ETA</span>
-            <span class="ar-nav-stat-value">${escapeHtml(view.etaLabel)}</span>
+            <span class="ar-nav-stat-value ar-nav-stat-value--eta">${escapeHtml(view.etaLabel)}</span>
           </div>
           <div class="ar-nav-stat">
             <span class="ar-nav-stat-label">Distance</span>
-            <span class="ar-nav-stat-value">${escapeHtml(view.distanceLabel)}</span>
+            <span class="ar-nav-stat-value ar-nav-stat-value--distance">${escapeHtml(view.distanceLabel)}</span>
           </div>
           <div class="ar-nav-stat">
             <span class="ar-nav-stat-label">Arrive</span>
-            <span class="ar-nav-stat-value">${escapeHtml(view.arriveLabel)}</span>
+            <span class="ar-nav-stat-value ar-nav-stat-value--arrive">${escapeHtml(view.arriveLabel)}</span>
           </div>
         </div>
         <button type="button" id="ar-nav-end-btn" class="ar-nav-end-btn">

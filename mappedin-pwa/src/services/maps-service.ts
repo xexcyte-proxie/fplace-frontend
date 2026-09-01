@@ -1,5 +1,6 @@
 /**
- * Maps service façade - Mappedin credentials from the backend only.
+ * Maps service façade - Mappedin credentials from the backend, or a local
+ * key/secret override for testing a specific map.
  * Guests: mappedin.token from POST /api/users/guest/
  * Users: token from GET /api/maps/token/
  */
@@ -20,20 +21,50 @@ import { mapsRepository } from '../maps/data/maps-repository-impl';
 
 export type { MapsToken };
 
-/** Short-lived Mappedin access token + map id for getMapData. */
-export interface MappedinMapCredentials {
-  accessToken: string;
+/** Auth + map id for getMapData (backend token or local key/secret). */
+export type MappedinMapCredentials = {
   mapId: string;
-}
+} & (
+  | { accessToken: string; key?: never; secret?: never }
+  | { key: string; secret: string; accessToken?: never }
+);
+
+export type MappedinGetMapDataAuth =
+  | { accessToken: string }
+  | { key: string; secret: string };
 
 /** GET /api/maps/token/ - short-lived Mappedin credentials (registered users). */
 export function fetchMapsToken(): Promise<MapsToken> {
   return mapsRepository.getToken();
 }
 
+export function localMappedinCredentialsFromConfig(mappedin: {
+  key?: string;
+  secret?: string;
+  mapId: string;
+}): Extract<MappedinMapCredentials, { key: string }> | null {
+  const key = mappedin.key?.trim() ?? '';
+  const secret = mappedin.secret?.trim() ?? '';
+  const mapId = mappedin.mapId.trim();
+  if (!key || !secret || !mapId) return null;
+  return { key, secret, mapId };
+}
+
+export function toGetMapDataAuth(
+  credentials: MappedinMapCredentials,
+): MappedinGetMapDataAuth {
+  if ('key' in credentials && credentials.key && credentials.secret) {
+    return { key: credentials.key, secret: credentials.secret };
+  }
+  if ('accessToken' in credentials && credentials.accessToken) {
+    return { accessToken: credentials.accessToken };
+  }
+  throw new Error('Map credentials from the server were incomplete.');
+}
+
 /**
- * Resolve Mappedin map credentials exclusively from the fplaces backend.
- * Never uses client-side Mappedin API key/secret.
+ * Resolve Mappedin map credentials from a local key/secret override, or from
+ * the fplaces backend.
  *
  * If a stored user session is invalid (401/expired), falls back to guest
  * credentials so the splash can finish and the app can route to sign-in.
@@ -41,6 +72,15 @@ export function fetchMapsToken(): Promise<MapsToken> {
 export async function resolveMappedinMapCredentials(options?: {
   mapId?: string | null;
 }): Promise<MappedinMapCredentials> {
+  const local = localMappedinCredentialsFromConfig(appConfig.mappedin);
+  if (local) {
+    return {
+      key: local.key,
+      secret: local.secret,
+      mapId: options?.mapId?.trim() || local.mapId,
+    };
+  }
+
   const mapId =
     options?.mapId?.trim() || appConfig.mappedin.mapId.trim();
   if (!mapId) {

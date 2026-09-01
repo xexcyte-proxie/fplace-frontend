@@ -244,6 +244,14 @@ export function renderSettingsScreen(state: AppState): string {
             })}
             <div class="settings-divider"></div>
             ${settingsRow({
+              id: 'settings-replay-tour-btn',
+              iconClass: 'settings-row-icon--orange',
+              icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.75"></circle><path d="M12 8v4l3 2" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path></svg>`,
+              title: 'App tour',
+              subtitle: 'Replay the highlight walkthrough',
+            })}
+            <div class="settings-divider"></div>
+            ${settingsRow({
               id: 'settings-privacy-btn',
               iconClass: 'settings-row-icon--indigo',
               icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-2.8 8.2-7 10-4.2-1.8-7-5.5-7-10V6l7-3z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path></svg>`,

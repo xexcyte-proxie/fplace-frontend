@@ -7,6 +7,10 @@
   /** Matches HighFrequencyMockProvider - parent simulator walk speed. */
   const PARENT_SIM_WALK_MPS = 1.3;
   const PARENT_SIM_EXTRAP_CAP_S = 0.12;
+  /** Enter "You've arrived" at this remaining distance. */
+  const ARRIVE_ENTER_M = 5;
+  /** Leave arrival only after walking this far away (stops HUD flicker). */
+  const ARRIVE_EXIT_M = 22;
 
   function haversineMeters(a, b) {
     return geo().haversineMeters(a, b);
@@ -179,6 +183,27 @@
       this.floorChangeMessage = "";
       this._floorChangeUntil = 0;
       this._floorNames = {};
+    }
+
+    /**
+     * Latch arrival so GPS / parent remaining jitter cannot flip the HUD
+     * between turn-by-turn and "You've arrived" every frame.
+     */
+    applyArrivalLatch(remainingMeters, options) {
+      if (options?.forceClear) {
+        this.arrived = false;
+        return;
+      }
+      if (options?.forceComplete) {
+        this.arrived = true;
+        return;
+      }
+      if (remainingMeters == null || !Number.isFinite(remainingMeters)) return;
+      if (this.arrived) {
+        if (remainingMeters > ARRIVE_EXIT_M) this.arrived = false;
+        return;
+      }
+      if (remainingMeters <= ARRIVE_ENTER_M) this.arrived = true;
     }
 
     setRoute(route) {
@@ -394,7 +419,7 @@
             { alongMeters: along },
           );
         }
-        this.arrived = true;
+        this.applyArrivalLatch(0, { forceComplete: true });
         const total = window.FplacesRouteGeometry.totalPathLengthMeters(path);
         this._authoritativeAlongPathM = total;
         this._simDisplayAlongPathM = total;
@@ -403,7 +428,8 @@
         return;
       }
 
-      this.arrived = false;
+      const total = window.FplacesRouteGeometry.totalPathLengthMeters(path);
+      this.applyArrivalLatch(Math.max(0, total - along));
     }
 
     /**
@@ -460,7 +486,6 @@
 
       if (useParentSimulator) {
         this.recordParentSimulatorClock(along);
-        this.arrived = !!progress.routeSimulationComplete;
         this.syncSimulatorProgressFromAuthority(progress);
         this.applySimulatorPosition(
           {
@@ -478,9 +503,13 @@
         return;
       }
 
-      const arrivalThresholdM = 2.5;
+      const arrivalThresholdM = ARRIVE_ENTER_M;
       const remainingAlong = Math.max(0, total - along);
       const parentRemaining = progress.routeRemainingMeters;
+      const remaining =
+        parentRemaining != null && Number.isFinite(parentRemaining)
+          ? parentRemaining
+          : remainingAlong;
       const genuinelyComplete =
         (progress.routeSimulationComplete &&
           remainingAlong <= arrivalThresholdM) ||
@@ -489,13 +518,13 @@
           along > 1);
 
       if (genuinelyComplete) {
-        this.arrived = true;
+        this.applyArrivalLatch(remaining, { forceComplete: true });
         this.syncManeuverIndexFromAlong(along);
         this.notify();
         return;
       }
 
-      this.arrived = false;
+      this.applyArrivalLatch(remaining);
 
       if (useSimulator) {
         this.applySimulatorPosition(
@@ -776,15 +805,18 @@
       const remainingAlong = Math.max(0, total - along);
       const parentRemaining =
         window.__fplacesNavigationProgress?.routeRemainingMeters;
-      const arrivalThresholdM = 2.5;
+      const remaining =
+        parentRemaining != null && Number.isFinite(parentRemaining)
+          ? parentRemaining
+          : remainingAlong;
       const onFinalManeuver =
         this.maneuvers.length === 0 ||
         this.maneuverIndex >= this.maneuvers.length - 1;
       const atEnd =
         onFinalManeuver &&
         along > 1 &&
-        remainingAlong <= arrivalThresholdM &&
-        (parentRemaining == null || parentRemaining <= arrivalThresholdM);
+        remainingAlong <= ARRIVE_ENTER_M &&
+        (parentRemaining == null || parentRemaining <= ARRIVE_ENTER_M);
 
       if (atEnd) {
         if (!this.arrived) {
@@ -797,11 +829,11 @@
             },
           );
         }
-        this.arrived = true;
+        this.applyArrivalLatch(remaining, { forceComplete: true });
         this._displayAlongPathM = total;
         this._smoothDistRemaining = 0;
       } else {
-        this.arrived = false;
+        this.applyArrivalLatch(remaining);
       }
     }
 
@@ -836,7 +868,13 @@
             latitude: lat,
             longitude: lng,
           });
-          this._moveSpeedMps = d / dt;
+          // Indoor GPS wanders while standing; don't treat jitter as walking.
+          if (d < 0.9) {
+            this._moveSpeedMps = 0;
+          } else {
+            const speed = d / dt;
+            this._moveSpeedMps = speed > 3.5 ? 0 : speed;
+          }
         }
       }
       this._prevPositionSample = { latitude: lat, longitude: lng, at: now };
@@ -1225,14 +1263,15 @@
     }
 
     distanceRemainingToDestinationMeters() {
+      const progress = window.__fplacesNavigationProgress;
+      if (progress?.routeRemainingMeters != null) {
+        return Math.max(0, progress.routeRemainingMeters);
+      }
+
       if (
         this.isParentSimulatorAuthority() &&
         this.positionSource === "simulator"
       ) {
-        const progress = window.__fplacesNavigationProgress;
-        if (progress?.routeRemainingMeters != null) {
-          return Math.max(0, progress.routeRemainingMeters);
-        }
         const path = this.route?.pathCoordinates || [];
         if (!path.length) return null;
         const total = window.FplacesRouteGeometry.totalPathLengthMeters(path);
@@ -1250,8 +1289,9 @@
     }
 
     /**
-     * Smoothed + live-interpolated distance to destination for the trip footer.
-     * Counts down between GPS fixes while walking; jumps up if you move away.
+     * Remaining distance for the trip footer.
+     * Parent remaining (PWA) is authoritative when present so stop/walk
+     * matches the map sheet; otherwise interpolate local GPS remaining.
      */
     getDisplayDistanceRemainingMeters() {
       if (this.arrived) return 0;
@@ -1259,6 +1299,15 @@
       if (raw == null) return this._smoothDistRemaining;
 
       const now = performance.now();
+      const parentRemaining =
+        window.__fplacesNavigationProgress?.routeRemainingMeters != null;
+      if (parentRemaining) {
+        this._smoothDistRemaining = raw;
+        this._lastRemainingRaw = raw;
+        this._lastRemainingTickAt = now;
+        return Math.max(0, raw);
+      }
+
       const parentSim =
         this.isParentSimulatorAuthority() &&
         this.positionSource === "simulator";
@@ -1293,7 +1342,12 @@
           this._smoothDistRemaining += (raw - this._smoothDistRemaining) * 0.55;
         }
         this._lastRemainingRaw = raw;
-      } else if (this._moveSpeedMps > 0.2 && dt > 0) {
+      } else if (
+        this._moveSpeedMps > 0.35 &&
+        dt > 0 &&
+        this._lastRemainingRaw != null &&
+        raw < this._lastRemainingRaw - 0.15
+      ) {
         const speed = parentSim
           ? (this._authoritativeSimSpeedMps ?? PARENT_SIM_WALK_MPS)
           : this._moveSpeedMps;
@@ -1681,17 +1735,11 @@
       const total = window.FplacesRouteGeometry.totalPathLengthMeters(path);
       const remainingAlong = Math.max(0, total - along);
       const onFinalManeuver = this.maneuverIndex >= this.maneuvers.length - 1;
-      const arrivalThresholdM = this.isVenuePositionActive() ? 5 : 10;
-
-      if (onFinalManeuver && remainingAlong < arrivalThresholdM) {
-        if (!this.arrived) {
-          window.FplacesArDebug?.log("Navigator", "Arrived at destination", {
-            remainingAlongMeters: remainingAlong,
-            maneuverIndex: this.maneuverIndex,
-          });
+      if (onFinalManeuver) {
+        this.applyArrivalLatch(remainingAlong);
+        if (this.arrived && remainingAlong <= ARRIVE_ENTER_M) {
           this._smoothDistRemaining = Math.max(0, remainingAlong);
         }
-        this.arrived = true;
       }
     }
 

@@ -428,6 +428,10 @@ export interface AppState {
   blueDotFollowing: boolean;
   routeSimulating: boolean;
   routeSimulationComplete: boolean;
+  /** 2D arrival dialog is on screen. */
+  arrivalDialogOpen: boolean;
+  /** User already dismissed the arrival dialog for this route. */
+  arrivalDialogHandled: boolean;
   routeNotFound: boolean;
   routeTraveledMeters: number;
   routeRemainingMeters: number | null;
@@ -507,6 +511,12 @@ export interface AppState {
   venueFeedPosts: VenueFeedPost[];
   upvotedPostIds: string[];
   locationActionPrompt: LocationActionPrompt | null;
+  /**
+   * Active product-tour step index, or null when the coach-mark overlay is hidden.
+   */
+  productTourStepIndex: number | null;
+  /** True after the user finished or skipped the product tour on this device. */
+  productTourCompleted: boolean;
 }
 
 export type LocationActionPrompt = {
@@ -569,6 +579,8 @@ export const initialAppState = (): AppState => ({
   blueDotFollowing: false,
   routeSimulating: false,
   routeSimulationComplete: false,
+  arrivalDialogOpen: false,
+  arrivalDialogHandled: false,
   routeNotFound: false,
   routeTraveledMeters: 0,
   routeRemainingMeters: null,
@@ -627,4 +639,6 @@ export const initialAppState = (): AppState => ({
   venueFeedPosts: [],
   upvotedPostIds: [],
   locationActionPrompt: null,
+  productTourStepIndex: null,
+  productTourCompleted: false,
 });

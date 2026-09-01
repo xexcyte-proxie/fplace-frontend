@@ -70,16 +70,38 @@
     return rootEl;
   }
 
+  function normalizeDegrees(deg) {
+    return ((deg % 360) + 360) % 360;
+  }
+
+  function screenOrientationDeg() {
+    const angle = window.screen?.orientation?.angle;
+    if (typeof angle === "number" && !Number.isNaN(angle)) {
+      return normalizeDegrees(angle);
+    }
+    const legacy = window.orientation;
+    if (typeof legacy === "number" && !Number.isNaN(legacy)) {
+      return normalizeDegrees(legacy);
+    }
+    return 0;
+  }
+
   function readDeviceHeading(event) {
     if (
       typeof event.webkitCompassHeading === "number" &&
       !Number.isNaN(event.webkitCompassHeading)
     ) {
-      return event.webkitCompassHeading;
+      return normalizeDegrees(event.webkitCompassHeading);
     }
-    if (typeof event.alpha !== "number" || Number.isNaN(event.alpha))
+    if (typeof event.alpha !== "number" || Number.isNaN(event.alpha)) {
       return null;
-    return (360 - event.alpha) % 360;
+    }
+    return normalizeDegrees(360 - event.alpha + screenOrientationDeg());
+  }
+
+  function eventIsAbsolute(event) {
+    if (typeof event.webkitCompassHeading === "number") return true;
+    return event.absolute === true;
   }
 
   function requestHeadingPermission() {
@@ -96,23 +118,33 @@
 
   let lastRawCompassDeg = null;
   let lastRawCompassAt = 0;
+  let lastAbsoluteAt = 0;
+  let compassAccuracy = null;
+
+  function ingestHeading(event) {
+    const raw = readDeviceHeading(event);
+    if (raw == null || Number.isNaN(raw)) return;
+    const now = performance.now();
+    const absolute = eventIsAbsolute(event);
+    if (absolute) {
+      lastAbsoluteAt = now;
+    } else if (now - lastAbsoluteAt < 1600) {
+      return;
+    }
+    if (typeof event.webkitCompassAccuracy === "number") {
+      compassAccuracy = event.webkitCompassAccuracy;
+    }
+    lastRawCompassDeg = raw;
+    lastRawCompassAt = now;
+    if (window.FplacesSlamHeading?.isActive?.()) return;
+    laneHeading()?.setInstantHeading?.(raw, { smooth: true, alpha: 0.28 });
+  }
 
   function bindHeading() {
     if (headingBound) return;
     headingBound = true;
-    const onOrientation = (event) => {
-      const raw = readDeviceHeading(event);
-      if (raw != null && !Number.isNaN(raw)) {
-        // Always keep the raw magnetometer reading - SLAM calibration needs it
-        // even while FplacesSlamHeading owns the displayed heading.
-        lastRawCompassDeg = ((raw % 360) + 360) % 360;
-        lastRawCompassAt = performance.now();
-      }
-      if (window.FplacesSlamHeading?.isActive?.()) return;
-      laneHeading()?.setInstantHeading?.(raw);
-    };
-    window.addEventListener("deviceorientationabsolute", onOrientation, true);
-    window.addEventListener("deviceorientation", onOrientation, true);
+    window.addEventListener("deviceorientationabsolute", ingestHeading, true);
+    window.addEventListener("deviceorientation", ingestHeading, true);
   }
 
   function normalizeDelta(delta) {
@@ -225,6 +257,8 @@
       ensure();
       laneHeading()?.reset?.();
       smoothedDelta = null;
+      webGlActive = false;
+      if (rootEl) rootEl.style.display = "block";
       window.FplacesArDebug?.log(
         "OrientationCompass",
         "Starting Live View chevron lanes",
@@ -234,6 +268,11 @@
       });
       bindHeading();
       if (!rafId) tick();
+    },
+
+    setWebGlActive(active) {
+      webGlActive = !!active;
+      if (webGlActive && rootEl) rootEl.style.display = "none";
     },
 
     attachNavigator(navigator) {
@@ -260,6 +299,14 @@
       const age = performance.now() - lastRawCompassAt;
       if (age > (maxAgeMs ?? 8000)) return null;
       return lastRawCompassDeg;
+    },
+
+    isHeadingFresh(maxAgeMs) {
+      return this.getRawCompassHeading(maxAgeMs ?? 1500) != null;
+    },
+
+    getCompassAccuracy() {
+      return compassAccuracy;
     },
 
     isAligned() {

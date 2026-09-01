@@ -1,5 +1,9 @@
 import { PositionProvider, type PositionProviderStartOptions } from '../positionProvider';
 import type { FplacesPositionFrame } from '../types';
+import {
+  createCompassHeadingFilter,
+  readScreenOrientationDeg,
+} from '../domain/cone-heading';
 import { appWarn } from '../../utils/logger';
 
 export class GpsPositionProvider extends PositionProvider {
@@ -7,6 +11,7 @@ export class GpsPositionProvider extends PositionProvider {
 
   private watchId: number | null = null;
   private orientationHandler: ((event: DeviceOrientationEvent) => void) | null = null;
+  private readonly compass = createCompassHeadingFilter();
   private lastHeading: number | null = null;
   private lastAccuracy = 15;
   private lastLat: number | null = null;
@@ -47,6 +52,8 @@ export class GpsPositionProvider extends PositionProvider {
       this.watchId = null;
     }
     this.detachOrientationListeners();
+    this.compass.reset();
+    this.lastHeading = null;
     this.lastLat = null;
     this.lastLng = null;
   }
@@ -56,12 +63,18 @@ export class GpsPositionProvider extends PositionProvider {
     if (!granted || !this.running) return;
 
     this.orientationHandler = (event: DeviceOrientationEvent) => {
-      const alpha = event.webkitCompassHeading ?? event.alpha;
-      if (alpha == null || !Number.isFinite(alpha)) return;
+      const heading = this.compass.ingest(
+        event,
+        performance.now(),
+        readScreenOrientationDeg(
+          window.screen?.orientation?.angle,
+          typeof window.orientation === 'number' ? window.orientation : null,
+        ),
+      );
+      if (heading == null) return;
 
-      const heading = event.webkitCompassHeading ?? (360 - alpha) % 360;
       const prev = this.lastHeading;
-      this.lastHeading = ((heading % 360) + 360) % 360;
+      this.lastHeading = heading;
 
       // Re-emit while stationary so the 2D heading cone tracks phone turns.
       if (this.lastLat == null || this.lastLng == null) return;
@@ -113,6 +126,7 @@ export class GpsPositionProvider extends PositionProvider {
 declare global {
   interface DeviceOrientationEvent {
     webkitCompassHeading?: number;
+    webkitCompassAccuracy?: number;
     requestPermission?: () => Promise<'granted' | 'denied' | 'default'>;
   }
 }

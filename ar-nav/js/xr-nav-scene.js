@@ -174,10 +174,10 @@
       window.__fplacesOnCameraStarted?.();
       window.FplacesLiveViewHud?.setTrackingMode?.(
         'compass',
-        'Preview camera (SLAM unavailable)',
+        'Preview camera (AR unavailable)',
       );
       window.FplacesLiveViewHud?.setStatus?.(
-        'Camera on - SLAM could not start. Compass navigation active.',
+        'Camera on — AR could not start. Compass navigation is active.',
       );
       SLOG()?.audit?.('preview-fallback');
     } catch (error) {
@@ -577,9 +577,7 @@
 
   function slamTrackingLabel() {
     if (!window.FplacesCameraStart?.isStarted?.()) return 'Tap Start for camera';
-    if (window.FplacesSlamPose?.isActive?.()) return 'SLAM fused';
-    if (window.FplacesSlamHeading?.isCalibrated?.()) return 'SLAM heading';
-    return 'Floor SLAM';
+    return 'AR active';
   }
 
   function runXrEngine(DBG) {
@@ -613,7 +611,7 @@
       SLOG()?.logCheck?.('xr8-run', true, 'XR8.run() invoked from user gesture', {
         canvasSize: { w: feed?.width, h: feed?.height, cw: feed?.clientWidth, ch: feed?.clientHeight },
       });
-      window.FplacesLiveViewHud?.setStatus?.('Starting floor tracking…');
+      window.FplacesLiveViewHud?.setStatus?.('Starting AR…');
       window.setTimeout(() => {
         if (document.body.classList.contains('lv-compass-camera')) return;
         if (window.__fplacesCameraSessionNotified) return;
@@ -851,6 +849,7 @@
             }
             updateWorldRoute();
             window.FplacesPathGeometry?.update?.(xrScene, xrCamera);
+            window.FplacesVisualTrackingMonitor?.tick?.();
           }
           const state = navigator.getState?.();
           if (state) updateHudThrottled(state);

@@ -7,6 +7,7 @@ import {
   ROUTE_POINTS_REQUIRED_MESSAGE,
   START_TOO_CLOSE_MESSAGE,
 } from '../routing/constants';
+import { shouldRevealDestinationMarker } from '../routing/route-progress';
 import type { RouteCoordinate, RoutePayload } from '../types';
 import { appLog } from '../utils/logger';
 import {
@@ -41,6 +42,8 @@ export class RoutePlanner {
   private destinationLabel = 'End point';
   private destinationFloorName?: string;
   private destinationAreaHint?: string;
+  private guidedNavigation = false;
+  private destinationMarkerRevealed = false;
 
   constructor(
     private readonly mapView: MapView,
@@ -170,7 +173,8 @@ export class RoutePlanner {
     this.destinationAreaHint =
       meta?.areaHint ??
       (label !== 'End point' ? inferAreaHint(label) : 'On this level');
-    this.placeMarker('destination', canonical, END_MARKER);
+    // Pin stays off until the walker is close — see beginGuidedNavigation.
+    this.hideDestinationMarker();
     appLog('Route', `Destination set (${source}): ${label}`);
   }
 
@@ -237,11 +241,15 @@ export class RoutePlanner {
         displayArrowsOnPath: true,
         animateArrowsOnPath: true,
       },
+      createMarkers: {
+        departure: false,
+        destination: false,
+      },
     });
 
     this.syncMarkers();
 
-    return {
+    const payload = {
       ...buildRoutePayload(
         directions,
         this.destinationLabel,
@@ -252,6 +260,8 @@ export class RoutePlanner {
       destinationFloorName: this.destinationFloorName,
       destinationAreaHint: this.destinationAreaHint,
     };
+    this.beginGuidedNavigation(payload.distanceMeters ?? null);
+    return payload;
   }
 
   selectLeg(_legIndex: number): void {
@@ -264,6 +274,8 @@ export class RoutePlanner {
     this.destinationLabel = 'End point';
     this.destinationFloorName = undefined;
     this.destinationAreaHint = undefined;
+    this.guidedNavigation = false;
+    this.destinationMarkerRevealed = false;
     this.markerMode = 'start';
     this.routePlanningPaused = false;
     this.removeMarker('origin');
@@ -309,6 +321,30 @@ export class RoutePlanner {
     this.mapView.Navigation?.stopTracking?.();
   }
 
+  /** Hide the destination pin until the walker is close (or the route is short). */
+  beginGuidedNavigation(totalPathMeters?: number | null): void {
+    this.guidedNavigation = true;
+    this.destinationMarkerRevealed = false;
+    this.syncDestinationMarkerVisibility(
+      totalPathMeters ?? null,
+      totalPathMeters ?? null,
+    );
+  }
+
+  updateDestinationProximity(
+    remainingMeters: number | null,
+    totalPathMeters?: number | null,
+  ): void {
+    if (!this.guidedNavigation) return;
+    this.syncDestinationMarkerVisibility(remainingMeters, totalPathMeters);
+  }
+
+  endGuidedNavigation(): void {
+    this.guidedNavigation = false;
+    this.destinationMarkerRevealed = false;
+    this.hideDestinationMarker();
+  }
+
   resetAll(): void {
     this.clearRoute();
     this.clearRoutePoints();
@@ -319,9 +355,33 @@ export class RoutePlanner {
     if (this.originCoord) {
       this.placeMarker('origin', this.originCoord, START_MARKER);
     }
-    if (this.destinationCoord) {
-      this.placeMarker('destination', this.destinationCoord, END_MARKER);
+  }
+
+  private syncDestinationMarkerVisibility(
+    remainingMeters: number | null,
+    totalPathMeters: number | null | undefined,
+  ): void {
+    const show = shouldRevealDestinationMarker({
+      navigating: this.guidedNavigation,
+      remainingMeters,
+      totalPathMeters,
+      alreadyRevealed: this.destinationMarkerRevealed,
+    });
+    if (show) {
+      if (this.guidedNavigation) this.destinationMarkerRevealed = true;
+      this.showDestinationMarker();
+      return;
     }
+    this.hideDestinationMarker();
+  }
+
+  private showDestinationMarker(): void {
+    if (!this.destinationCoord || this.destinationMarker) return;
+    this.placeMarker('destination', this.destinationCoord, END_MARKER);
+  }
+
+  private hideDestinationMarker(): void {
+    this.removeMarker('destination');
   }
 
   private placeMarker(

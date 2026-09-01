@@ -275,7 +275,7 @@ export function renderVenueFeedScreen(state: AppState): string {
         <div class="venue-feed-list">${feed}</div>
       </div>
 
-      <div class="venue-feed-composer">
+      <div class="venue-feed-composer" data-tour-id="venue-composer">
         <div class="venue-feed-quick-replies">${quickReplies}</div>
         <div class="venue-feed-input-row">
           <input

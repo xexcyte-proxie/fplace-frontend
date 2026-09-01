@@ -56,12 +56,14 @@ function notifyArPresentation(mode: ArPresentation): void {
 
 export function setArPresentation(mode: ArPresentation): void {
   if (mode === "closed") {
+    notifyArPresentation(mode);
     clearRouteHandoff();
+    applyPipShellLayout(mode);
+    queueMicrotask(() => warmArIframe());
+    return;
   }
   applyPipShellLayout(mode);
-  if (mode !== "closed") {
-    notifyArPresentation(mode);
-  }
+  notifyArPresentation(mode);
 }
 
 export function setArMinimized(): void {
@@ -73,6 +75,13 @@ export function setArMaximized(): void {
 }
 
 const ROUTE_HANDOFF_KEY = "fplaces.handoff.route";
+const CAMERA_HANDOFF_KEY = "fplaces.handoff.cameraGranted";
+
+export type ArIframeCameraPermission =
+  | "granted"
+  | "denied"
+  | "prompt"
+  | "unsupported";
 
 let pendingRouteAck: {
   routeId: string;
@@ -105,6 +114,16 @@ function resolveArBaseUrl(): string {
   return `${origin}${path}`;
 }
 
+/** True when the AR iframe is served from the same origin as the PWA. */
+export function isArSameOrigin(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return new URL(resolveArBaseUrl()).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 const AR_IFRAME_ALLOW =
   "camera; geolocation; gyroscope; accelerometer; magnetometer; xr-spatial-tracking; fullscreen";
 
@@ -115,6 +134,7 @@ export function buildArUrl(
   userPosition?: RouteCoordinate | null,
   floors?: FloorInfo[],
   navigationProgress?: NavigationProgressSnapshot | null,
+  options?: { cameraReady?: boolean },
 ): string {
   const base = resolveArBaseUrl();
   const payload = buildArRoutePayload(
@@ -134,7 +154,8 @@ export function buildArUrl(
   const xrModeParam = useFallbackXr ? "xrMode=fallback&" : "";
   const arDebugParam = "arDebug=0&";
   const arBuildParam = `build=${encodeURIComponent(appConfig.arBuildId)}&`;
-  const query = `${xrModeParam}${arDebugParam}${arBuildParam}useGpsProgress=0&positioning=mappedin&worldRoute=1&autoCalibrate=1&pwaOrigin=${pwaOrigin}`;
+  const cameraReadyParam = options?.cameraReady ? "cameraReady=1&" : "";
+  const query = `${xrModeParam}${arDebugParam}${arBuildParam}${cameraReadyParam}useGpsProgress=0&positioning=mappedin&worldRoute=1&autoCalibrate=1&pwaOrigin=${pwaOrigin}`;
   const hash = encodeRouteForAr(payload);
   return base.includes("?")
     ? `${base}&${query}${hash}`
@@ -581,10 +602,17 @@ export function handleRouteAck(
 export function warmArIframe(): void {
   if (typeof window === "undefined" || !window.isSecureContext) return;
   const frame = document.querySelector("#ar-frame") as HTMLIFrameElement | null;
-  if (!frame || frame.src) return;
+  if (!frame) return;
+  const src = frame.getAttribute("src") || "";
+  if (src && src !== "about:blank") return;
   const base = resolveArBaseUrl();
   frame.setAttribute("allow", AR_IFRAME_ALLOW);
   frame.src = `${base}?arDebug=0&preload=1&build=${encodeURIComponent(appConfig.arBuildId)}`;
+}
+
+function isPreloadFrameReady(frame: HTMLIFrameElement): boolean {
+  const src = frame.getAttribute("src") || "";
+  return Boolean(frame.contentWindow && src.includes("preload=1"));
 }
 
 export function openArFullscreen(
@@ -609,25 +637,54 @@ export function openArFullscreen(
   // Show shell before delivery so deliverRouteWithRetry is not blocked by frame.hidden.
   setArPresentation("fullscreen");
 
+  const reuseWarmed = isPreloadFrameReady(frame);
   if (routePayload) {
-    // Stash before navigation so AR boot can read sessionStorage if postMessage is late.
     stashRouteHandoff(routePayload);
-
     const attemptDelivery = () => {
       if (!frame.contentWindow) return;
       void deliverRouteWithRetry(routePayload).then((result) => {
         appLog("AR", "Route delivery result", result);
       });
     };
-
-    frame.addEventListener("load", attemptDelivery);
+    if (!reuseWarmed) {
+      frame.addEventListener("load", attemptDelivery);
+    }
     window.setTimeout(attemptDelivery, 400);
     window.setTimeout(attemptDelivery, 1200);
     window.setTimeout(attemptDelivery, 2500);
   }
 
-  frame.src = url;
+  if (!reuseWarmed) {
+    frame.src = url;
+  }
   return frame;
+}
+
+/** Tell Live View that the parent already resolved camera permission for this origin. */
+export function notifyArIframePermissions(camera: ArIframeCameraPermission): void {
+  const granted = camera === "granted";
+  try {
+    if (granted) {
+      sessionStorage.setItem(CAMERA_HANDOFF_KEY, "1");
+    } else {
+      sessionStorage.removeItem(CAMERA_HANDOFF_KEY);
+    }
+  } catch {
+    /* quota / private mode */
+  }
+
+  const deliver = () => {
+    const frame = document.querySelector("#ar-frame") as HTMLIFrameElement | null;
+    if (!frame?.contentWindow) return;
+    frame.contentWindow.postMessage(
+      { type: "fplaces_permissions", camera },
+      resolvePostMessageTargetOrigin(frame),
+    );
+  };
+
+  deliver();
+  window.setTimeout(deliver, 400);
+  window.setTimeout(deliver, 1200);
 }
 
 /** Run AR health / SLAM helpers against the Live View iframe from the parent console. */

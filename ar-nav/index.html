@@ -18,7 +18,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,500,1,0&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./css/ar.css?v=20260708-ui-v1" />
+    <link rel="stylesheet" href="./css/ar.css?v=20260901-start-btn-v1" />
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <link
       rel="preload"
@@ -43,8 +43,14 @@
       aria-hidden="true"
     >
       <div class="camera-start-card">
+        <span class="camera-start-icon" aria-hidden="true">
+          <span class="material-symbols-rounded">photo_camera</span>
+        </span>
+        <h2 id="camera-start-title" class="camera-start-title">
+          Start Live View
+        </h2>
         <p id="camera-start-copy" class="camera-start-copy">
-          Camera access is needed for Live View
+          Hold your phone up and tap Start to open the camera.
         </p>
         <button type="button" id="lv-start-btn" class="lv-start-btn">
           Start Live View
@@ -81,6 +87,29 @@
       </button>
     </div>
 
+    <div
+      id="lv-lighting-dialog"
+      class="lv-dialog-layer hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="lv-lighting-dialog-title"
+      aria-describedby="lv-lighting-dialog-body"
+      aria-hidden="true"
+    >
+      <div class="lv-dialog-card">
+        <h2 id="lv-lighting-dialog-title" class="lv-dialog-title">
+          Poor lighting here
+        </h2>
+        <p id="lv-lighting-dialog-body" class="lv-dialog-body">
+          This spot is too dark for camera tracking. Compass mode can keep
+          guiding you along the route.
+        </p>
+        <button type="button" id="lv-lighting-use-compass" class="lv-start-btn">
+          Switch to compass
+        </button>
+      </div>
+    </div>
+
     <div id="hud">
       <div class="lv-status" id="status">
         Open Live View from the map after generating a route.
@@ -111,11 +140,13 @@
         </div>
       </div>
 
-      <div id="align-banner" class="lv-align hidden">
-        <span class="material-symbols-rounded" aria-hidden="true"
-          >screen_rotation</span
-        >
-        <span id="align-text">Point your phone at the path</span>
+      <div id="align-banner" class="lv-align hidden" aria-live="polite">
+        <div class="lv-align-glyph" aria-hidden="true">
+          <span id="align-icon" class="material-symbols-rounded"
+            >chevron_left</span
+          >
+        </div>
+        <span id="align-text" class="lv-align-label">Turn left</span>
       </div>
 
       <div id="floor-banner" class="lv-floor hidden">
@@ -196,8 +227,8 @@
       </div>
     </div>
 
-    <script src="./config.js?v=20260727-arrow-density-v1"></script>
-    <script src="./js/slam-diagnostics.js?v=20260727-arrow-density-v1"></script>
+    <script src="./config.js?v=20260831-turn-cue-v1"></script>
+    <script src="./js/slam-diagnostics.js?v=20260825-compass-lighting-v1"></script>
     <script>
       (function () {
         if (!window.isSecureContext) return;
@@ -238,24 +269,29 @@
     <script src="./js/floor-transitions.js"></script>
     <script src="./js/indoor-position.js"></script>
     <script src="./js/world-floor-arrows.js?v=20260727-arrow-density-v1"></script>
-    <script src="./js/incremental-ar-path.js?v=20260727-arrow-density-v1"></script>
+    <script src="./js/incremental-ar-path.js?v=20260831-camera-start-v3"></script>
     <script src="./js/pathGeometry.js?v=20260727-arrow-density-v1"></script>
     <script src="./js/world-route-scene.js?v=20260727-arrow-density-v1"></script>
     <script src="./js/demo-sim-walk.js"></script>
-    <script src="./js/route-navigator.js"></script>
-    <script src="./js/route-lane-heading.js"></script>
+    <script src="./js/route-navigator.js?v=20260831-arrival-latch-v1"></script>
+    <script src="./js/route-lane-heading.js?v=20260825-compass-lighting-v1"></script>
     <script src="./js/slam-heading.js"></script>
     <script src="./js/slam-pose-bridge.js"></script>
-    <script src="./js/live-view-hud.js"></script>
+    <script src="./js/turn-cue.js?v=20260831-turn-cue-v1"></script>
+    <script src="./js/live-view-hud.js?v=20260831-turn-cue-v1"></script>
     <script src="./js/lv-chrome.js?v=20260708-ui-v1"></script>
-    <script src="./js/camera-start.js?v=20260707-camera-v18"></script>
+    <script src="./js/camera-start.js?v=20260831-ar-stable-v1"></script>
     <script src="./js/live-view-arrows-3d.js?v=20260708-align-debug-v1"></script>
-    <script src="./js/orientation-compass.js"></script>
+    <script src="./js/orientation-compass.js?v=20260825-compass-lighting-v1"></script>
+    <script src="./js/visual-tracking-quality.js?v=20260825-compass-lighting-v1"></script>
+    <script src="./js/camera-luma-sampler.js?v=20260831-ar-stable-v1"></script>
+    <script src="./js/lighting-compass-prompt.js?v=20260825-compass-lighting-v1"></script>
+    <script src="./js/visual-tracking-monitor.js?v=20260831-ar-stable-v1"></script>
     <script src="./js/live-view-minimap.js"></script>
-    <script src="./js/fallback-nav.js"></script>
+    <script src="./js/fallback-nav.js?v=20260825-compass-lighting-v1"></script>
     <script src="./js/fplaces-xr-renderer-patch.js?v=20260707-camera-v18"></script>
     <script id="xr-bootstrap"></script>
-    <script src="./js/xr-nav-scene.js?v=20260707-camera-v18"></script>
-    <script src="./js/bootstrap.js"></script>
+    <script src="./js/xr-nav-scene.js?v=20260829-start-card-v2"></script>
+    <script src="./js/bootstrap.js?v=20260831-ar-stable-v1"></script>
   </body>
 </html>

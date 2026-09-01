@@ -6,7 +6,7 @@
 
   window.FPLACES_AR_CONFIG = {
     /** Bumped when AR camera/SLAM boot changes - check console on load. */
-    buildId: "20260727-arrow-density-v1",
+    buildId: "20260901-start-btn-v1",
     eighthWallAppKey: "",
     xrMode: "auto",
     arrowDistanceM: 2.5,
@@ -16,6 +16,11 @@
     useSlamHeading: true,
     useSlamPoseFusion: true,
     slamPoseCorrectionM: 3,
+    /** Off by default: auto-compass on a black XR canvas was killing SLAM. */
+    poorLightingPrompt: false,
+    poorLightingDarkLuma: 22,
+    poorLightingDimLuma: 48,
+    poorLightingLowContrast: 11,
     useWebGlArrows: true,
     usePathRibbon: false,
     /** Incremental world-anchored path - append segments as user walks (default on). */
@@ -44,6 +49,8 @@
     shortRemainingRevealM: 4,
     /** Hide trail when this close to destination (arrival imminent). */
     arrivalClearRemainingM: 1.8,
+    /** Show the gold destination pin only when remaining walk is this close. */
+    destinationRevealRemainingM: 20,
     floorArrowSpacingM: 3.5,
     turnCurveBendM: 2.2,
     turnCurveArrowSpacingM: 2.0,
@@ -123,6 +130,11 @@
   const pwaOrigin = params.get("pwaOrigin");
   if (pwaOrigin) {
     window.FPLACES_AR_CONFIG.pwaOrigin = pwaOrigin;
+  }
+
+  const cameraReady = params.get("cameraReady");
+  if (cameraReady === "1" || cameraReady === "true") {
+    window.FPLACES_AR_CONFIG.cameraReady = true;
   }
 
   // SLAM needs a secure context (HTTPS). Off-venue demo is fine once XR runs.

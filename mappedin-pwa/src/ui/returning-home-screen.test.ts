@@ -71,6 +71,8 @@ describe('returning home', () => {
     expect(html).toContain('RowdyGull_47');
     expect(html).toContain('Where are you headed next?');
     expect(html).toContain('id="home-venue-search-input"');
+    expect(html).toContain('data-tour-id="returning-search"');
+    expect(html).toContain('data-tour-id="returning-recent"');
     expect(html).toContain('Recently visited');
     expect(html).toContain('Your fplaces');
     expect(html).toContain('data-home-venue-id="venue-la-stadium"');

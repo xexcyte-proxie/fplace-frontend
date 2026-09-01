@@ -14,9 +14,6 @@ import {
   validateCurrentGuestAccess,
 } from './services/guest-access-service';
 import '@fontsource-variable/source-serif-4/wght.css';
-import '@fontsource/inria-serif/400.css';
-import '@fontsource/space-grotesk/500.css';
-import '@fontsource/inter/600.css';
 import '@fontsource/plus-jakarta-sans/500.css';
 import '@fontsource/plus-jakarta-sans/600.css';
 import '@fontsource/plus-jakarta-sans/700.css';
@@ -31,6 +28,7 @@ import './styles/post-comments-screen.css';
 import './styles/ar-navigation-screen.css';
 import './styles/returning-home-screen.css';
 import './styles/first-visit-venue-screen.css';
+import './styles/product-tour.css';
 
 // Capture /reset-password?uid=&token= before boot/routing can drop the query.
 capturePasswordResetLinkFromLocation();

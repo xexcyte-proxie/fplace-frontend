@@ -2,5 +2,8 @@ node_modules
 dist
 dev-dist
 public/ar
+.env
+.env.*
+!.env.example
 *.local
 .DS_Store

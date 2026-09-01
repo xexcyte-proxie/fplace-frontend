@@ -12,6 +12,12 @@ export class AppStore {
   }
 
   patch(partial: Partial<AppState>): void {
+    const keys = Object.keys(partial) as (keyof AppState)[];
+    if (keys.length === 0) return;
+    const changed = keys.some(
+      (key) => !Object.is(this.state[key], partial[key]),
+    );
+    if (!changed) return;
     this.state = { ...this.state, ...partial };
     this.emit();
   }

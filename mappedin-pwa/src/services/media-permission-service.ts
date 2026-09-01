@@ -1,0 +1,132 @@
+import {
+  mediaPermissionFromBrowserState,
+  mediaPermissionFromGetUserMediaError,
+  type ArMediaPermissionResult,
+  type MediaPermissionState,
+} from '../permissions/domain/media-permission';
+
+export type {
+  ArMediaPermissionResult,
+  MediaPermissionState,
+} from '../permissions/domain/media-permission';
+
+export {
+  shouldReuseGrantedArCamera,
+} from '../permissions/domain/media-permission';
+
+const CAMERA_CONSTRAINTS: MediaStreamConstraints = {
+  video: { facingMode: { ideal: 'environment' } },
+  audio: false,
+};
+
+let inFlightPrime: Promise<ArMediaPermissionResult> | null = null;
+
+type MotionPermissionCtor = {
+  requestPermission?: () => Promise<string>;
+};
+
+async function queryCameraPermission(): Promise<MediaPermissionState> {
+  if (!navigator.mediaDevices?.getUserMedia) return 'unsupported';
+  if (typeof globalThis.isSecureContext === 'boolean' && !globalThis.isSecureContext) {
+    return 'unsupported';
+  }
+  if (!navigator.permissions?.query) return 'prompt';
+
+  try {
+    const status = await navigator.permissions.query({
+      name: 'camera' as PermissionName,
+    });
+    return mediaPermissionFromBrowserState(status.state);
+  } catch {
+    return 'prompt';
+  }
+}
+
+function stopTracks(stream: MediaStream): void {
+  stream.getTracks().forEach((track) => track.stop());
+}
+
+/**
+ * Invoke getUserMedia immediately (no awaits before the call) so the AR-button
+ * user gesture can show Chrome's camera prompt. Tracks are stopped right away;
+ * Chrome/Safari persist the origin grant for later AR sessions.
+ */
+function requestCameraAccess(): Promise<MediaPermissionState> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return Promise.resolve('unsupported');
+  }
+  if (typeof globalThis.isSecureContext === 'boolean' && !globalThis.isSecureContext) {
+    return Promise.resolve('unsupported');
+  }
+
+  return navigator.mediaDevices
+    .getUserMedia(CAMERA_CONSTRAINTS)
+    .then((stream) => {
+      stopTracks(stream);
+      return 'granted' as const;
+    })
+    .catch((error: unknown) => mediaPermissionFromGetUserMediaError(error));
+}
+
+async function requestSensorPermission(
+  ctor: MotionPermissionCtor | undefined,
+): Promise<boolean> {
+  if (typeof ctor?.requestPermission !== 'function') return true;
+  try {
+    return (await ctor.requestPermission()) === 'granted';
+  } catch {
+    return false;
+  }
+}
+
+function requestMotionAccess(): Promise<boolean> {
+  const orientationCtor = (
+    typeof DeviceOrientationEvent === 'undefined'
+      ? undefined
+      : DeviceOrientationEvent
+  ) as MotionPermissionCtor | undefined;
+  const motionCtor = (
+    typeof DeviceMotionEvent === 'undefined' ? undefined : DeviceMotionEvent
+  ) as MotionPermissionCtor | undefined;
+  return Promise.all([
+    requestSensorPermission(orientationCtor),
+    requestSensorPermission(motionCtor),
+  ]).then(([orientationGranted, motionGranted]) =>
+    orientationGranted && motionGranted,
+  );
+}
+
+/**
+ * Ask for camera + motion now. Must be called from a user gesture (AR click)
+ * before any slow awaits so the browser can show its permission UI.
+ */
+export function primeArMediaPermissions(): Promise<ArMediaPermissionResult> {
+  const camera = requestCameraAccess();
+  const motion = requestMotionAccess();
+  return Promise.all([camera, motion]).then(([cameraState, motionGranted]) => ({
+    camera: cameraState,
+    motionGranted,
+  }));
+}
+
+/** Start the camera prompt from the AR click without blocking the rest of the flow. */
+export function beginArMediaPermissionPrime(): Promise<ArMediaPermissionResult> {
+  if (!inFlightPrime) {
+    inFlightPrime = primeArMediaPermissions();
+  }
+  return inFlightPrime;
+}
+
+/** Wait for the in-flight prime (or start one) and clear it for the next AR open. */
+export async function consumeArMediaPermissionPrime(): Promise<ArMediaPermissionResult> {
+  const result = await (inFlightPrime ?? primeArMediaPermissions());
+  inFlightPrime = null;
+  return result;
+}
+
+/** Test helper. */
+export function resetArMediaPermissionPrime(): void {
+  inFlightPrime = null;
+}
+
+export { queryCameraPermission };
