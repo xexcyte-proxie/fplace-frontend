@@ -1,4 +1,5 @@
 import type { AppState } from '../types';
+import { renderContentLoadingOverlay } from './content-loading-overlay';
 
 function escapeHtml(value: string): string {
   return value
@@ -12,6 +13,9 @@ export function renderLanguageSettingsScreen(state: AppState): string {
   const languages = state.mapLanguages;
   const selectedCode = state.mapLanguageCode;
   const changing = state.mapLanguageChanging;
+  const languagesLoading =
+    languages.length === 0 &&
+    (state.mapStatus === 'initial' || state.mapStatus === 'loading');
 
   const languageRows = languages.length
     ? languages
@@ -48,7 +52,9 @@ export function renderLanguageSettingsScreen(state: AppState): string {
           `;
         })
         .join('<div class="settings-divider"></div>')
-    : `<p class="settings-language-empty">This map has no additional languages configured in Mappedin CMS.</p>`;
+    : languagesLoading
+      ? ''
+      : `<p class="settings-language-empty">This map has no additional languages configured in Mappedin CMS.</p>`;
 
   return `
     <div class="settings-screen">
@@ -61,7 +67,7 @@ export function renderLanguageSettingsScreen(state: AppState): string {
         <h1 class="settings-title">Map language</h1>
       </header>
 
-      <div class="settings-content">
+      <div class="settings-content screen-loading-host">
         <section class="settings-group">
           <h2 class="settings-group-label">Available languages</h2>
           <div class="settings-card">
@@ -73,6 +79,7 @@ export function renderLanguageSettingsScreen(state: AppState): string {
               : ''
           }
         </section>
+        ${languagesLoading ? renderContentLoadingOverlay('Loading languages') : ''}
       </div>
     </div>
   `;

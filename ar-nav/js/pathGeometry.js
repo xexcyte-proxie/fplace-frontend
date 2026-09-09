@@ -664,7 +664,7 @@
     window.FplacesArDebug?.log("PathGeometry", "Floor path visuals built", {
       points: points.length,
       incrementalPath: useIncrementalPath(),
-      leadingArrow: true,
+      leadingArrow: window.FPLACES_AR_CONFIG?.showLeadingLocationMarker !== false,
       ribbon: useRibbon,
       cameraY: camera?.position?.y ?? null,
       floorId,

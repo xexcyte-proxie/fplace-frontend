@@ -77,4 +77,23 @@ describe('returning home', () => {
     expect(html).toContain('Your fplaces');
     expect(html).toContain('data-home-venue-id="venue-la-stadium"');
   });
+
+  it('shows a circular overlay while returning-home content is still loading', () => {
+    const html = renderReturningHomeScreen({
+      authUser: {
+        id: 1,
+        email: 'fan@email.com',
+        pseudo_name: 'RowdyGull_47',
+        is_email_verified: true,
+        created_at: '',
+        updated_at: '',
+      },
+      pseudoNameDraft: '',
+      homeVenueSearchQuery: '',
+      homeContent: null,
+    });
+    expect(html).toContain('screen-loading-overlay');
+    expect(html).toContain('aria-label="Loading home"');
+    expect(html).not.toContain('No matching venues');
+  });
 });

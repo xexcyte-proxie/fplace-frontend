@@ -1,5 +1,6 @@
 import type { AppState, VenueLiveConnectionStatus } from '../types';
 import { formatUnreadBadge } from './notifications-data';
+import { renderContentLoadingOverlay } from './content-loading-overlay';
 import {
   categoryFiltersFromApi,
   estimateFansLive,
@@ -172,6 +173,7 @@ export function renderVenueFeedScreen(state: AppState): string {
     state.forumCategories.map((category) => [String(category.id), category.name]),
   );
 
+  const feedLoading = state.venueFeedLoading && posts.length === 0;
   const feed = posts.length
     ? posts
         .map((post) => {
@@ -241,7 +243,9 @@ export function renderVenueFeedScreen(state: AppState): string {
       `;
         })
         .join('')
-    : `<p class="venue-feed-empty">No posts yet for ${
+    : feedLoading
+      ? ''
+      : `<p class="venue-feed-empty">No posts yet for ${
         scope.scoped ? escapeHtml(scopeLabel) : 'this venue'
       }. Be the first to shout out.</p>`;
 
@@ -329,7 +333,10 @@ export function renderVenueFeedScreen(state: AppState): string {
         ${locationScopeChip}
         ${liveBanner}
         ${emergencyBanner}
-        <div class="venue-feed-list">${feed}</div>
+        <div class="venue-feed-list screen-loading-host">
+          ${feed}
+          ${feedLoading ? renderContentLoadingOverlay('Loading posts') : ''}
+        </div>
         ${loadMore}
       </div>
 

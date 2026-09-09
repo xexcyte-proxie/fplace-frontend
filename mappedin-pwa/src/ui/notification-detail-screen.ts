@@ -1,4 +1,5 @@
 import type { NotificationItem } from '../types';
+import { renderContentLoadingOverlay } from './content-loading-overlay';
 
 function escapeHtml(value: string): string {
   return value
@@ -28,8 +29,9 @@ export function renderNotificationDetailScreen(options: {
 }): string {
   const { item, loading, error } = options;
 
-  const body = loading
-    ? `<p class="notification-detail-empty" role="status">Loading…</p>`
+  const showOverlay = loading && item == null;
+  const body = showOverlay
+    ? ''
     : error
       ? `<p class="notification-detail-error" role="alert">${escapeHtml(error)}</p>`
       : item
@@ -60,8 +62,9 @@ export function renderNotificationDetailScreen(options: {
           <p class="notifications-subtitle">Details</p>
         </div>
       </header>
-      <div class="notification-detail-content">
+      <div class="notification-detail-content screen-loading-host">
         ${body}
+        ${showOverlay ? renderContentLoadingOverlay('Loading notification') : ''}
       </div>
     </div>
   `;

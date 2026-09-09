@@ -1645,12 +1645,22 @@
       const accuracy = this.lastPosition.accuracy || 0;
       const offThreshold = this.offRouteThresholdMeters();
       const wasOffPath = !!this.offPathMessage;
-      this.offPathMessage =
-        offRoute > offThreshold
-          ? this.isVenuePositionActive()
-            ? `Off the mapped path (~${Math.round(offRoute)} m)`
-            : `GPS off route ~${Math.round(offRoute)} m. Using map progress.`
-          : "";
+      const cfg = window.FPLACES_AR_CONFIG || {};
+      const mapProgressMode =
+        cfg.useGpsProgress === false || !!cfg.preferVenuePositioning;
+      // Multi-km GPS vs Mappedin path is a dead fix, not a walkable detour.
+      const IMPLAUSIBLE_OFF_M = 500;
+      const plausibleOff =
+        Number.isFinite(offRoute) && offRoute <= IMPLAUSIBLE_OFF_M;
+
+      this.offPathMessage = "";
+      if (offRoute > offThreshold && plausibleOff) {
+        if (this.isVenuePositionActive()) {
+          this.offPathMessage = `Off the mapped path (~${Math.round(offRoute)} m)`;
+        } else if (!mapProgressMode) {
+          this.offPathMessage = `GPS off route ~${Math.round(offRoute)} m. Using map progress.`;
+        }
+      }
       if (this.offPathMessage && !wasOffPath) {
         window.FplacesArDebug?.warn("Navigator", "User off route", {
           distanceMeters: Math.round(offRoute),

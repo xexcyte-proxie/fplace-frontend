@@ -474,8 +474,8 @@
     if (remaining < arrivalClearM) return placements;
 
     if (startAlong < nearFieldM || remaining <= shortThreshold) {
-      spacing = Math.max(spacing, cfg.nearFieldSpacingM ?? 4.5);
-      maxArrows = Math.min(maxArrows, cfg.nearFieldMaxArrows ?? 3);
+      spacing = Math.max(spacing, cfg.nearFieldSpacingM ?? 4);
+      maxArrows = Math.min(maxArrows, cfg.nearFieldMaxArrows ?? 2);
     }
 
     const leadGap = options.trailOnly
@@ -656,6 +656,11 @@
    */
   function updateLeadingArrow(THREE, scene, points, options) {
     const DBG = window.FplacesArDebug;
+    const cfgEarly = window.FPLACES_AR_CONFIG || {};
+    if (cfgEarly.showLeadingLocationMarker === false) {
+      disposeLeadingArrow(scene);
+      return null;
+    }
 
     if (!THREE || !scene || !points?.length || points.length < 2) {
       DBG?.logThrottled?.(

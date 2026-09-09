@@ -103,6 +103,9 @@ export function classifyUiStateChange(
   if (isSubset(changed, SILENT_PATCH_KEY_SET)) return 'silent';
   if (isSubset(changed, MAP_BOOT_PATCH_KEY_SET)) {
     if (!next.startupReady) return 'full';
+    if (next.activeTab === 'profile' && next.profileView === 'language') {
+      return 'full';
+    }
     const showingMapCanvas =
       next.onboardingComplete &&
       next.activeTab === 'map' &&

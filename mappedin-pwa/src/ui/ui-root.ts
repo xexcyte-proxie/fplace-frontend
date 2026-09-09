@@ -21,6 +21,7 @@ import { renderCheckEmailScreen } from "./check-email-screen";
 import { renderVerifyEmailScreen } from "./verify-email-screen";
 import { renderPseudoNameScreen } from "./pseudo-name-screen";
 import { buildSearchResultViews } from "./search-results-data";
+import { renderContentLoadingOverlay } from "./content-loading-overlay";
 import { renderVenueSelectScreen } from "./venue-select-screen";
 import {
   renderLocationErrorScreen,
@@ -853,8 +854,8 @@ export class UiRoot {
   }
 
   private searchResults(state: AppState): string {
-    if (state.isSearching) {
-      return `<div class="search-results search-results--loading" role="status">Searching…</div>`;
+    if (state.isSearching && !state.searchResults.length) {
+      return `<div class="search-results search-results--loading screen-loading-host">${renderContentLoadingOverlay("Searching")}</div>`;
     }
 
     if (!state.searchResults.length) {

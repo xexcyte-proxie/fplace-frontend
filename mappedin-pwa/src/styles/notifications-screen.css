@@ -80,6 +80,7 @@
 }
 
 .notifications-content {
+  position: relative;
   flex: 1;
   overflow-y: auto;
   padding: 0 var(--notif-padding-x) calc(24px + env(safe-area-inset-bottom));

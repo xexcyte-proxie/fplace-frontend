@@ -47,6 +47,16 @@ describe('computeLiveRemainingMeters', () => {
       }),
     ).toBe(68);
   });
+
+  it('ignores multi-km GPS misses so indoor ETA stays on the path', () => {
+    expect(
+      computeLiveRemainingMeters({
+        totalPathMeters: 100,
+        alongPathMeters: 40,
+        offRouteMeters: 16251,
+      }),
+    ).toBe(60);
+  });
 });
 
 describe('estimateLiveWalkSeconds', () => {
@@ -113,6 +123,16 @@ describe('hasArrivedAtDestination', () => {
       }),
     ).toBe(false);
   });
+
+  it('still arrives when GPS is kilometers off the Mappedin path', () => {
+    expect(
+      hasArrivedAtDestination({
+        totalPathMeters: 100,
+        alongPathMeters: 99.5,
+        offRouteMeters: 16251,
+      }),
+    ).toBe(true);
+  });
 });
 
 describe('shouldRevealDestinationMarker', () => {
@@ -135,14 +155,24 @@ describe('shouldRevealDestinationMarker', () => {
     ).toBe(false);
   });
 
-  it('shows the pin when remaining walk is within 20 m', () => {
+  it('shows the pin when remaining walk is within 8 m', () => {
+    expect(
+      shouldRevealDestinationMarker({
+        navigating: true,
+        remainingMeters: 7,
+        totalPathMeters: 80,
+      }),
+    ).toBe(true);
+  });
+
+  it('hides the pin until the remaining walk is very close', () => {
     expect(
       shouldRevealDestinationMarker({
         navigating: true,
         remainingMeters: 18,
         totalPathMeters: 80,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('keeps the pin visible after it has been revealed', () => {
@@ -160,8 +190,8 @@ describe('shouldRevealDestinationMarker', () => {
     expect(
       shouldRevealDestinationMarker({
         navigating: true,
-        remainingMeters: 12,
-        totalPathMeters: 12,
+        remainingMeters: 6,
+        totalPathMeters: 6,
       }),
     ).toBe(true);
   });

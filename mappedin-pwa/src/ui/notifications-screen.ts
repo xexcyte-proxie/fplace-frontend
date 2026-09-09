@@ -1,4 +1,5 @@
 import type { AppState } from '../types';
+import { renderContentLoadingOverlay } from './content-loading-overlay';
 import {
   formatUnreadBadge,
   mapNotificationsToListItems,
@@ -42,7 +43,7 @@ export function renderNotificationsScreen(state: AppState): string {
         )
         .join('<div class="notifications-divider"></div>')
     : loading
-      ? `<p class="notifications-empty" role="status">Loading notifications…</p>`
+      ? ''
       : `<p class="notifications-empty">No notifications yet.</p>`;
 
   const badge = formatUnreadBadge(unread);
@@ -74,7 +75,7 @@ export function renderNotificationsScreen(state: AppState): string {
         </button>
       </header>
 
-      <div class="notifications-content">
+      <div class="notifications-content screen-loading-host">
         <div class="notifications-card">
           ${list}
         </div>
@@ -83,6 +84,11 @@ export function renderNotificationsScreen(state: AppState): string {
             ? `<button type="button" id="notifications-load-more-btn" class="notifications-load-more" ${loading ? 'disabled' : ''}>
                 ${loading ? 'Loading…' : 'Load more'}
               </button>`
+            : ''
+        }
+        ${
+          loading && items.length === 0
+            ? renderContentLoadingOverlay('Loading notifications')
             : ''
         }
       </div>

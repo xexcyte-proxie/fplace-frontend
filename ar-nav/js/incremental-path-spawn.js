@@ -2,10 +2,9 @@
  * Domain: where incremental AR trail chevrons may spawn.
  * Pure; no DOM / Three.js.
  *
- * Mid-route density matches the last working trail (commit 68be249):
- * start ~0.8 m ahead, reveal 8 m, 4 m spacing — so the opening stretch is
- * not empty (pin-only). Near-camera still caps count/scale so the first
- * viewport does not clog into a teal pile.
+ * Mid-route: reveal 8 m, spacing 4 m, max 6.
+ * Opening stretch: 1–2 chevrons clearly ahead in camera (≈2.5–4.5 m),
+ * never a near-face pile — red pin stays off separately in config.
  */
 (function (root) {
   const DEFAULTS = {
@@ -17,9 +16,11 @@
     leadingArrowDistanceM: 2.2,
     floorArrowSpacingM: 3,
     nearFieldStartM: 6,
-    nearFieldSpacingM: 4.5,
-    nearFieldMaxArrows: 3,
-    nearFieldArrowScale: 0.75,
+    nearFieldSpacingM: 4,
+    nearFieldMaxArrows: 2,
+    nearFieldArrowScale: 0.9,
+    /** Meters ahead of progress before the first near-field chevron may spawn. */
+    nearFieldLeadGapM: 2.5,
   };
 
   function num(value, fallback) {
@@ -54,7 +55,8 @@
     let nearScale = 1;
 
     const nearFieldM = num(c.nearFieldStartM, DEFAULTS.nearFieldStartM);
-    if (along < nearFieldM) {
+    const inNearField = along < nearFieldM;
+    if (inNearField) {
       spacing = Math.max(
         spacing,
         num(c.nearFieldSpacingM, DEFAULTS.nearFieldSpacingM),
@@ -71,8 +73,10 @@
     const clearTrail = remaining < arrivalClearM && along >= minTravel;
 
     const leadGap = leadM + floorSpacing * 0.35;
-    // Keep first chevron in view (~0.8 m); thinning is count/scale, not gap.
-    const spawnFrom = along + leadGap * 0.25;
+    const nearLead = num(c.nearFieldLeadGapM, DEFAULTS.nearFieldLeadGapM);
+    // Near field: first chevron ~2.5 m ahead (in view, not in your face).
+    // Mid-route: short gap ahead of progress.
+    const spawnFrom = along + (inNearField ? nearLead : leadGap * 0.25);
     const spawnTo = Math.min(Math.max(0, total - 0.2), along + revealAheadM);
 
     const canSpawn =

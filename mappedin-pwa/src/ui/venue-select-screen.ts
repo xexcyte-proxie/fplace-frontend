@@ -1,4 +1,5 @@
 import type { AppState } from '../types';
+import { renderContentLoadingOverlay } from './content-loading-overlay';
 import {
   sectionToOption,
   venuesForPicker,
@@ -102,8 +103,14 @@ export function renderVenueSelectScreen(
     })
     .join('');
 
-  const venuesEmpty = state.authLoading
-    ? `<p class="venue-select-empty">Loading venues…</p>`
+  const venuesLoading = state.authLoading && state.forumVenues.length === 0;
+  const gatesLoading =
+    Boolean(state.selectedVenueId) &&
+    state.authLoading &&
+    sections.length === 0;
+
+  const venuesEmpty = venuesLoading
+    ? ''
     : venues.length
       ? ''
       : state.forumVenues.length
@@ -154,8 +161,9 @@ export function renderVenueSelectScreen(
 
         <section class="venue-select-section" aria-labelledby="venue-select-venues-heading">
           <h2 id="venue-select-venues-heading" class="venue-select-section-label">Select your venue</h2>
-          <div class="venue-select-list" role="group" aria-label="Venues">
+          <div class="venue-select-list screen-loading-host" role="group" aria-label="Venues">
             ${venueCards || venuesEmpty}
+            ${venuesLoading ? renderContentLoadingOverlay('Loading venues') : ''}
           </div>
         </section>
 
@@ -164,13 +172,14 @@ export function renderVenueSelectScreen(
             ? `
         <section class="venue-select-section" aria-labelledby="venue-select-gates-heading">
           <h2 id="venue-select-gates-heading" class="venue-select-section-label">Select your entry gate</h2>
-          <div class="venue-select-list" role="group" aria-label="Entry gates">
+          <div class="venue-select-list screen-loading-host" role="group" aria-label="Entry gates">
             ${
               sectionCards ||
-              (state.authLoading
-                ? `<p class="venue-select-empty">Loading gates…</p>`
+              (gatesLoading
+                ? ''
                 : `<p class="venue-select-empty">No entry gates for this venue.</p>`)
             }
+            ${gatesLoading ? renderContentLoadingOverlay('Loading entry gates') : ''}
           </div>
         </section>
         `

@@ -564,7 +564,7 @@
     const density = resolveTrailDensity(findAlong, totalLen);
     const { spacing, maxVisible, clearTrail, canSpawn } = density;
     const remaining = Math.max(0, totalLen - findAlong);
-    const destRevealM = c.destinationRevealRemainingM ?? 20;
+    const destRevealM = c.destinationRevealRemainingM ?? 8;
 
     const group = ensureTrailGroup(THREE, scene);
 

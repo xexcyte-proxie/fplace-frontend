@@ -533,6 +533,8 @@ export interface AppState {
   venueFeedFilter: VenueFeedFilter;
   venueFeedDraft: string;
   venueFeedPosts: VenueFeedPost[];
+  /** True while the current venue/conversation feed page is being fetched. */
+  venueFeedLoading: boolean;
   /** True while an older page of the venue feed is being fetched. */
   venueFeedLoadingMore: boolean;
   upvotedPostIds: string[];
@@ -676,6 +678,7 @@ export const initialAppState = (): AppState => ({
   venueFeedFilter: 'all',
   venueFeedDraft: '',
   venueFeedPosts: [],
+  venueFeedLoading: false,
   venueFeedLoadingMore: false,
   upvotedPostIds: [],
   flaggedPostIds: [],

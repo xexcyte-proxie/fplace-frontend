@@ -65,6 +65,10 @@
   -webkit-overflow-scrolling: touch;
 }
 
+.post-comments-list {
+  position: relative;
+}
+
 .post-comments-post,
 .post-comments-item {
   background: var(--pc-surface);
@@ -224,6 +228,7 @@
 }
 
 .notification-detail-content {
+  position: relative;
   flex: 1;
   overflow-y: auto;
   padding: 0 var(--pc-pad-x) 24px;

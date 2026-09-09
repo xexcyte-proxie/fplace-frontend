@@ -3229,6 +3229,7 @@ export class MapApp {
       socialLocationName: null,
       venueFeedPosts: [],
       venueFeedFilter: 'all',
+      venueFeedLoading: false,
       upvotedPostIds: [],
       flaggedPostIds: [],
       notificationsOpen: false,
@@ -3556,6 +3557,7 @@ export class MapApp {
       socialLocation: locationId,
       socialLocationName: trimmedName || sectionName,
       venueFeedDraft: this.captureVenueFeedDraft(),
+      venueFeedLoading: true,
     });
     void this.loadConversationFeed(locationId);
   }
@@ -3584,18 +3586,25 @@ export class MapApp {
     const snapshot = this.venueWideFeedSnapshot;
     this.venueWideFeedSnapshot = null;
     this.venueFeedScopeGeneration += 1;
-    if (!snapshot) return;
+    if (!snapshot) {
+      this.store.patch({ venueFeedLoading: false });
+      return;
+    }
     this.store.patch({
       venueFeedPosts: snapshot.posts,
       forumFeedNext: snapshot.next,
       forumFeedCount: snapshot.count,
+      venueFeedLoading: false,
     });
   }
 
   private async loadConversationFeed(locationId: string): Promise<void> {
     const state = this.store.get();
     const venueId = Number(state.selectedVenueId);
-    if (!Number.isFinite(venueId) || venueId <= 0) return;
+    if (!Number.isFinite(venueId) || venueId <= 0) {
+      this.store.patch({ venueFeedLoading: false });
+      return;
+    }
 
     this.captureVenueWideFeedSnapshot(state);
     const generation = ++this.venueFeedScopeGeneration;
@@ -3606,15 +3615,20 @@ export class MapApp {
         venueFeedPosts: [],
         forumFeedNext: null,
         forumFeedCount: 0,
+        venueFeedLoading: false,
       });
       return;
     }
 
+    this.store.patch({ venueFeedLoading: true });
     try {
       const feed = await loadVenueSectionFeed(venueId, sectionId);
       if (generation !== this.venueFeedScopeGeneration) return;
       const current = this.store.get();
-      if (current.socialLocation !== locationId) return;
+      if (current.socialLocation !== locationId) {
+        this.store.patch({ venueFeedLoading: false });
+        return;
+      }
 
       const venueFeedPosts = mapForumPostsToVenueFeed(
         feed.results,
@@ -3628,6 +3642,7 @@ export class MapApp {
         venueFeedPosts,
         forumFeedNext: feed.next,
         forumFeedCount: feed.count,
+        venueFeedLoading: false,
         upvotedPostIds: [
           ...new Set([...current.upvotedPostIds, ...sectionUpvotedIds]),
         ],
@@ -3635,6 +3650,7 @@ export class MapApp {
       void this.hydrateVenueFeedCommentCounts();
     } catch (error) {
       if (generation !== this.venueFeedScopeGeneration) return;
+      this.store.patch({ venueFeedLoading: false });
       appWarn('Forum', 'Load conversation feed failed', error);
       this.showToast('Could not load this conversation. Please try again.');
     }
@@ -5165,9 +5181,8 @@ export class MapApp {
     }
 
     if (state.routeSimulating || this.liveRouteTracking) {
-      source = PositionProviderRegistry.isLiveHardwareSource(this.activePositionSource)
-        ? this.activePositionSource
-        : 'gps';
+      // Snapped map progress is venue authority for AR — not raw outdoor GPS.
+      source = 'pwa';
     }
 
     const lastPos = this.blueDotService?.getLastPosition();
@@ -5734,7 +5749,11 @@ export class MapApp {
         const now = performance.now();
         if (now - this.lastArProviderStreamAt >= 90) {
           this.lastArProviderStreamAt = now;
-          dispatchPositionToAr(frame);
+          // Never push a raw GPS lat/lng on heading-only ticks — indoors that
+          // can be kilometers off the Mappedin path and poisons AR off-route.
+          if (this.liveRouteTracking || this.store.get().routeSimulating) {
+            syncNavigationToAr(this.getNavigationProgressSnapshot());
+          }
         }
       }
       return;

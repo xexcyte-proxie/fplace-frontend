@@ -6,7 +6,7 @@
 
   window.FPLACES_AR_CONFIG = {
     /** Bumped when AR camera/SLAM boot changes - check console on load. */
-    buildId: "20260908-near-field-cap-v1",
+    buildId: "20260909-visible-trail-v1",
     eighthWallAppKey: "",
     xrMode: "auto",
     arrowDistanceM: 2.5,
@@ -23,6 +23,8 @@
     poorLightingLowContrast: 11,
     useWebGlArrows: true,
     usePathRibbon: false,
+    /** Red current-position pin - off; trail chevrons + HUD carry guidance. */
+    showLeadingLocationMarker: false,
     /** Incremental world-anchored path - append segments as user walks (default on). */
     useIncrementalPath: true,
     /** Hard cap on how far ahead arrows may ever exist. */
@@ -35,21 +37,21 @@
     incrementalPathSpacingM: 4,
     incrementalPathMaxVisible: 6,
     /**
-     * Opening stretch / near-camera densification guard.
-     * Keep mid-route density (reveal 8 / spacing 4 / max 6) so the trail is
-     * not pin-only, but cap count + scale in the first viewport.
+     * Opening stretch: 1–2 chevrons clearly in camera (~2.5 m lead), not a pile
+     * and not so far ahead that the road looks empty.
      */
     nearFieldStartM: 6,
-    nearFieldSpacingM: 4.5,
-    nearFieldMaxArrows: 3,
-    nearFieldArrowScale: 0.75,
+    nearFieldSpacingM: 4,
+    nearFieldMaxArrows: 2,
+    nearFieldArrowScale: 0.9,
+    nearFieldLeadGapM: 2.5,
     /** When remaining path is short, shrink reveal + density instead of dumping a full trail. */
     shortRemainingThresholdM: 12,
     shortRemainingRevealM: 4,
     /** Hide trail when this close to destination (arrival imminent). */
     arrivalClearRemainingM: 1.8,
-    /** Show the gold destination pin only when remaining walk is this close. */
-    destinationRevealRemainingM: 20,
+    /** Gold destination pin only when remaining walk is this close. */
+    destinationRevealRemainingM: 8,
     floorArrowSpacingM: 3,
     turnCurveBendM: 2.2,
     turnCurveArrowSpacingM: 2.0,

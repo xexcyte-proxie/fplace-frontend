@@ -181,4 +181,21 @@ describe('renderVenueFeedScreen', () => {
     expect(html).toContain('2h ago');
     expect(html).not.toContain('just now');
   });
+
+  it('shows a circular overlay while the empty conversation feed is loading', () => {
+    const html = renderVenueFeedScreen(
+      feedState({ venueFeedLoading: true, venueFeedPosts: [] }),
+    );
+    expect(html).toContain('screen-loading-overlay');
+    expect(html).toContain('aria-label="Loading posts"');
+    expect(html).not.toContain('No posts yet');
+  });
+
+  it('does not overlay a feed that already has posts', () => {
+    const html = renderVenueFeedScreen(
+      feedState({ venueFeedLoading: true, venueFeedPosts: [post] }),
+    );
+    expect(html).not.toContain('screen-loading-overlay');
+    expect(html).toContain('Hello section');
+  });
 });

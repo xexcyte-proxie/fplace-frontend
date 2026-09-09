@@ -1,6 +1,7 @@
 import { buildReturningHomeViewModel } from '../home/presentation/returning-home-data';
 import type { ReturningHomeContent } from '../home/domain/entities';
 import { resolveDisplayName, type AppState } from '../types';
+import { renderContentLoadingOverlay } from './content-loading-overlay';
 
 function escapeHtml(value: string): string {
   return value
@@ -47,6 +48,7 @@ export function renderReturningHomeScreen(
     | 'homeContent'
   >,
 ): string {
+  const homeLoading = state.homeContent == null;
   const content: ReturningHomeContent = state.homeContent ?? {
     recentlyVisited: [],
     stats: { venues: 0, upvotesLabel: '0', posts: 0 },
@@ -61,7 +63,9 @@ export function renderReturningHomeScreen(
     content,
   });
 
-  const recentRows = view.recentlyVisited.length
+  const recentRows = homeLoading
+    ? ''
+    : view.recentlyVisited.length
     ? view.recentlyVisited
         .map(
           (venue) => `
@@ -129,6 +133,7 @@ export function renderReturningHomeScreen(
           </div>
         </div>
       </div>
+      ${homeLoading ? renderContentLoadingOverlay('Loading home') : ''}
     </section>
   `;
 }

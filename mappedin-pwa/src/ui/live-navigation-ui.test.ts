@@ -161,6 +161,26 @@ describe('classifyUiStateChange', () => {
     ).toBe('full');
   });
 
+  it('rebuilds map-language settings when map languages finish loading', () => {
+    const previous = {
+      ...initialAppState(),
+      startupReady: true,
+      onboardingComplete: true,
+      activeTab: 'profile' as const,
+      profileView: 'language' as const,
+      mapStatus: 'loading' as const,
+    };
+    expect(
+      classifyUiStateChange(previous, {
+        ...previous,
+        mapStatus: 'ready' as const,
+        mapLanguages: [{ code: 'en', name: 'English' }],
+        mapLanguageCode: 'en',
+        mapLanguageName: 'English',
+      }),
+    ).toBe('full');
+  });
+
   it('rebuilds the social tab when live feed posts or heatmap status change', () => {
     const previous = initialAppState();
     previous.activeTab = 'social';

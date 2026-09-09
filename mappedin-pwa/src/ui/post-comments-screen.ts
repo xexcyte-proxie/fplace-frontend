@@ -1,4 +1,5 @@
 import type { AppState, VenueFeedPost } from '../types';
+import { renderContentLoadingOverlay } from './content-loading-overlay';
 
 function escapeHtml(value: string): string {
   return value
@@ -49,7 +50,7 @@ export function renderPostCommentsScreen(
         })
         .join('')
     : loading
-      ? `<p class="post-comments-empty" role="status">Loading comments…</p>`
+      ? ''
       : `<p class="post-comments-empty">No comments yet. Start the thread.</p>`;
 
   const postBlock = post
@@ -113,7 +114,14 @@ export function renderPostCommentsScreen(
       <div class="post-comments-scroll">
         ${postBlock}
         ${error ? `<p class="post-comments-error" role="alert">${escapeHtml(error)}</p>` : ''}
-        <div class="post-comments-list">${list}</div>
+        <div class="post-comments-list screen-loading-host">
+          ${list}
+          ${
+            loading && comments.length === 0
+              ? renderContentLoadingOverlay('Loading comments')
+              : ''
+          }
+        </div>
       </div>
 
       <form id="post-comments-form" class="post-comments-composer">

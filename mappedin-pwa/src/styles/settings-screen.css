@@ -59,6 +59,7 @@
 }
 
 .settings-content {
+  position: relative;
   padding: 26px var(--settings-padding-x) max(28px, env(safe-area-inset-bottom));
 }
 

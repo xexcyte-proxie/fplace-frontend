@@ -3,14 +3,29 @@ import { WALKING_SPEED_MPS } from './constants';
 /** Ignore tiny GPS/snap jitter when adding off-route distance to the ETA. */
 const OFF_ROUTE_ETA_THRESHOLD_M = 4;
 
+/**
+ * Beyond this, off-route is treated as an unusable outdoor/cached GPS fix
+ * (not a walkable detour). Common indoors when WGS84 GPS is kilometers from
+ * the Mappedin polyline — do not inflate ETA or block arrival.
+ */
+export const OFF_ROUTE_PLAUSIBLE_MAX_M = 250;
+
 /** Close enough to the path end to count as arrived. */
 export const ARRIVAL_ALONG_PATH_TOLERANCE_M = 0.75;
 
 /** Still counts as arrived only when not far off the route. */
 export const ARRIVAL_OFF_ROUTE_MAX_M = 4;
 
+/** True when off-route looks like a real nearby detour, not a multi-km GPS miss. */
+export function isPlausibleOffRouteMeters(
+  offRouteMeters?: number | null,
+): boolean {
+  if (offRouteMeters == null || !Number.isFinite(offRouteMeters)) return false;
+  return offRouteMeters >= 0 && offRouteMeters <= OFF_ROUTE_PLAUSIBLE_MAX_M;
+}
+
 /** Show the destination pin only when the remaining walk is this close. */
-export const DESTINATION_MARKER_REVEAL_M = 20;
+export const DESTINATION_MARKER_REVEAL_M = 8;
 
 /** Ignore sub-step along-path wiggles from heading-only frames and snap noise. */
 const ALONG_PATH_JITTER_M = 0.85;
@@ -75,7 +90,8 @@ export function computeLiveRemainingMeters(options: {
   const pathRemaining = Math.max(0, total - along);
   const off = options.offRouteMeters ?? 0;
   const threshold = options.offRouteThresholdMeters ?? OFF_ROUTE_ETA_THRESHOLD_M;
-  const effectiveOff = Number.isFinite(off) && off > threshold ? off : 0;
+  const effectiveOff =
+    isPlausibleOffRouteMeters(off) && off > threshold ? off : 0;
   return pathRemaining + effectiveOff;
 }
 
@@ -119,7 +135,9 @@ export function hasArrivedAtDestination(options: {
   const total = Math.max(0, options.totalPathMeters);
   if (total <= 0) return false;
   const along = Math.max(0, options.alongPathMeters);
-  const off = options.offRouteMeters ?? 0;
+  const rawOff = options.offRouteMeters ?? 0;
+  // Implausible GPS (multi-km) must not block arrival forever indoors.
+  const off = isPlausibleOffRouteMeters(rawOff) ? rawOff : 0;
   // A brand-new route with along=0 can satisfy `along >= total - 0.75` when
   // the path is shorter than the tolerance. Require real progress first.
   const minTravel = Math.min(3, Math.max(ARRIVAL_ALONG_PATH_TOLERANCE_M, total * 0.35));
