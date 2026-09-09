@@ -3,6 +3,7 @@ import {
   type GeolocationPermissionState,
   type UserCoordinates,
 } from './geolocation-permission';
+import type { PermissionChoice } from '../../permissions/domain/permission-choice';
 
 /** Preflight before calling getCurrentPosition during the startup location gate. */
 export type LocationGatePreflight =
@@ -16,6 +17,28 @@ export function resolveLocationGatePreflight(
   if (permission === 'unsupported') return { action: 'error-unsupported' };
   if (permission === 'denied') return { action: 'required-permanent' };
   return { action: 'request' };
+}
+
+/**
+ * Whether to show the Enable Location dialog, silently reuse a prior grant,
+ * or skip GPS entirely after the user already denied.
+ */
+export type LocationGateEntry =
+  | { action: 'error-unsupported' }
+  | { action: 'prompt' }
+  | { action: 'silent-request' }
+  | { action: 'skip' };
+
+export function resolveLocationGateEntry(
+  browser: GeolocationPermissionState,
+  stored: PermissionChoice,
+): LocationGateEntry {
+  if (browser === 'unsupported') return { action: 'error-unsupported' };
+  if (browser === 'granted') return { action: 'silent-request' };
+  if (browser === 'denied') return { action: 'skip' };
+  if (stored === 'granted') return { action: 'silent-request' };
+  if (stored === 'denied') return { action: 'skip' };
+  return { action: 'prompt' };
 }
 
 export type LocationGateFailure =

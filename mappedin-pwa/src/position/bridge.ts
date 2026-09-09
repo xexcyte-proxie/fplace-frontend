@@ -35,6 +35,8 @@ export type {
 
 export type ArPresentation = "closed" | "fullscreen" | "minimized";
 
+let currentArPresentation: ArPresentation = "closed";
+
 export interface ArMessageBridgeHost {
   isArOpen(): boolean;
   startRouteMovement(options?: { alongPathMeters?: number }): void;
@@ -54,7 +56,13 @@ function notifyArPresentation(mode: ArPresentation): void {
   );
 }
 
+function syncArPresentationToFrame(): void {
+  if (currentArPresentation === "closed") return;
+  notifyArPresentation(currentArPresentation);
+}
+
 export function setArPresentation(mode: ArPresentation): void {
+  currentArPresentation = mode;
   if (mode === "closed") {
     notifyArPresentation(mode);
     clearRouteHandoff();
@@ -610,11 +618,6 @@ export function warmArIframe(): void {
   frame.src = `${base}?arDebug=0&preload=1&build=${encodeURIComponent(appConfig.arBuildId)}`;
 }
 
-function isPreloadFrameReady(frame: HTMLIFrameElement): boolean {
-  const src = frame.getAttribute("src") || "";
-  return Boolean(frame.contentWindow && src.includes("preload=1"));
-}
-
 export function openArFullscreen(
   url: string,
   routePayload?: Record<string, unknown>,
@@ -637,26 +640,25 @@ export function openArFullscreen(
   // Show shell before delivery so deliverRouteWithRetry is not blocked by frame.hidden.
   setArPresentation("fullscreen");
 
-  const reuseWarmed = isPreloadFrameReady(frame);
+  const onLiveViewLoaded = () => {
+    syncArPresentationToFrame();
+    if (!routePayload || !frame.contentWindow) return;
+    void deliverRouteWithRetry(routePayload).then((result) => {
+      appLog("AR", "Route delivery result", result);
+    });
+  };
+
+  frame.addEventListener("load", onLiveViewLoaded, { once: true });
   if (routePayload) {
     stashRouteHandoff(routePayload);
-    const attemptDelivery = () => {
-      if (!frame.contentWindow) return;
-      void deliverRouteWithRetry(routePayload).then((result) => {
-        appLog("AR", "Route delivery result", result);
-      });
-    };
-    if (!reuseWarmed) {
-      frame.addEventListener("load", attemptDelivery);
-    }
-    window.setTimeout(attemptDelivery, 400);
-    window.setTimeout(attemptDelivery, 1200);
-    window.setTimeout(attemptDelivery, 2500);
+    window.setTimeout(onLiveViewLoaded, 400);
+    window.setTimeout(onLiveViewLoaded, 1200);
+    window.setTimeout(onLiveViewLoaded, 2500);
   }
 
-  if (!reuseWarmed) {
-    frame.src = url;
-  }
+  // Always load the Live View URL. A warmed preload document must not stay on
+  // screen — it never starts the camera or HUD.
+  frame.src = url;
   return frame;
 }
 
@@ -905,6 +907,9 @@ export function installArMessageBridge(host: ArMessageBridgeHost): void {
       case "fplaces_ar_maximize":
         appLog("PWA Bridge", "fplaces_ar_maximize received");
         host.maximizeAr();
+        break;
+      case "fplaces_ar_ready":
+        syncArPresentationToFrame();
         break;
       case "fplaces_floor_change": {
         const floorId =

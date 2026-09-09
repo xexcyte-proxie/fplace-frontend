@@ -4,16 +4,30 @@
 import type {
   ReturningSessionSnapshot,
   StartupDestination,
+  StartupShell,
 } from '../session/domain/entities';
 import {
+  isIndoorMapSurface,
   isReturningSession,
+  remainingStartupSplashMs,
   resolveStartupDestination,
+  resolveStartupShell,
+  shouldShowMapBootOverlay,
+  shouldShowStartupSplash,
 } from '../session/domain/entities';
 import { returningSessionRepository } from '../session/data/returning-session-repository-impl';
 import { deviceRecognitionRepository } from '../session/data/device-recognition-repository-impl';
 
-export type { ReturningSessionSnapshot, StartupDestination };
-export { isReturningSession, resolveStartupDestination };
+export type { ReturningSessionSnapshot, StartupDestination, StartupShell };
+export {
+  isIndoorMapSurface,
+  isReturningSession,
+  remainingStartupSplashMs,
+  resolveStartupDestination,
+  resolveStartupShell,
+  shouldShowMapBootOverlay,
+  shouldShowStartupSplash,
+};
 
 export function loadReturningSession(): ReturningSessionSnapshot | null {
   return returningSessionRepository.load();

@@ -848,11 +848,20 @@
               window.FplacesWorldRoute?.ensureRibbon?.();
             }
             updateWorldRoute();
-            window.FplacesPathGeometry?.update?.(xrScene, xrCamera);
+            const worldRouteActive =
+              cfg.useWorldRoute !== false &&
+              window.FplacesWorldRoute?.isAttached?.();
+            if (!worldRouteActive) {
+              window.FplacesPathGeometry?.update?.(xrScene, xrCamera);
+            }
             window.FplacesVisualTrackingMonitor?.tick?.();
           }
-          const state = navigator.getState?.();
-          if (state) updateHudThrottled(state);
+          const needHud = now - lastHudAt >= 200;
+          const needSimTick = navigator.positionSource === 'simulator';
+          if (needHud || needSimTick) {
+            const state = navigator.getState?.();
+            if (state) updateHudThrottled(state);
+          }
         },
       });
 

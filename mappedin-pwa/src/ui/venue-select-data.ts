@@ -1,6 +1,13 @@
+import {
+  formatRelativeDistance,
+  metersFromUser,
+  sortByUserDistance,
+} from '../location/domain/user-relative-distance';
+import type { PermissionChoice } from '../permissions/domain/permission-choice';
 import type {
   ForumSectionSummary,
   ForumVenueSummary,
+  UserLocationCoords,
 } from '../types';
 
 /** Venue option for the onboarding picker. */
@@ -18,12 +25,52 @@ export interface SectionOption {
   subtitle: string;
 }
 
-export function venueToOption(venue: ForumVenueSummary): VenueOption {
+export function venueToOption(
+  venue: ForumVenueSummary,
+  distanceLabel: string | null = null,
+): VenueOption {
+  const place = venue.location?.trim() || 'Stadium venue';
   return {
     id: String(venue.id),
     name: venue.name,
-    subtitle: venue.location?.trim() || 'Stadium venue',
+    subtitle: distanceLabel ? `${distanceLabel} · ${place}` : place,
   };
+}
+
+export function venuesForPicker(
+  venues: readonly ForumVenueSummary[],
+  query: string,
+  permission: PermissionChoice,
+  userLocation: UserLocationCoords | null,
+): VenueOption[] {
+  const matched = filterVenuesByQuery(venues, query);
+  const decorated = matched.map((venue) => {
+    const meters = metersFromUser(permission, userLocation, venue);
+    return {
+      venue,
+      meters,
+      distanceLabel: formatRelativeDistance(meters),
+    };
+  });
+  const ranked = decorated.some((item) => item.meters != null)
+    ? sortByUserDistance(decorated, (item) => item.meters)
+    : decorated;
+  return ranked.map(({ venue, distanceLabel }) =>
+    venueToOption(venue, distanceLabel),
+  );
+}
+
+function filterVenuesByQuery(
+  venues: readonly ForumVenueSummary[],
+  query: string,
+): ForumVenueSummary[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return [...venues];
+  return venues.filter(
+    (venue) =>
+      venue.name.toLowerCase().includes(normalized) ||
+      (venue.location ?? '').toLowerCase().includes(normalized),
+  );
 }
 
 export function sectionToOption(section: ForumSectionSummary): SectionOption {
@@ -39,17 +86,4 @@ export function sectionToOption(section: ForumSectionSummary): SectionOption {
 
 export function defaultSectionId(sections: ForumSectionSummary[]): string {
   return sections[0] ? String(sections[0].id) : '';
-}
-
-export function filterVenues(
-  venues: VenueOption[],
-  query: string,
-): VenueOption[] {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return venues;
-  return venues.filter(
-    (venue) =>
-      venue.name.toLowerCase().includes(normalized) ||
-      venue.subtitle.toLowerCase().includes(normalized),
-  );
 }

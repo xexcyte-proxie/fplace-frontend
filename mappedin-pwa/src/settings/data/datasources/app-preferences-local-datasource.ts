@@ -16,10 +16,8 @@ export class AppPreferencesLocalDatasource {
           typeof parsed.notificationsEnabled === 'boolean'
             ? parsed.notificationsEnabled
             : DEFAULT_APP_PREFERENCES.notificationsEnabled,
-        simulationEnabled:
-          typeof parsed.simulationEnabled === 'boolean'
-            ? parsed.simulationEnabled
-            : DEFAULT_APP_PREFERENCES.simulationEnabled,
+        // Simulation mode is gone — never restore a leftover toggle.
+        simulationEnabled: false,
       };
     } catch {
       return { ...DEFAULT_APP_PREFERENCES };
@@ -35,7 +33,11 @@ export class AppPreferencesLocalDatasource {
   }
 
   patch(partial: Partial<AppPreferences>): AppPreferences {
-    const next = { ...this.load(), ...partial };
+    const next = {
+      ...this.load(),
+      ...partial,
+      simulationEnabled: false,
+    };
     this.save(next);
     return next;
   }

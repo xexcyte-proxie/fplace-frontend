@@ -15,14 +15,39 @@ import { renderOnboardingScreen } from './onboarding-screen';
  * without mounting a browser DOM framework.
  */
 describe('startup flow screens (widget)', () => {
-  it('renders Welcome create-account and login CTAs', () => {
-    const html = renderOnboardingScreen();
-    expect(html).toContain('Find places. Find');
-    expect(html).toContain('people. Find your way.');
+  it('renders Welcome create-account, login, and guest CTAs', () => {
+    const html = renderOnboardingScreen({
+      guestAccessAllowed: true,
+      authLoading: false,
+    });
+    expect(html).toContain('Find places.');
+    expect(html).toContain('Find people.');
+    expect(html).toContain('Find your way.');
     expect(html).toContain('id="onboarding-create-account"');
     expect(html).toContain('Create account');
     expect(html).toContain('id="onboarding-login"');
     expect(html).toContain('I already have an account');
+    expect(html).toContain('id="auth-guest-btn"');
+    expect(html).toContain('Continue as guest');
+  });
+
+  it('hides Continue as guest when the fingerprint gate denies access', () => {
+    const html = renderOnboardingScreen({
+      guestAccessAllowed: false,
+      authLoading: false,
+    });
+    expect(html).not.toContain('id="auth-guest-btn"');
+    expect(html).not.toContain('Continue as guest');
+  });
+
+  it('disables Continue as guest while auth is in progress', () => {
+    const html = renderOnboardingScreen({
+      guestAccessAllowed: true,
+      authLoading: true,
+    });
+    expect(html).toContain('id="auth-guest-btn"');
+    expect(html).toContain('Continuing…');
+    expect(html).toContain('disabled');
   });
 
   it('renders AR teaser placeholder with skip', () => {

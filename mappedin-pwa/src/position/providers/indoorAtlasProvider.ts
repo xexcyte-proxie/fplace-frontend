@@ -117,7 +117,9 @@ export class IndoorAtlasProvider extends PositionProvider {
     this.emit({
       latitude: coords.latitude,
       longitude: coords.longitude,
-      heading: coords.heading ?? 0,
+      ...(coords.heading != null && Number.isFinite(coords.heading) && coords.heading >= 0
+        ? { heading: coords.heading }
+        : {}),
       accuracy: coords.accuracy ?? 12,
       floorId: verdict.mappedinFloorId,
     });

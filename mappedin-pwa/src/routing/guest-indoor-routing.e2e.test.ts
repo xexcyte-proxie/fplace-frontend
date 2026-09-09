@@ -1,6 +1,7 @@
 import { getMapData, type MapData } from '@mappedin/mappedin-js';
 import { describe, expect, it } from 'vitest';
 
+import { FPLACES_BACKEND_HTTP_ORIGIN } from '../config/fplaces-backend';
 import type { GuestTokenApiResponse } from '../guest/data/mappers/guest-session-mapper';
 import { mapGuestTokenResponse } from '../guest/data/mappers/guest-session-mapper';
 import type { RouteCoordinate, RoutePayload } from '../types';
@@ -18,7 +19,7 @@ import {
 } from './route-progress';
 import { routeValidationService } from './route-validation-service';
 
-const BACKEND = 'https://fplaces-backend.vercel.app';
+const BACKEND = FPLACES_BACKEND_HTTP_ORIGIN;
 const MAP_ID = '65c0ff7430b94e3fabd5bb8c';
 const LIVE_TIMEOUT_MS = 90_000;
 const MIN_ROUTE_SEPARATION_M = 15;

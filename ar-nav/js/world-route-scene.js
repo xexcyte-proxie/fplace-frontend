@@ -76,6 +76,14 @@
       const resolvedFloor =
         floorId || nav._trackedFloorId || nav.lastPosition?.floorId || null;
 
+      if (
+        ribbonBuilt &&
+        resolvedFloor === lastFloorId &&
+        window.FplacesPathGeometry?.hasRibbon?.(sceneRef)
+      ) {
+        return true;
+      }
+
       window.FplacesPathGeometry?.generateWorldMeshPath?.(
         sceneRef,
         route,

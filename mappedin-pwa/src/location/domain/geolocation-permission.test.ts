@@ -9,6 +9,7 @@ import {
 import {
   isLocationGateAuthStep,
   nextMarketingOnboardingStep,
+  resolveLocationGateEntry,
   resolveLocationGateFailure,
   resolveLocationGatePreflight,
 } from './location-gate';
@@ -88,6 +89,35 @@ describe('resolveLocationGatePreflight', () => {
     });
     expect(resolveLocationGatePreflight('prompt')).toEqual({
       action: 'request',
+    });
+  });
+});
+
+describe('resolveLocationGateEntry', () => {
+  it('silently reuses a browser grant without showing Enable Location', () => {
+    expect(resolveLocationGateEntry('granted', 'undecided')).toEqual({
+      action: 'silent-request',
+    });
+  });
+
+  it('skips GPS after the user already denied, including Safari prompt state', () => {
+    expect(resolveLocationGateEntry('denied', 'undecided')).toEqual({
+      action: 'skip',
+    });
+    expect(resolveLocationGateEntry('prompt', 'denied')).toEqual({
+      action: 'skip',
+    });
+  });
+
+  it('silently retries when Safari cannot query but we remember a grant', () => {
+    expect(resolveLocationGateEntry('prompt', 'granted')).toEqual({
+      action: 'silent-request',
+    });
+  });
+
+  it('shows Enable Location only before the first choice', () => {
+    expect(resolveLocationGateEntry('prompt', 'undecided')).toEqual({
+      action: 'prompt',
     });
   });
 });

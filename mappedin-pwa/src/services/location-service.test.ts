@@ -67,6 +67,44 @@ describe('LocationService', () => {
     );
   });
 
+  it('streams live coordinates from watchPosition', () => {
+    const watchPosition = vi.fn(
+      (success: PositionCallback, _error?: PositionErrorCallback | null) => {
+        success({
+          coords: {
+            latitude: 43.64,
+            longitude: -79.38,
+            accuracy: 6,
+            altitude: null,
+            altitudeAccuracy: null,
+            heading: null,
+            speed: null,
+            toJSON: () => ({}),
+          },
+          timestamp: 1,
+          toJSON: () => ({}),
+        });
+        return 7;
+      },
+    );
+    const clearWatch = vi.fn();
+    vi.stubGlobal('navigator', {
+      geolocation: { watchPosition, clearWatch },
+    });
+
+    const service = new LocationService();
+    const onUpdate = vi.fn();
+    const stop = service.watchLocation(onUpdate);
+
+    expect(onUpdate).toHaveBeenCalledWith({
+      latitude: 43.64,
+      longitude: -79.38,
+      accuracy: 6,
+    });
+    stop();
+    expect(clearWatch).toHaveBeenCalledWith(7);
+  });
+
   it('rejects when getCurrentPosition fails', async () => {
     const denied: GeolocationPositionError = {
       code: 1,

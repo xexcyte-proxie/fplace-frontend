@@ -1,17 +1,4 @@
-/** Interests + pseudo-name options for post-signup profile setup (Frame-5). */
-
-export const PROFILE_INTEREST_OPTIONS = [
-  'Home team',
-  'Away team',
-  'Live music',
-  'Family zone',
-  'Food and drink',
-  'Merch',
-  'Stats and scores',
-  'Photography',
-] as const;
-
-export type ProfileInterest = (typeof PROFILE_INTEREST_OPTIONS)[number];
+/** Pseudo-name helpers for post-signup profile setup (Frame-5). */
 
 /** Example shown as input placeholder until the user types or shuffles. */
 export const PSEUDO_NAME_PLACEHOLDER = 'RowdyGull_47';

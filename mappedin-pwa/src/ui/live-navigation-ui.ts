@@ -20,6 +20,8 @@ export const SEARCH_PATCH_KEYS = [
   'searchResults',
   'isSearching',
   'categoryFilter',
+  'userLocation',
+  'locationPermission',
 ] as const satisfies readonly (keyof AppState)[];
 
 export const HEATMAP_PATCH_KEYS = [
@@ -28,7 +30,33 @@ export const HEATMAP_PATCH_KEYS = [
   'venueLiveStatus',
 ] as const satisfies readonly (keyof AppState)[];
 
-export type UiPatchKind = 'live' | 'toast' | 'search' | 'heatmap-map' | 'full';
+/** Backend trial flags — nothing in the map chrome reads these. */
+export const SILENT_PATCH_KEYS = [
+  'guestHasTried2dView',
+  'guestHasTriedArView',
+] as const satisfies readonly (keyof AppState)[];
+
+export type UiPatchKind =
+  | 'live'
+  | 'toast'
+  | 'search'
+  | 'heatmap-map'
+  | 'silent'
+  | 'full';
+
+/** Map download / WebGL boot — must not rebuild onboarding or home. */
+export const MAP_BOOT_PATCH_KEYS = [
+  'mapStatus',
+  'mapError',
+  'loadingMessage',
+  'loadingProgress',
+  'currentFloorId',
+  'searchChips',
+  'floors',
+  'mapLanguages',
+  'mapLanguageCode',
+  'mapLanguageName',
+] as const satisfies readonly (keyof AppState)[];
 
 const LIVE_NAVIGATION_TELEMETRY_KEY_SET = new Set<string>(
   LIVE_NAVIGATION_TELEMETRY_KEYS,
@@ -36,6 +64,8 @@ const LIVE_NAVIGATION_TELEMETRY_KEY_SET = new Set<string>(
 const TOAST_PATCH_KEY_SET = new Set<string>(TOAST_PATCH_KEYS);
 const SEARCH_PATCH_KEY_SET = new Set<string>(SEARCH_PATCH_KEYS);
 const HEATMAP_PATCH_KEY_SET = new Set<string>(HEATMAP_PATCH_KEYS);
+const SILENT_PATCH_KEY_SET = new Set<string>(SILENT_PATCH_KEYS);
+const MAP_BOOT_PATCH_KEY_SET = new Set<string>(MAP_BOOT_PATCH_KEYS);
 
 function changedKeys(previous: AppState, next: AppState): string[] {
   const keys = new Set([...Object.keys(previous), ...Object.keys(next)]);
@@ -64,9 +94,24 @@ export function classifyUiStateChange(
   if (changed.length === 0) return 'full';
   if (isSubset(changed, LIVE_NAVIGATION_TELEMETRY_KEY_SET)) return 'live';
   if (isSubset(changed, TOAST_PATCH_KEY_SET)) return 'toast';
-  if (isSubset(changed, SEARCH_PATCH_KEY_SET)) return 'search';
+  if (isSubset(changed, SEARCH_PATCH_KEY_SET)) {
+    return next.authStep === 'venue-select' ? 'full' : 'search';
+  }
   if (isSubset(changed, HEATMAP_PATCH_KEY_SET)) {
     return next.activeTab === 'map' ? 'heatmap-map' : 'full';
+  }
+  if (isSubset(changed, SILENT_PATCH_KEY_SET)) return 'silent';
+  if (isSubset(changed, MAP_BOOT_PATCH_KEY_SET)) {
+    if (!next.startupReady) return 'full';
+    const showingMapCanvas =
+      next.onboardingComplete &&
+      next.activeTab === 'map' &&
+      next.navigateView === 'map';
+    const mapSurfaceChanged =
+      previous.mapStatus !== next.mapStatus ||
+      Boolean(previous.mapError) !== Boolean(next.mapError);
+    if (showingMapCanvas && mapSurfaceChanged) return 'full';
+    return 'silent';
   }
   return 'full';
 }

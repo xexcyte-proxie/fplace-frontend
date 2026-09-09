@@ -142,7 +142,8 @@ export type VenueLiveEvent =
   | { type: 'new_post'; post: ForumPost }
   | { type: 'upvote_update'; update: UpvoteUpdatePayload }
   | { type: 'post_hidden'; postId: number }
-  | { type: 'section_heat_update'; heatmap: SectionHeatEntry[] };
+  | { type: 'section_heat_update'; heatmap: SectionHeatEntry[] }
+  | { type: 'new_comment'; comment: ForumComment };
 
 export type VenueLiveEventHandler = (event: VenueLiveEvent) => void;
 
@@ -153,7 +154,8 @@ export type VenueLiveConnectionStatus =
   | 'connected'
   | 'reconnecting'
   | 'disconnected'
-  | 'auth_missing';
+  | 'auth_missing'
+  | 'unavailable';
 
 export type VenueLiveStatusHandler = (status: VenueLiveConnectionStatus) => void;
 

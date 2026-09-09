@@ -14,6 +14,10 @@
   let cachedRouteInput = null;
   let cachedAnchorEngine = null;
   let cachedFloorId = null;
+  let slamPointCache = {
+    key: "",
+    points: null,
+  };
 
   function normalizeRouteInput(routeInput) {
     if (Array.isArray(routeInput)) {
@@ -73,9 +77,11 @@
     cachedRouteInput = null;
     cachedAnchorEngine = null;
     cachedFloorId = null;
+    slamPointCache = { key: "", points: null };
     lastArrowRefreshAlongM = -1;
     lastArrowRefreshAt = 0;
     lastArrowEmphasisTier = -1;
+    lastLeadingUpdateAt = 0;
 
     window.FplacesFloorArrows?.disposeFloorArrows?.(scene);
     window.FplacesIncrementalPath?.dispose?.(scene);
@@ -197,11 +203,39 @@
     return group;
   }
 
+  function slamPointCacheKey(coordinatesList, engine) {
+    const n = coordinatesList.length;
+    if (!n) return "";
+    const first = coordinatesList[0];
+    const mid = coordinatesList[n >> 1];
+    const last = coordinatesList[n - 1];
+    const origin = engine.origin || {};
+    return [
+      n,
+      first.latitude ?? first.lat,
+      first.longitude ?? first.lng,
+      mid.latitude ?? mid.lat,
+      mid.longitude ?? mid.lng,
+      last.latitude ?? last.lat,
+      last.longitude ?? last.lng,
+      origin.latitude,
+      origin.longitude,
+      engine.yawOffsetDeg,
+      engine.slamOriginX,
+      engine.slamOriginZ,
+    ].join(":");
+  }
+
   function toVector3List(coordinatesList, anchorEngine) {
     const engine = anchorEngine || window.FplacesAnchorEngine?.instance;
     if (!engine?.isCalibrated) return [];
 
-    return coordinatesList
+    const key = slamPointCacheKey(coordinatesList, engine);
+    if (key && slamPointCache.key === key && slamPointCache.points) {
+      return slamPointCache.points;
+    }
+
+    const points = coordinatesList
       .map((coord) => {
         const lat = coord.latitude ?? coord.lat;
         const lng = coord.longitude ?? coord.lng;
@@ -213,6 +247,8 @@
         return new window.THREE.Vector3(local.x, FLOOR_Y, local.z);
       })
       .filter(Boolean);
+    slamPointCache = { key, points };
+    return points;
   }
 
   function resolveFloorPath(routeInput, floorId) {
@@ -225,6 +261,7 @@
   let lastArrowRefreshAlongM = -1;
   let lastArrowRefreshAt = 0;
   let lastArrowEmphasisTier = -1;
+  let lastLeadingUpdateAt = 0;
 
   function turnEmphasisTier(distAheadM) {
     if (distAheadM == null || !Number.isFinite(distAheadM)) return 0;
@@ -471,6 +508,10 @@
     }
     if (!window.THREE || !window.FplacesFloorArrows?.updateLeadingArrow) return;
 
+    const now = performance.now();
+    if (now - lastLeadingUpdateAt < 2) return;
+    lastLeadingUpdateAt = now;
+
     const floorPath = resolveFloorPath(
       cachedRouteInput,
       floorId || cachedFloorId,
@@ -522,7 +563,24 @@
 
     if (!THREE || !threeScene || !coordinatesList?.length) return null;
 
-    disposePathVisuals(threeScene);
+    const incremental = useIncrementalPath();
+    if (incremental) {
+      // Keep the world-anchored trail. A full dispose here was wiping
+      // chevrons every time calibration / floor sync rebuilt the ribbon.
+      const existingRibbon = threeScene.getObjectByName(RIBBON_NAME);
+      if (existingRibbon) {
+        threeScene.remove(existingRibbon);
+        if (existingRibbon.geometry) {
+          existingRibbon.geometry.dispose();
+          existingRibbon.geometry = null;
+        }
+        disposeMaterial(existingRibbon.material);
+        existingRibbon.material = null;
+      }
+      disposeTurnMarkers(threeScene);
+    } else {
+      disposePathVisuals(threeScene);
+    }
 
     let points = toVector3List(coordinatesList, anchorEngine);
     if (points.length < 2) {
@@ -570,8 +628,7 @@
     lastArrowRefreshAt = 0;
     lastArrowEmphasisTier = -1;
 
-    if (useIncrementalPath()) {
-      window.FplacesIncrementalPath?.reset?.(threeScene);
+    if (incremental) {
       const alongPathM = resolveUserAlongM(points, camera) ?? 0;
       window.FplacesIncrementalPath?.extend?.(THREE, threeScene, points, {
         floorY: FLOOR_Y,

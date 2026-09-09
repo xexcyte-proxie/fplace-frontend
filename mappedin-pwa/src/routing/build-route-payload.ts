@@ -10,6 +10,7 @@ import {
   tagPathWithLegs,
 } from './route-leg-builder';
 import { routeLifecycleManager } from './route-lifecycle-manager';
+import { resolveCanonicalRouteDistanceMeters } from './route-progress';
 import { routeValidationService } from './route-validation-service';
 import { routeVersionManager } from './route-version-manager';
 import { coordinateTransformationService } from './coordinate-transformation-service';
@@ -91,6 +92,12 @@ export function buildProductionRoutePayload(
   );
 
   const taggedPath = tagPathWithLegs(pathCoordinates, legs);
+  const pathMeters =
+    coordinateTransformationService.totalPathLengthMeters(taggedPath);
+  const distanceMeters = resolveCanonicalRouteDistanceMeters(
+    pathMeters,
+    directions.distance,
+  );
 
   const geometryHash = computeGeometryHash({
     pathCoordinates: taggedPath,
@@ -115,10 +122,10 @@ export function buildProductionRoutePayload(
     destinationName: options.destinationName,
     pathCoordinates: taggedPath,
     maneuvers: finalManeuvers,
-    distanceMeters: directions.distance ?? null,
+    distanceMeters,
     durationSeconds:
-      directions.distance != null && Number.isFinite(directions.distance)
-        ? directions.distance / WALKING_SPEED_MPS
+      distanceMeters != null && Number.isFinite(distanceMeters)
+        ? distanceMeters / WALKING_SPEED_MPS
         : null,
     origin: serializedOrigin ?? taggedPath[0] ?? null,
     destination:

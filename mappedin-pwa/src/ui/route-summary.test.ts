@@ -56,4 +56,18 @@ describe('buildRouteSheetSummary', () => {
     expect(summary.walkDistance).toBe('NO ROUTE');
     expect(summary.locationLine).toMatch(/no route/i);
   });
+
+  it('never claims "Moving…" on live GPS - the guest may be standing still', () => {
+    const state = initialAppState();
+    state.routeSimulating = true;
+
+    expect(buildRouteSheetSummary(state).beginLabel).toBe('Navigating…');
+  });
+
+  it('offers Begin before navigation starts', () => {
+    const state = initialAppState();
+    state.routeSimulating = false;
+
+    expect(buildRouteSheetSummary(state).beginLabel).toBe('Begin');
+  });
 });

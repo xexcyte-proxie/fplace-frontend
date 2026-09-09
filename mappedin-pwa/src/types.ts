@@ -2,6 +2,9 @@ import type {
   HomeExperience,
   ReturningHomeContent,
 } from './home/domain/entities';
+import type { PermissionChoice } from './permissions/domain/permission-choice';
+import type { CreateAccountPrompt } from './auth/domain/invalid-access-token';
+import { DEFAULT_INTEREST_OPTIONS } from './auth/domain/interest-options';
 
 export type MapStatus = 'initial' | 'loading' | 'ready' | 'error';
 
@@ -247,6 +250,8 @@ export interface VenueFeedPost {
   location: string;
   locationId: string;
   timeAgo: string;
+  /** ISO creation timestamp; lets screens recompute a fresh time-ago label. */
+  createdAt?: string;
   /** Category slug from the forum API (e.g. `fan-vibe`, `help`). */
   feedType: string;
   categoryId: string;
@@ -261,6 +266,8 @@ export interface ForumVenueSummary {
   id: number;
   name: string;
   location: string;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export interface ForumSectionSummary {
@@ -297,7 +304,8 @@ export type VenueLiveConnectionStatus =
   | 'connected'
   | 'reconnecting'
   | 'disconnected'
-  | 'auth_missing';
+  | 'auth_missing'
+  | 'unavailable';
 
 export interface SocialPost {
   id: string;
@@ -393,10 +401,16 @@ export interface AppState {
   guestArGatePrompt: GuestArGatePrompt;
   /** True while consuming the AR trial / opening AR after acknowledge. */
   guestArGateLoading: boolean;
+  /** True while Continue as guest runs from welcome — keep Find places visible. */
+  guestContinueLoading: boolean;
+  /** Dialog over Create account after SimpleJWT rejects the current token. */
+  createAccountPrompt: CreateAccountPrompt;
   pseudoNameDraft: string;
   /** Placeholder suggestion for the pseudo-name field (not the committed value). */
   pseudoNameHint: string;
   selectedInterests: string[];
+  /** Interest chips from GET /api/users/interests/ (defaults until loaded). */
+  interestOptions: string[];
   venueSearchQuery: string;
   selectedVenueId: string | null;
   /** Selected forum section id (entry zone within the venue). */
@@ -412,12 +426,19 @@ export interface AppState {
   sectionHeatmapActive: boolean;
   /** Venue-room WebSocket lifecycle for live feed + heatmap. */
   venueLiveStatus: VenueLiveConnectionStatus;
+  /**
+   * True once the cold-start destination is known (onboarding, sign-in, or app).
+   * The 3D map may still be loading in the background.
+   */
+  startupReady: boolean;
   mapStatus: MapStatus;
   mapError?: string;
   loadingMessage: string;
   loadingProgress: number;
   /** Coordinates from the startup location gate (null until retrieved). */
   userLocation: UserLocationCoords | null;
+  /** Remembered location permission choice used for live distance. */
+  locationPermission: PermissionChoice;
   /** True while requesting permission or reading GPS during the location gate. */
   locationGateLoading: boolean;
   /** When true, location was permanently denied - show browser settings help. */
@@ -493,7 +514,7 @@ export interface AppState {
   postCommentsSubmitting: boolean;
   postCommentsEditing: boolean;
   postCommentsError: string | null;
-  /** Location/route simulation; on by default until the user turns it off. */
+  /** Unused leftover; simulation mode is gone. Always false. */
   simulationEnabled: boolean;
   /** Languages available from the Mappedin enterprise venue. */
   mapLanguages: MapLanguageOption[];
@@ -502,14 +523,26 @@ export interface AppState {
   mapLanguageName: string | null;
   mapLanguageChanging: boolean;
   socialCategory: SocialCategory;
+  /** Map location slug (or section id) used to scope the venue feed. */
   socialLocation: string | null;
+  /** Human-readable name of the tapped conversation area, from the map. */
+  socialLocationName: string | null;
   socialTag: string | null;
   socialDraft: string;
   socialPosts: SocialPost[];
   venueFeedFilter: VenueFeedFilter;
   venueFeedDraft: string;
   venueFeedPosts: VenueFeedPost[];
+  /** True while an older page of the venue feed is being fetched. */
+  venueFeedLoadingMore: boolean;
   upvotedPostIds: string[];
+  /**
+   * Posts the viewer reported, hydrated from per-viewer local storage on feed
+   * load (the API has no per-user `has_flagged` field). Toggling a report off
+   * only clears this local mark - there is no unflag endpoint, so the
+   * server-side flag remains until a moderator clears it.
+   */
+  flaggedPostIds: string[];
   locationActionPrompt: LocationActionPrompt | null;
   /**
    * Active product-tour step index, or null when the coach-mark overlay is hidden.
@@ -554,9 +587,12 @@ export const initialAppState = (): AppState => ({
   guestHasTried2dView: false,
   guestArGatePrompt: null,
   guestArGateLoading: false,
+  guestContinueLoading: false,
+  createAccountPrompt: null,
   pseudoNameDraft: '',
   pseudoNameHint: '',
   selectedInterests: [],
+  interestOptions: [...DEFAULT_INTEREST_OPTIONS],
   venueSearchQuery: '',
   selectedVenueId: null,
   selectedGateId: null,
@@ -568,10 +604,12 @@ export const initialAppState = (): AppState => ({
   sectionHeatmap: [],
   sectionHeatmapActive: false,
   venueLiveStatus: 'idle',
+  startupReady: false,
   mapStatus: 'initial',
   loadingMessage: 'Loading map SDK…',
   loadingProgress: 12,
   userLocation: null,
+  locationPermission: 'undecided',
   locationGateLoading: false,
   locationPermanentlyDenied: false,
   locationGateError: null,
@@ -624,20 +662,23 @@ export const initialAppState = (): AppState => ({
   postCommentsSubmitting: false,
   postCommentsEditing: false,
   postCommentsError: null,
-  simulationEnabled: true,
+  simulationEnabled: false,
   mapLanguages: [],
   mapLanguageCode: null,
   mapLanguageName: null,
   mapLanguageChanging: false,
   socialCategory: 'all',
   socialLocation: null,
+  socialLocationName: null,
   socialTag: null,
   socialDraft: '',
   socialPosts: [],
   venueFeedFilter: 'all',
   venueFeedDraft: '',
   venueFeedPosts: [],
+  venueFeedLoadingMore: false,
   upvotedPostIds: [],
+  flaggedPostIds: [],
   locationActionPrompt: null,
   productTourStepIndex: null,
   productTourCompleted: false,

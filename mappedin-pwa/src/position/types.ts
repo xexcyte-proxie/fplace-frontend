@@ -8,12 +8,13 @@ export type PositionSourceType =
 export interface FplacesPositionFrame {
   latitude: number;
   longitude: number;
-  heading: number;
+  /** Omitted until compass or GPS course is known — 0 is a real north heading. */
+  heading?: number;
   accuracy: number;
   source: PositionSourceType;
   floorId?: string;
   timestamp?: number;
-  /** Meters along the active route polyline (simulator - matches 2D map progress). */
+  /** Meters along the active route polyline (matches 2D map progress). */
   alongPathMeters?: number;
   /** Geometric distance from the raw fix to the snapped route point (live ETA). */
   offRouteMeters?: number;
@@ -24,8 +25,8 @@ export type NavigationAuthority = 'parent-simulator' | 'local';
 
 /**
  * Shared navigation progress for 2D ↔ AR handoff and live sync.
- * Phase 1: parent simulator streams `alongPathMeters` at 10 Hz; AR derives
- * maneuver index and arrival deterministically from that clock.
+ * Live GPS/IPS streams `alongPathMeters`; AR derives maneuver index and arrival
+ * from that clock.
  */
 export interface NavigationProgressSnapshot {
   alongPathMeters: number;

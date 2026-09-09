@@ -1,8 +1,6 @@
 import type { AppState } from '../types';
-import {
-  PROFILE_INTEREST_OPTIONS,
-  PSEUDO_NAME_PLACEHOLDER,
-} from './pseudo-name-data';
+import { interestOptionsForPicker } from '../auth/domain/interest-options';
+import { PSEUDO_NAME_PLACEHOLDER } from './pseudo-name-data';
 
 function escapeHtml(value: string): string {
   return value
@@ -18,6 +16,7 @@ export function renderEditProfileSettingsScreen(
     | 'pseudoNameDraft'
     | 'pseudoNameHint'
     | 'selectedInterests'
+    | 'interestOptions'
     | 'authLoading'
     | 'authFieldErrors'
   >,
@@ -27,7 +26,10 @@ export function renderEditProfileSettingsScreen(
   const selected = new Set(state.selectedInterests);
   const nameHint = state.pseudoNameHint || PSEUDO_NAME_PLACEHOLDER;
 
-  const interestChips = PROFILE_INTEREST_OPTIONS.map((interest) => {
+  const interestChips = interestOptionsForPicker(
+    state.interestOptions,
+    state.selectedInterests,
+  ).map((interest) => {
     const isSelected = selected.has(interest);
     return `
       <button

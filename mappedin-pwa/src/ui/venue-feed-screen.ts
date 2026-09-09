@@ -5,8 +5,10 @@ import {
   estimateFansLive,
   filterVenueFeedPosts,
   helpDisclaimer,
+  resolveVenueFeedAreaName,
+  scopeVenueFeedPostsToLocation,
   VENUE_FEED_QUICK_REPLIES,
-  venuePostsForLocation,
+  venueFeedTimeAgo,
 } from './venue-feed-data';
 
 function escapeHtml(value: string): string {
@@ -27,31 +29,41 @@ function venueLiveStatusMeta(status: VenueLiveConnectionStatus): {
   banner: string | null;
 } {
   switch (status) {
+    case 'idle':
+      return { dotClass: 'venue-feed-live-dot--pending', subtitle: '', banner: null };
     case 'connected':
       return { dotClass: 'venue-feed-live-dot--connected', subtitle: '', banner: null };
     case 'connecting':
       return {
         dotClass: 'venue-feed-live-dot--pending',
         subtitle: 'Connecting live updates…',
-        banner: 'Connecting to the venue live feed. Posts and heatmap may lag briefly.',
+        banner: 'Connecting live updates. Recent posts below already come from the venue.',
       };
     case 'reconnecting':
       return {
         dotClass: 'venue-feed-live-dot--pending',
         subtitle: 'Reconnecting live updates…',
-        banner: 'Connection lost. Retrying live feed and heatmap updates…',
+        banner: 'Live connection dropped. Retrying. Recent posts below still come from the venue.',
       };
     case 'auth_missing':
       return {
         dotClass: 'venue-feed-live-dot--offline',
         subtitle: 'Live updates paused',
-        banner: 'Sign in required for live feed updates. Historical posts still load over HTTP.',
+        banner: 'Sign in required for live updates. Recent posts below still come from the venue.',
+      };
+    case 'unavailable':
+      return {
+        dotClass: 'venue-feed-live-dot--offline',
+        subtitle: 'Live updates unavailable',
+        banner:
+          'This page is HTTPS but the live server is not (ws://). Recent posts still load. Heatmap needs a secure wss host.',
       };
     case 'disconnected':
       return {
         dotClass: 'venue-feed-live-dot--offline',
         subtitle: 'Live updates offline',
-        banner: 'Live feed and heatmap updates are unavailable. Retrying in the background.',
+        banner:
+          'Live updates are offline. Recent posts below still come from the venue.',
       };
     default:
       return { dotClass: 'venue-feed-live-dot--offline', subtitle: 'Live updates offline', banner: null };
@@ -98,12 +110,13 @@ function badgeLabel(feedType: string, categoryName?: string): string {
 }
 
 export function renderVenueFeedScreen(state: AppState): string {
-  const sourcePosts = state.venueFeedPosts;
-  const scopedPosts = state.socialLocation
-    ? venuePostsForLocation(sourcePosts, state.socialLocation)
-    : sourcePosts;
+  const scope = scopeVenueFeedPostsToLocation(
+    state.venueFeedPosts,
+    state.socialLocation,
+    state.forumSections,
+  );
   const posts = filterVenueFeedPosts(
-    scopedPosts,
+    scope.posts,
     state.venueFeedFilter,
     null,
   );
@@ -111,14 +124,23 @@ export function renderVenueFeedScreen(state: AppState): string {
   const venueName =
     state.forumVenues.find((venue) => String(venue.id) === state.selectedVenueId)
       ?.name ?? 'Venue';
+  const areaName = resolveVenueFeedAreaName(scope, state.socialLocationName);
+  const scopeLabel = areaName
+    ?? (scope.scoped ? state.socialLocation : null)
+    ?? venueName;
+  const feedTitle = areaName ?? 'Venue feed';
   const liveCount = estimateFansLive(
-    sourcePosts,
+    scope.posts,
     state.authUser?.id ?? null,
   );
   const liveStatus = venueLiveStatusMeta(state.venueLiveStatus);
+  // Only claim "fans live" while the venue socket is actually connected;
+  // otherwise describe the feed as recent posts (idle) or show the status.
   const liveSubtitle = liveStatus.subtitle
     ? liveStatus.subtitle
-    : `${venueName} · ${formatLiveCount(liveCount)} fan(s) live`;
+    : state.venueLiveStatus === 'connected'
+      ? `${scopeLabel} · ${formatLiveCount(liveCount)} fan(s) live`
+      : `${scopeLabel} · recent posts`;
   const filters = categoryFiltersFromApi(state.forumCategories)
     .map(
       (filter) => `
@@ -155,6 +177,7 @@ export function renderVenueFeedScreen(state: AppState): string {
         .map((post) => {
           const upvoted =
             state.upvotedPostIds.includes(post.id) || Boolean(post.hasUpvoted);
+          const flagged = state.flaggedPostIds.includes(post.id);
           const isHelp = post.helpCard || post.feedType === 'help';
           return `
         <article class="venue-feed-card ${isHelp ? 'venue-feed-card--help' : ''}">
@@ -165,7 +188,7 @@ export function renderVenueFeedScreen(state: AppState): string {
               </span>
               <div class="venue-feed-user-copy">
                 <div class="venue-feed-author">${escapeHtml(post.author)}</div>
-                <div class="venue-feed-meta">${escapeHtml(post.location)} · ${escapeHtml(post.timeAgo)}</div>
+                <div class="venue-feed-meta">${escapeHtml(post.location)} · ${escapeHtml(venueFeedTimeAgo(post))}</div>
               </div>
             </div>
             <span class="venue-feed-badge ${badgeClass(post.feedType)}">${escapeHtml(badgeLabel(post.feedType, categoryNameById.get(post.categoryId)))}</span>
@@ -199,12 +222,18 @@ export function renderVenueFeedScreen(state: AppState): string {
             </div>
             <button
               type="button"
-              class="venue-feed-flag ${isHelp ? 'venue-feed-flag--danger' : ''}"
+              class="venue-feed-flag ${isHelp ? 'venue-feed-flag--danger' : ''} ${flagged ? 'is-active' : ''}"
               data-flag-id="${escapeHtml(post.id)}"
-              aria-label="Report"
+              aria-pressed="${flagged ? 'true' : 'false'}"
+              aria-label="${flagged ? 'Remove report' : 'Report'}"
+              title="${flagged ? 'Reported — tap to remove your report' : 'Report this post'}"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M6 4v16M6 4h10l-2 4 2 4H6" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
+                ${
+                  flagged
+                    ? `<path d="M6 4h10l-2 4 2 4H6V4z" fill="currentColor"></path><path d="M6 4v16" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>`
+                    : `<path d="M6 4v16M6 4h10l-2 4 2 4H6" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>`
+                }
               </svg>
             </button>
           </div>
@@ -212,7 +241,34 @@ export function renderVenueFeedScreen(state: AppState): string {
       `;
         })
         .join('')
-    : `<p class="venue-feed-empty">No posts yet for this venue. Be the first to shout out.</p>`;
+    : `<p class="venue-feed-empty">No posts yet for ${
+        scope.scoped ? escapeHtml(scopeLabel) : 'this venue'
+      }. Be the first to shout out.</p>`;
+
+  const locationScopeChip = scope.scoped
+    ? `
+        <div class="venue-feed-location-scope" role="status">
+          <span class="venue-feed-location-scope-label">Posts for ${escapeHtml(scopeLabel)}</span>
+          <button
+            type="button"
+            id="venue-feed-clear-location-btn"
+            class="venue-feed-location-scope-clear"
+            aria-label="Show all venue posts"
+          >All venue ✕</button>
+        </div>
+      `
+    : '';
+
+  const loadMore = state.forumFeedNext
+    ? `
+        <button
+          type="button"
+          id="venue-feed-load-more-btn"
+          class="venue-feed-load-more"
+          ${state.venueFeedLoadingMore ? 'disabled' : ''}
+        >${state.venueFeedLoadingMore ? 'Loading older posts…' : 'Show older posts'}</button>
+      `
+    : '';
 
   const emergencyText =
     helpDisclaimer(state.forumCategories, state.venueFeedFilter) ??
@@ -241,7 +297,7 @@ export function renderVenueFeedScreen(state: AppState): string {
       <div class="venue-feed-scroll">
         <header class="venue-feed-header">
           <div class="venue-feed-header-copy">
-            <h1 class="venue-feed-title">Venue feed</h1>
+            <h1 class="venue-feed-title">${escapeHtml(feedTitle)}</h1>
             <p class="venue-feed-subtitle">
               <span class="venue-feed-live-dot ${liveStatus.dotClass}" aria-hidden="true"></span>
               ${escapeHtml(liveSubtitle)}
@@ -270,9 +326,11 @@ export function renderVenueFeedScreen(state: AppState): string {
         </header>
 
         <div class="venue-feed-filters">${filters}</div>
+        ${locationScopeChip}
         ${liveBanner}
         ${emergencyBanner}
         <div class="venue-feed-list">${feed}</div>
+        ${loadMore}
       </div>
 
       <div class="venue-feed-composer" data-tour-id="venue-composer">
@@ -283,10 +341,16 @@ export function renderVenueFeedScreen(state: AppState): string {
             class="venue-feed-input"
             type="text"
             maxlength="140"
-            placeholder="Shout out to your section"
+            placeholder="${escapeHtml(scope.scoped ? `Shout out to ${scopeLabel}` : 'Shout out to your section')}"
             value="${escapeHtml(state.venueFeedDraft)}"
           />
-          <button type="button" id="venue-feed-send-btn" class="venue-feed-send-btn" aria-label="Send">
+          <button
+            type="button"
+            id="venue-feed-send-btn"
+            class="venue-feed-send-btn"
+            aria-label="Send"
+            ${state.venueFeedDraft.trim() ? '' : 'disabled'}
+          >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M22 2L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
               <path d="M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>

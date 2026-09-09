@@ -1,8 +1,7 @@
 import type { AppState } from '../types';
 import {
-  filterVenues,
   sectionToOption,
-  venueToOption,
+  venuesForPicker,
 } from './venue-select-data';
 
 const AUTH_ASSETS = {
@@ -35,12 +34,16 @@ export function renderVenueSelectScreen(
     | 'forumSections'
     | 'authLoading'
     | 'authFieldErrors'
+    | 'locationPermission'
+    | 'userLocation'
   >,
 ): string {
   const generalError = state.authFieldErrors._form ?? '';
-  const venues = filterVenues(
-    state.forumVenues.map(venueToOption),
+  const venues = venuesForPicker(
+    state.forumVenues,
     state.venueSearchQuery,
+    state.locationPermission,
+    state.userLocation,
   );
   const sections =
     state.selectedVenueId != null

@@ -4,6 +4,7 @@ import {
   mediaPermissionFromBrowserState,
   mediaPermissionFromGetUserMediaError,
   shouldReuseGrantedArCamera,
+  shouldSkipCameraPrompt,
 } from './media-permission';
 
 describe('mediaPermissionFromBrowserState', () => {
@@ -47,5 +48,13 @@ describe('shouldReuseGrantedArCamera', () => {
     expect(shouldReuseGrantedArCamera('granted', true)).toBe(true);
     expect(shouldReuseGrantedArCamera('granted', false)).toBe(false);
     expect(shouldReuseGrantedArCamera('prompt', true)).toBe(false);
+  });
+});
+
+describe('shouldSkipCameraPrompt', () => {
+  it('skips getUserMedia after the first allow or deny', () => {
+    expect(shouldSkipCameraPrompt('granted')).toBe(true);
+    expect(shouldSkipCameraPrompt('denied')).toBe(true);
+    expect(shouldSkipCameraPrompt('undecided')).toBe(false);
   });
 });

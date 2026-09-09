@@ -1,8 +1,6 @@
 import type { AppState } from '../types';
-import {
-  PROFILE_INTEREST_OPTIONS,
-  PSEUDO_NAME_PLACEHOLDER,
-} from './pseudo-name-data';
+import { interestOptionsForPicker } from '../auth/domain/interest-options';
+import { PSEUDO_NAME_PLACEHOLDER } from './pseudo-name-data';
 
 const AUTH_ASSETS = {
   back: '/auth/back-chevron.svg',
@@ -15,6 +13,7 @@ export function renderPseudoNameScreen(
     | 'pseudoNameDraft'
     | 'pseudoNameHint'
     | 'selectedInterests'
+    | 'interestOptions'
     | 'authLoading'
     | 'authFieldErrors'
   > & {
@@ -27,7 +26,10 @@ export function renderPseudoNameScreen(
   const allowBack = state.allowBack !== false;
   const nameHint = state.pseudoNameHint || PSEUDO_NAME_PLACEHOLDER;
 
-  const interestChips = PROFILE_INTEREST_OPTIONS.map((interest) => {
+  const interestChips = interestOptionsForPicker(
+    state.interestOptions,
+    state.selectedInterests,
+  ).map((interest) => {
     const isSelected = selected.has(interest);
     return `
       <button

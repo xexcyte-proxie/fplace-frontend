@@ -6,6 +6,8 @@ import { defineConfig, type Plugin } from 'vite';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import { VitePWA } from 'vite-plugin-pwa';
 
+import { FPLACES_BACKEND_HTTP_ORIGIN } from './src/config/fplaces-backend';
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const arNavRoot = path.join(repoRoot, 'ar-nav');
 
@@ -58,7 +60,18 @@ function serveArNav(): Plugin {
   };
 }
 
-const BACKEND_ORIGIN = 'https://fplaces-backend.vercel.app';
+const BACKEND_ORIGIN = FPLACES_BACKEND_HTTP_ORIGIN;
+const BACKEND_WS_PROXY = {
+  target: BACKEND_ORIGIN.replace(/^http/i, 'ws'),
+  changeOrigin: true,
+  secure: false,
+  ws: true,
+  configure(proxy: { on: (event: string, fn: (error: Error) => void) => void }) {
+    proxy.on('error', (error) => {
+      console.warn('[vite /ws proxy]', error.message);
+    });
+  },
+};
 
 export default defineConfig({
   plugins: [
@@ -127,15 +140,9 @@ export default defineConfig({
       '/api': {
         target: BACKEND_ORIGIN,
         changeOrigin: true,
-        secure: true,
+        secure: false,
       },
-      '/ws': {
-        // Dev-only fallback. Production must set VITE_WS_URL (see netlify.toml).
-        target: BACKEND_ORIGIN,
-        changeOrigin: true,
-        secure: true,
-        ws: true,
-      },
+      '/ws': BACKEND_WS_PROXY,
     },
   },
   preview: {
@@ -148,15 +155,9 @@ export default defineConfig({
       '/api': {
         target: BACKEND_ORIGIN,
         changeOrigin: true,
-        secure: true,
+        secure: false,
       },
-      '/ws': {
-        // Dev-only fallback. Production must set VITE_WS_URL (see netlify.toml).
-        target: BACKEND_ORIGIN,
-        changeOrigin: true,
-        secure: true,
-        ws: true,
-      },
+      '/ws': BACKEND_WS_PROXY,
     },
   },
 });

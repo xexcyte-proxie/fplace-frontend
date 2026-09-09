@@ -1,4 +1,5 @@
 import type { ForumPost } from '../forum/domain/entities';
+import { sectionIdForLocation } from '../forum/domain/section-locations';
 import type {
   ForumCategorySummary,
   ForumSectionSummary,
@@ -37,12 +38,58 @@ export function filterVenueFeedPosts(
   });
 }
 
-export function venuePostsForLocation(
+export interface VenueFeedLocationScope {
+  posts: VenueFeedPost[];
+  /** True when the feed is a map-area conversation, not the venue-wide list. */
+  scoped: boolean;
+  sectionId: number | null;
+  /** Display name for the scoped location (section name from the API). */
+  sectionName: string | null;
+}
+
+/**
+ * Scope the feed to a tapped map location. Location ids arrive as name slugs
+ * (`church`) while posts carry numeric section ids, so the slug is resolved
+ * against the venue's sections. A tapped area is always its own conversation:
+ * matching section posts only, or an empty thread when the area has no
+ * section yet. The venue-wide feed is never shown in that state.
+ */
+export function scopeVenueFeedPostsToLocation(
   posts: VenueFeedPost[],
-  locationId: string,
-): VenueFeedPost[] {
-  const matched = posts.filter((post) => post.locationId === locationId);
-  return matched.length ? matched : posts;
+  locationId: string | null,
+  sections: ForumSectionSummary[],
+): VenueFeedLocationScope {
+  if (!locationId) {
+    return { posts, scoped: false, sectionId: null, sectionName: null };
+  }
+  const sectionId = sectionIdForLocation(sections, locationId);
+  if (sectionId == null) {
+    return { posts: [], scoped: true, sectionId: null, sectionName: null };
+  }
+  const sectionKey = String(sectionId);
+  return {
+    posts: posts.filter(
+      (post) => post.locationId === sectionKey || post.locationId === locationId,
+    ),
+    scoped: true,
+    sectionId,
+    sectionName:
+      sections.find((section) => section.id === sectionId)?.name ?? null,
+  };
+}
+
+/**
+ * Display name for a map-tapped conversation area. Prefers the forum section
+ * name when the location resolved, then the name captured from the map card.
+ */
+export function resolveVenueFeedAreaName(
+  scope: VenueFeedLocationScope,
+  socialLocationName?: string | null,
+): string | null {
+  const sectionName = scope.sectionName?.trim();
+  if (sectionName) return sectionName;
+  const mapName = socialLocationName?.trim();
+  return mapName || null;
 }
 
 export function categoryFiltersFromApi(
@@ -90,6 +137,7 @@ export function mapForumPostToVenueFeed(
   post: ForumPost,
   sectionById: Map<number, ForumSectionSummary>,
   categoryById: Map<number, ForumCategorySummary>,
+  existing?: VenueFeedPost | null,
 ): VenueFeedPost {
   const author = post.user.display_name?.trim() || 'Guest';
   const category = categoryById.get(post.category);
@@ -104,14 +152,64 @@ export function mapForumPostToVenueFeed(
     location: section?.name ?? 'Venue',
     locationId: post.section != null ? String(post.section) : '',
     timeAgo: formatTimeAgo(post.created_at),
+    createdAt: post.created_at,
     feedType: category?.slug ?? 'unknown',
     categoryId: String(post.category),
     content: post.content,
     upvotes: post.upvotes_count,
-    comments: 0,
+    comments: existing?.comments ?? 0,
     helpCard: category?.slug === 'help',
     hasUpvoted: post.has_upvoted,
   };
+}
+
+/**
+ * Overlay authoritative comment counts (keyed by post id) onto feed posts.
+ * Posts without a fetched count keep their current value.
+ */
+export function applyCommentCounts(
+  posts: VenueFeedPost[],
+  countsByPostId: ReadonlyMap<string, number>,
+): VenueFeedPost[] {
+  if (!countsByPostId.size) return posts;
+  return posts.map((post) => {
+    const count = countsByPostId.get(post.id);
+    if (count == null || count === post.comments) return post;
+    return { ...post, comments: count };
+  });
+}
+
+/**
+ * Reads the DRF page number out of a paginated `next` URL.
+ * Returns null when there is no next page (or the URL is malformed).
+ */
+export function nextFeedPageFromUrl(nextUrl: string | null): number | null {
+  if (!nextUrl) return null;
+  const match = /[?&]page=(\d+)/.exec(nextUrl);
+  if (!match) return null;
+  const page = Number(match[1]);
+  return Number.isFinite(page) && page >= 2 ? page : null;
+}
+
+/**
+ * Appends an older page of posts to the feed, dropping any post already
+ * present (live WebSocket events can race ahead of pagination).
+ */
+export function appendOlderVenueFeedPosts(
+  existing: VenueFeedPost[],
+  older: VenueFeedPost[],
+): VenueFeedPost[] {
+  const existingIds = new Set(existing.map((post) => post.id));
+  const appended = older.filter((post) => !existingIds.has(post.id));
+  return appended.length ? [...existing, ...appended] : existing;
+}
+
+/**
+ * Fresh time-ago label at render time. Falls back to the label computed at
+ * map time when the post has no ISO timestamp (e.g. older fixtures).
+ */
+export function venueFeedTimeAgo(post: VenueFeedPost): string {
+  return post.createdAt ? formatTimeAgo(post.createdAt) : post.timeAgo;
 }
 
 /**

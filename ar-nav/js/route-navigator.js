@@ -183,6 +183,8 @@
       this.floorChangeMessage = "";
       this._floorChangeUntil = 0;
       this._floorNames = {};
+      this._snapPosition = null;
+      this._snapPath = null;
     }
 
     /**
@@ -228,6 +230,8 @@
       this.externalHeadingDegrees = null;
       this.pathSegmentIndex = 0;
       this.snappedOnPath = null;
+      this._snapPosition = null;
+      this._snapPath = null;
       this._smoothDistToTarget = null;
       this._lastTargetTickAt = null;
       this._lastTargetRaw = null;
@@ -1128,6 +1132,15 @@
         return;
       }
 
+      if (
+        this._snapPosition === this.lastPosition &&
+        this._snapPath === path
+      ) {
+        return;
+      }
+      this._snapPosition = this.lastPosition;
+      this._snapPath = path;
+
       const snapOpts = {
         ...(window.FplacesIndoorPosition?.snapOptions?.(
           this.lastPosition,
@@ -1501,8 +1514,29 @@
       return "";
     }
 
-    /** Live instruction from position, alignment, and upcoming maneuvers. */
+    /**
+     * Live instruction from heading alignment + progress.
+     * Aligned → head straight (no advance turn callouts). Misaligned →
+     * turn left/right/around until facing the path again.
+     */
     getLiveGuidance(deviceHeading) {
+      const distRaw = this.getDisplayDistanceMeters();
+      const delta =
+        deviceHeading != null
+          ? this.getAlignmentDeltaDegrees(deviceHeading)
+          : null;
+      const resolve = window.FplacesLiveGuidance?.resolveLiveGuidance;
+      if (typeof resolve === "function") {
+        return resolve({
+          arrived: this.arrived,
+          destinationName: this.route?.destinationName,
+          alignmentDeltaDeg: delta,
+          distanceToTargetMeters: distRaw,
+          remainingMeters: this.distanceRemainingToDestinationMeters(),
+        });
+      }
+
+      // Fallback if live-guidance.js failed to load.
       if (this.arrived) {
         return {
           primary: {
@@ -1515,89 +1549,27 @@
           alignmentDelta: null,
         };
       }
-
-      const current = this.currentManeuver();
-      const next = this.maneuvers[this.maneuverIndex + 1];
-      const thenManeuver = this.maneuvers[this.maneuverIndex + 2] || null;
-      const distRaw = this.getDisplayDistanceMeters();
-      const dist = distRaw != null ? Math.max(0, distRaw) : null;
-      const delta =
-        deviceHeading != null
-          ? this.getAlignmentDeltaDegrees(deviceHeading)
-          : null;
-      const aligned = delta == null || Math.abs(delta) < 18;
-
-      let primary;
-      let distanceLabel = "";
-
-      if (delta != null && !aligned) {
-        if (Math.abs(delta) >= 135) {
-          primary = { label: "Turn around", symbol: "u_turn_right" };
-        } else if (delta > 0) {
-          primary = { label: "Turn right", symbol: "turn_right" };
-        } else {
-          primary = { label: "Turn left", symbol: "turn_left" };
-        }
-        distanceLabel =
-          dist != null ? `${Math.round(dist)} m` : "Face the path";
-      } else if (next && dist != null) {
-        const nextTurn = this.turnFromManeuver(next);
-        const turnWord = this.shortTurnWord(next);
-
-        if (dist <= 6) {
-          primary = nextTurn;
-          const upcoming =
-            thenManeuver || this.maneuvers[this.maneuverIndex + 2];
-          const upcomingDist = upcoming
-            ? this.distanceToManeuverMeters(upcoming)
-            : this.distanceRemainingToDestinationMeters();
-          if (upcomingDist != null) {
-            const afterDist = Math.max(0, upcomingDist);
-            const afterWord = upcoming ? this.shortTurnWord(upcoming) : "";
-            distanceLabel = afterWord
-              ? `Then in ${Math.round(afterDist)} m`
-              : "Now";
-          } else {
-            distanceLabel = "Now";
-          }
-        } else {
-          primary = current
-            ? this.turnFromManeuver(current)
-            : { label: "Go straight", symbol: "straight" };
-          if (turnWord && turnWord !== "straight" && dist > 8) {
-            distanceLabel = `In ${Math.round(dist)} m`;
-          } else if (turnWord && turnWord !== "straight") {
-            distanceLabel = `${Math.round(dist)} m`;
-          } else {
-            distanceLabel =
-              dist >= 10 ? `In ${Math.round(dist)} m` : `${Math.round(dist)} m`;
-          }
-        }
-      } else if (current) {
-        primary = this.turnFromManeuver(current);
-        const rem = this.distanceRemainingToDestinationMeters();
-        distanceLabel =
-          dist != null
-            ? `${dist.toFixed(1)} m`
-            : rem != null
-              ? `${rem.toFixed(1)} m`
-              : "";
-      } else {
-        primary = { label: "Follow route", symbol: "straight" };
-        distanceLabel = dist != null ? `${dist} m` : "";
+      if (delta != null && Math.abs(delta) >= 18) {
+        const primary =
+          Math.abs(delta) >= 135
+            ? { label: "Turn around", symbol: "u_turn_right" }
+            : delta > 0
+              ? { label: "Turn right", symbol: "turn_right" }
+              : { label: "Turn left", symbol: "turn_left" };
+        return {
+          primary,
+          then: null,
+          distanceLabel: "Face the path",
+          distanceMeters: distRaw,
+          alignmentDelta: delta,
+          distToTurn: distRaw,
+        };
       }
-
-      const then = thenManeuver
-        ? this.turnFromManeuver(thenManeuver)
-        : next && primary?.label !== this.turnFromManeuver(next).label
-          ? this.turnFromManeuver(next)
-          : null;
-
       return {
-        primary,
-        then,
-        distanceLabel,
-        distanceMeters: dist,
+        primary: { label: "Head straight", symbol: "straight" },
+        then: null,
+        distanceLabel: "",
+        distanceMeters: distRaw,
         alignmentDelta: delta,
         distToTurn: distRaw,
       };
@@ -1744,10 +1716,10 @@
     }
 
     notify() {
-      if (this.lastPosition) this.ensureSnap();
+      const state = this.getState();
 
       if (typeof this.onUpdate === "function") {
-        this.onUpdate(this.getState());
+        this.onUpdate(state);
       }
       window.FplacesOrientationCompass?.attachNavigator?.(this);
       const minimapHeading = window.FplacesSlamHeading?.isActive?.()
@@ -1764,12 +1736,12 @@
         window.FplacesMinimap?.update?.(this, minimapHeading ?? null);
       }
       if (!window.__fplacesXrSessionActive) {
-        window.FplacesLiveViewHud?.update?.(this.getState(), this);
+        window.FplacesLiveViewHud?.update?.(state, this);
       }
       window.FplacesArDebug?.logNavStateThrottled(
         "Navigator",
         "State notify",
-        this.getState(),
+        state,
         2500,
       );
     }

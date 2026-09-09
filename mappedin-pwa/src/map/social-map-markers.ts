@@ -7,6 +7,7 @@ import {
   SOCIAL_LOCATIONS,
   SOCIAL_LOCATIONS_BY_ID,
 } from '../ui/social-data';
+import { buildSectionLocationIndex } from '../forum/domain/section-locations';
 import {
   collectLocationAnchors,
   slugifyLocationName,
@@ -19,6 +20,12 @@ import {
   type SocialMarkerModel,
   type SocialMarkerVisualState,
 } from './social-map-marker-html';
+import { resolveSocialMarkerLiveSource } from './social-marker-live-source';
+import {
+  socialMarkerSyncInputsFromState,
+  socialMarkerSyncInputsUnchanged,
+  type SocialMarkerSyncInputs,
+} from './social-marker-sync-inputs';
 
 type MarkerHandle = { remove?: () => void };
 
@@ -43,6 +50,7 @@ export class SocialMapMarkerService {
   private mapContainer: HTMLElement | null = null;
   private cardClickHandler: ((event: Event) => void) | null = null;
   private lastMarkerSyncKey = '';
+  private lastMarkerInputs: SocialMarkerSyncInputs | null = null;
   private installed = false;
 
   constructor(
@@ -58,12 +66,28 @@ export class SocialMapMarkerService {
     this.wireCardClickDelegation(mapContainer);
     this.installed = true;
     const count = this.renderAll(null);
-    this.lastMarkerSyncKey = this.markerSyncKey(null, [], [], false, [], []);
+    this.lastMarkerSyncKey = this.markerSyncKey(
+      null,
+      [],
+      [],
+      false,
+      [],
+      [],
+      'idle',
+      null,
+    );
+    this.lastMarkerInputs = null;
     return count;
   }
 
   syncState(state: AppState): void {
     if (!this.installed) return;
+
+    const nextInputs = socialMarkerSyncInputsFromState(state);
+    if (socialMarkerSyncInputsUnchanged(this.lastMarkerInputs, nextInputs)) {
+      return;
+    }
+    this.lastMarkerInputs = nextInputs;
 
     const syncKey = this.markerSyncKey(
       state.socialLocation,
@@ -72,6 +96,8 @@ export class SocialMapMarkerService {
       state.sectionHeatmapActive,
       state.forumSections,
       state.venueFeedPosts,
+      state.venueLiveStatus,
+      state.selectedVenueId,
     );
     if (syncKey === this.lastMarkerSyncKey) return;
 
@@ -85,6 +111,7 @@ export class SocialMapMarkerService {
     this.anchors = collectLocationAnchors(this.mapData);
     this.anchorById = new Map(this.anchors.map((entry) => [entry.id, entry]));
     this.lastMarkerSyncKey = '';
+    this.lastMarkerInputs = null;
     this.renderAll(state);
   }
 
@@ -97,6 +124,7 @@ export class SocialMapMarkerService {
     this.mapContainer = null;
     this.installed = false;
     this.lastMarkerSyncKey = '';
+    this.lastMarkerInputs = null;
   }
 
   private markerSyncKey(
@@ -106,9 +134,20 @@ export class SocialMapMarkerService {
     sectionHeatmapActive: boolean,
     forumSections: AppState['forumSections'],
     venueFeedPosts: AppState['venueFeedPosts'],
+    venueLiveStatus: AppState['venueLiveStatus'],
+    selectedVenueId: AppState['selectedVenueId'],
   ): string {
     const posts = socialPosts.length ? socialPosts : INITIAL_SOCIAL_POSTS;
-    const postKey = posts.map((post) => `${post.id}:${post.upvotes}`).join('|');
+    const live = resolveSocialMarkerLiveSource({
+      socialPosts,
+      sectionHeatmapActive,
+      venueFeedPosts,
+      venueLiveStatus,
+      selectedVenueId,
+    });
+    const postKey = live.useMockSocial
+      ? posts.map((post) => `${post.id}:${post.upvotes}`).join('|')
+      : '';
     const feedKey = venueFeedPosts
       .map((post) => `${post.id}:${post.upvotes}`)
       .join('|');
@@ -116,7 +155,7 @@ export class SocialMapMarkerService {
       .map((entry) => `${entry.sectionId}:${entry.postCount}:${entry.priority}`)
       .join('|');
     const sectionKey = forumSections.map((section) => section.id).join(',');
-    return `${socialLocation ?? ''}::${postKey}::${feedKey}::${sectionHeatmapActive}:${heatKey}::${sectionKey}`;
+    return `${socialLocation ?? ''}::${postKey}::${feedKey}::${sectionHeatmapActive}:${heatKey}::${sectionKey}::${venueLiveStatus}::${selectedVenueId ?? ''}`;
   }
 
   private wireCardClickDelegation(mapContainer: HTMLElement): void {
@@ -154,9 +193,13 @@ export class SocialMapMarkerService {
     this.clearMarkers();
     if (!this.mapView.Markers?.add) return 0;
 
-    const socialPosts = state?.socialPosts?.length
-      ? state.socialPosts
-      : INITIAL_SOCIAL_POSTS;
+    const live = resolveSocialMarkerLiveSource(state);
+    const socialPosts =
+      live.useMockSocial
+        ? state?.socialPosts?.length
+          ? state.socialPosts
+          : INITIAL_SOCIAL_POSTS
+        : [];
     const selectedLocationId = state?.socialLocation ?? null;
     const heatmapBySectionId = new Map(
       (state?.sectionHeatmap ?? []).map((entry) => [entry.sectionId, entry]),
@@ -176,6 +219,8 @@ export class SocialMapMarkerService {
         hasLiveHeatmap,
         sectionByLocationId,
         feedPosts,
+        live.useMockSocial,
+        live.socketLive,
       );
       const html = renderSocialMapMarkerHtml(model);
 
@@ -203,15 +248,7 @@ export class SocialMapMarkerService {
   private indexSectionsByLocation(
     sections: AppState['forumSections'],
   ): Map<string, number> {
-    const map = new Map<string, number>();
-    for (const section of sections) {
-      map.set(String(section.id), section.id);
-      const nameSlug = slugifyLocationName(section.name);
-      if (nameSlug) map.set(nameSlug, section.id);
-      const codeSlug = section.code ? slugifyLocationName(section.code) : '';
-      if (codeSlug) map.set(codeSlug, section.id);
-    }
-    return map;
+    return buildSectionLocationIndex(sections);
   }
 
   private buildModel(
@@ -222,6 +259,8 @@ export class SocialMapMarkerService {
     hasLiveHeatmap: boolean,
     sectionByLocationId: Map<string, number>,
     feedPosts: AppState['venueFeedPosts'],
+    useMockSocial: boolean,
+    socketLive: boolean,
   ): SocialMarkerModel {
     const locationId = this.resolveLocationId(entry.name);
     const sectionId =
@@ -241,27 +280,38 @@ export class SocialMapMarkerService {
     const knownLocation = SOCIAL_LOCATIONS_BY_ID[locationId];
     const count = hasLiveHeatmap
       ? (heat?.postCount ?? 0)
-      : locationFeedPosts.length ||
-        locationSocialPosts.length ||
-        knownLocation?.postCount ||
-        this.syntheticCount(entry.name);
+      : useMockSocial
+        ? locationSocialPosts.length ||
+          knownLocation?.postCount ||
+          this.syntheticCount(entry.name)
+        : locationFeedPosts.length;
 
     const category = this.resolveCategory(
       locationSocialPosts,
       locationFeedPosts,
       entry.name,
     );
+    // "live" is only claimed for real venue-feed data: either the venue
+    // WebSocket is connected right now, or a post landed within ~5 minutes.
+    // Demo/mock markers can never present themselves as live.
     const visualState = hasLiveHeatmap
       ? heatVisualState(heat?.priority ?? null)
-      : this.resolveVisualState(
-          locationId,
-          locationSocialPosts.length ? locationSocialPosts : locationFeedPosts,
-          knownLocation?.postCount,
-        );
+      : useMockSocial
+        ? this.resolveVisualState(
+            locationId,
+            locationSocialPosts.length ? locationSocialPosts : locationFeedPosts,
+            knownLocation?.postCount,
+            { allowLive: false },
+          )
+        : this.resolveVisualState(
+            locationId,
+            locationFeedPosts,
+            locationFeedPosts.length,
+            { allowLive: true, socketLive },
+          );
     const selected = selectedLocationId === locationId;
     const previewPost =
-      locationSocialPosts[0] ??
-      (locationFeedPosts[0]
+      locationFeedPosts[0]
         ? {
             id: locationFeedPosts[0].id,
             author: locationFeedPosts[0].author,
@@ -276,7 +326,9 @@ export class SocialMapMarkerService {
             upvotes: locationFeedPosts[0].upvotes,
             comments: locationFeedPosts[0].comments,
           }
-        : undefined);
+        : useMockSocial
+          ? locationSocialPosts[0]
+          : undefined;
 
     return {
       anchorId: entry.id,
@@ -310,12 +362,14 @@ export class SocialMapMarkerService {
     feedPosts: AppState['venueFeedPosts'],
     name: string,
   ): SocialMarkerCategory | null {
+    if (feedPosts.length) {
+      const feedSlug = feedPosts[0]?.feedType ?? '';
+      if (feedSlug.includes('food')) return 'food';
+      if (feedSlug.includes('lines')) return 'lines';
+      if (feedSlug.includes('vibe') || feedSlug.includes('hype')) return 'vibe';
+      if (feedSlug === 'help') return 'lines';
+    }
     if (socialPosts.length) return socialPosts[0].category;
-    const feedSlug = feedPosts[0]?.feedType ?? '';
-    if (feedSlug.includes('food')) return 'food';
-    if (feedSlug.includes('lines')) return 'lines';
-    if (feedSlug.includes('vibe') || feedSlug.includes('hype')) return 'vibe';
-    if (feedSlug === 'help') return 'lines';
 
     const slug = slugifyLocationName(name);
     if (slug.includes('food') || slug.includes('restaurant') || slug.includes('stall')) {
@@ -332,14 +386,24 @@ export class SocialMapMarkerService {
 
   private resolveVisualState(
     locationId: string,
-    posts: Array<{ timeAgo: string; upvotes: number; comments: number }>,
-    knownCount?: number,
+    posts: Array<{
+      timeAgo: string;
+      upvotes: number;
+      comments: number;
+      createdAt?: string;
+    }>,
+    knownCount: number | undefined,
+    liveness: { allowLive: boolean; socketLive?: boolean },
   ): SocialMarkerVisualState {
     if (this.viewedLocationIds.has(locationId) && !posts.length) {
       return 'viewed';
     }
 
-    if (posts.some((post) => this.isRecent(post.timeAgo))) {
+    if (
+      liveness.allowLive &&
+      posts.length &&
+      (liveness.socketLive || posts.some((post) => this.isRecent(post)))
+    ) {
       return 'live';
     }
 
@@ -383,14 +447,22 @@ export class SocialMapMarkerService {
       case 'new':
         return 'new';
       case 'viewed':
-        return posts[0]?.timeAgo ?? 'live';
+        return posts[0]?.timeAgo ?? '';
       default:
-        return 'live';
+        return '';
     }
   }
 
-  private isRecent(timeAgo: string): boolean {
-    const match = timeAgo.match(/^(\d+)\s*m/i);
+  /** Recent = posted within the last 5 minutes (prefer the real timestamp). */
+  private isRecent(post: { timeAgo: string; createdAt?: string }): boolean {
+    if (post.createdAt) {
+      const created = new Date(post.createdAt).getTime();
+      if (!Number.isNaN(created)) {
+        return Date.now() - created <= 5 * 60 * 1000;
+      }
+    }
+    if (/just now/i.test(post.timeAgo)) return true;
+    const match = post.timeAgo.match(/^(\d+)\s*m/i);
     if (!match) return false;
     return Number(match[1]) <= 5;
   }

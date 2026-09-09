@@ -26,6 +26,7 @@
   }
 
   const CAMERA_HANDOFF_KEY = 'fplaces.handoff.cameraGranted';
+  const CAMERA_CHOICE_KEY = 'fplaces.permissionChoice.camera';
 
   async function requestMotionPermission() {
     if (typeof DeviceOrientationEvent?.requestPermission !== 'function') {
@@ -55,6 +56,19 @@
       else sessionStorage.removeItem(CAMERA_HANDOFF_KEY);
     } catch {
       /* private mode */
+    }
+    try {
+      localStorage.setItem(CAMERA_CHOICE_KEY, granted ? 'granted' : 'denied');
+    } catch {
+      /* private mode */
+    }
+  }
+
+  function storedCameraChoice() {
+    try {
+      return localStorage.getItem(CAMERA_CHOICE_KEY);
+    } catch {
+      return null;
     }
   }
 
@@ -86,10 +100,11 @@
       /* ignore */
     }
     try {
-      return sessionStorage.getItem(CAMERA_HANDOFF_KEY) === '1';
+      if (sessionStorage.getItem(CAMERA_HANDOFF_KEY) === '1') return true;
     } catch {
-      return false;
+      /* ignore */
     }
+    return storedCameraChoice() === 'granted';
   }
 
   function applyParentPermissions(data) {
@@ -98,12 +113,7 @@
       window.__fplacesCameraPermissionGranted = true;
       persistCameraGranted(true);
       // XR8.run() needs a tap inside this iframe — do not auto-start AR.
-      if (
-        pendingCallback &&
-        !started &&
-        !starting &&
-        !window.__fplacesXrSyncStart
-      ) {
+      if (pendingCallback && !started && !starting) {
         handleStart('parent');
       }
       return;
@@ -385,6 +395,11 @@
       tryAutoStart('permission-api');
       return;
     }
+    if (state === 'denied' || storedCameraChoice() === 'denied') {
+      persistCameraGranted(false);
+      showLayer('Camera blocked - allow access in Settings, then tap Start again');
+      return;
+    }
     showLayer(fallbackMessage);
   }
 
@@ -407,17 +422,22 @@
       autoStart: shouldAutoStartCamera(),
     });
 
-    if (shouldAutoStartCamera() && !window.__fplacesXrSyncStart) {
-      tryAutoStart('auto');
+    if (shouldAutoStartCamera()) {
+      // XR mode needs a real user gesture, so tryAutoStart refuses when
+      // syncXr is set. Fall through to the visible Start button instead of
+      // leaving the page stuck on "Starting AR…" with no prompt.
+      if (tryAutoStart('auto')) return;
+    }
+
+    if (storedCameraChoice() === 'denied') {
+      showLayer('Camera blocked - allow access in Settings, then tap Start again');
       return;
     }
 
     showLayer(message || 'Hold your phone up and tap Start to open the camera.');
-    if (!window.__fplacesXrSyncStart) {
-      void tryAutoStartFromPermission(
-        message || 'Hold your phone up and tap Start to open the camera.',
-      );
-    }
+    void tryAutoStartFromPermission(
+      message || 'Hold your phone up and tap Start to open the camera.',
+    );
   }
 
   function stopPreviewCamera() {

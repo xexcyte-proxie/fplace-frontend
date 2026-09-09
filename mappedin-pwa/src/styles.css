@@ -18,9 +18,10 @@
   --content-max: 100%;
   --map-panel-max: 100%;
   --desktop-gutter: 24px;
-  --ar-pip-width: min(168px, 44vw);
-  --ar-pip-height: min(224px, 32vh);
+  --ar-pip-width: min(152px, 42vw);
+  --ar-pip-height: min(216px, 34vh);
   --ar-pip-gap: 12px;
+  --ar-pip-stack-top: calc(max(16px, env(safe-area-inset-top)) + 112px);
   --ar-pip-stack-bottom: calc(
     var(--bottom-nav-height) + var(--ar-pip-gap) + env(safe-area-inset-bottom)
   );
@@ -70,7 +71,7 @@ body,
 
 #ar-pip-shell {
   position: fixed;
-  z-index: 54;
+  z-index: 80;
   overflow: hidden;
   background: #000;
   pointer-events: auto;
@@ -93,10 +94,16 @@ body,
 #ar-pip-shell.ar-pip-shell--minimized {
   width: var(--ar-pip-width);
   height: var(--ar-pip-height);
-  border-radius: 14px;
-  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.52);
-  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  border: 0;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 18px 40px rgba(21, 21, 31, 0.42);
   touch-action: none;
+}
+
+#ar-pip-shell.ar-pip-shell--minimized #ar-frame {
+  pointer-events: none;
 }
 
 #ar-pip-shell[hidden] {
@@ -124,33 +131,73 @@ body,
   display: block;
 }
 
+#ar-pip-shell.ar-pip-shell--minimized .ar-pip-drag-layer:active {
+  cursor: grabbing;
+}
+
 .ar-pip-bar {
   display: none;
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  inset: 0;
   z-index: 3;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 8px;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.72), transparent);
-  pointer-events: auto;
+  pointer-events: none;
+  background:
+    linear-gradient(to bottom, rgba(15, 16, 22, 0.58) 0%, transparent 42%),
+    linear-gradient(to top, rgba(15, 16, 22, 0.52) 0%, transparent 36%);
 }
 
 #ar-pip-shell.ar-pip-shell--minimized .ar-pip-bar {
-  display: flex;
+  display: block;
 }
 
-.ar-pip-label {
-  flex: 1;
+.ar-pip-live {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 999px;
+  background: rgba(15, 16, 22, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.ar-pip-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--app-accent-green);
+  box-shadow: 0 0 0 3px rgba(46, 158, 104, 0.28);
+  animation: ar-pip-live-pulse 1.6s ease-out infinite;
+}
+
+.ar-pip-live-label {
+  font-family: var(--brand-sans);
   font-size: 11px;
-  font-weight: 600;
-  color: #fff;
+  font-weight: 700;
   letter-spacing: 0.02em;
+  color: #fff;
+  line-height: 1;
+}
+
+.ar-pip-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: auto;
 }
 
 .ar-pip-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
   padding: 0;
@@ -158,14 +205,52 @@ body,
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.16);
   color: #fff;
-  font-size: 16px;
-  line-height: 28px;
-  text-align: center;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   cursor: pointer;
 }
 
-.ar-pip-icon-btn:active {
+.ar-pip-icon-btn:hover,
+.ar-pip-icon-btn:focus-visible {
   background: rgba(255, 255, 255, 0.28);
+  outline: none;
+}
+
+.ar-pip-icon-btn:active {
+  background: rgba(255, 255, 255, 0.36);
+}
+
+.ar-pip-hint {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  margin: 0;
+  font-family: var(--brand-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.92);
+  text-align: center;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+}
+
+@keyframes ar-pip-live-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(46, 158, 104, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(46, 158, 104, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(46, 158, 104, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ar-pip-live-dot {
+    animation: none;
+  }
 }
 
 .splash-screen {
@@ -237,6 +322,57 @@ body,
 
 .splash-screen--error .splash-progress-bar {
   background: #7f1d1d;
+}
+
+.map-boot-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  background: rgba(224, 122, 51, 0.92);
+  pointer-events: none;
+}
+
+.map-boot-message {
+  margin: 0;
+  font-family: var(--brand-serif);
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  text-align: center;
+}
+
+.map-boot-progress {
+  width: min(160px, calc(100vw - 80px));
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+}
+
+.map-boot-progress-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.92);
+  transition: width 0.45s ease;
+}
+
+.map-boot-overlay--error {
+  pointer-events: auto;
+}
+
+.map-boot-overlay--error .map-boot-message {
+  max-width: 320px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: #fff5eb;
 }
 
 .onboarding-screen {
@@ -316,6 +452,12 @@ body,
   border: 1px solid #c7cad1;
   background: transparent;
   color: #15151f;
+}
+
+.onboarding-cta-primary:disabled,
+.onboarding-cta-secondary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .placeholder-screen {
@@ -1458,6 +1600,24 @@ body,
   font-weight: 600;
 }
 
+.search-result-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+
+.search-result-distance {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-text-muted);
+}
+
+.search-result-meta-sep {
+  opacity: 0.55;
+}
+
 .search-result-floor {
   font-size: 12px;
   color: var(--app-text-muted);
@@ -1917,9 +2077,6 @@ body,
   flex-shrink: 0;
   width: 22px;
   height: 22px;
-  background-color: currentColor;
-  -webkit-mask: var(--bottom-nav-icon) center / contain no-repeat;
-  mask: var(--bottom-nav-icon) center / contain no-repeat;
 }
 
 .bottom-nav-label {
@@ -2201,8 +2358,8 @@ body,
     --content-max: 520px;
     --map-panel-max: 420px;
     --desktop-gutter: 24px;
-    --ar-pip-width: 196px;
-    --ar-pip-height: 260px;
+    --ar-pip-width: 180px;
+    --ar-pip-height: 256px;
   }
 
   .onboarding-screen,

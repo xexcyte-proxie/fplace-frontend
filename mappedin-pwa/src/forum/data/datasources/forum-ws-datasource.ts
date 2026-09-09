@@ -1,19 +1,16 @@
-import { appConfig } from '../../../config';
+import { resolveWsOrigin } from '../../../config/ws-origin';
+import { connectReconnectingWebSocket } from '../../../config/reconnecting-websocket';
 import { tokenLocalDatasource } from '../../../auth/data/datasources/token-local-datasource';
 import type {
   SectionHeatEntry,
   SectionHeatPriority,
-  VenueLiveConnectionStatus,
   VenueLiveEvent,
   VenueLiveEventHandler,
   VenueLiveStatusHandler,
   VenueLiveSubscription,
 } from '../../domain/entities';
+import { coerceForumComment } from '../mappers/forum-comment-mapper';
 import { coerceForumPost } from '../mappers/forum-post-mapper';
-import { appLog, appWarn } from '../../../utils/logger';
-
-const RECONNECT_BASE_MS = 1_500;
-const RECONNECT_MAX_MS = 20_000;
 
 /**
  * Receive-only WebSocket to `ws/venues/<venue_id>/?token=<access_token>`.
@@ -25,113 +22,20 @@ export class ForumWsDatasource {
     onEvent: VenueLiveEventHandler,
     onStatus?: VenueLiveStatusHandler,
   ): VenueLiveSubscription {
-    let socket: WebSocket | null = null;
-    let closedByClient = false;
-    let reconnectAttempts = 0;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let hasConnectedOnce = false;
-
-    const emitStatus = (status: VenueLiveConnectionStatus) => {
-      onStatus?.(status);
-    };
-
-    const clearReconnect = () => {
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-    };
-
-    const open = () => {
-      const token = tokenLocalDatasource.getAccessToken();
-      if (!token) {
-        appWarn('ForumWS', 'No access token; venue live socket paused');
-        emitStatus('auth_missing');
-        scheduleReconnect();
-        return;
-      }
-
-      const url = buildVenueWsUrl(venueId, token);
-      emitStatus(hasConnectedOnce ? 'reconnecting' : 'connecting');
-      // Full URL for Postman / DevTools WS checks (includes token).
-      console.log(`[IndoorNav/ForumWS] Venue WS URL (copy for Postman):\n${url}`);
-      appLog('ForumWS', `Opening venue room ${venueId}: ${url}`);
-
-      try {
-        socket = new WebSocket(url);
-      } catch (error) {
-        appWarn('ForumWS', 'Failed to open socket', error);
-        emitStatus('disconnected');
-        scheduleReconnect();
-        return;
-      }
-
-      socket.addEventListener('open', () => {
-        reconnectAttempts = 0;
-        hasConnectedOnce = true;
-        emitStatus('connected');
-        appLog('ForumWS', `Venue room ${venueId} connected`);
-      });
-
-      socket.addEventListener('message', (event) => {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(String(event.data));
-        } catch {
-          appWarn('ForumWS', 'Non-JSON message ignored');
-          return;
-        }
-
+    return connectReconnectingWebSocket({
+      logTag: 'ForumWS',
+      buildUrl: () => {
+        const token = tokenLocalDatasource.getUserAccessToken();
+        if (!token) return null;
+        return buildVenueWsUrl(venueId, token);
+      },
+      onMessage: (parsed) => {
         const liveEvent = parseVenueLiveMessage(parsed);
         if (!liveEvent) return;
         onEvent(liveEvent);
-      });
-
-      socket.addEventListener('close', (event) => {
-        socket = null;
-        if (closedByClient) return;
-        appWarn('ForumWS', `Venue room ${venueId} closed`, {
-          code: event.code,
-          reason: event.reason,
-          wasClean: event.wasClean,
-        });
-        emitStatus('disconnected');
-        scheduleReconnect();
-      });
-
-      socket.addEventListener('error', () => {
-        appWarn('ForumWS', `Venue room ${venueId} socket error`);
-      });
-    };
-
-    const scheduleReconnect = () => {
-      if (closedByClient) return;
-      clearReconnect();
-      const delay = Math.min(
-        RECONNECT_MAX_MS,
-        RECONNECT_BASE_MS * 2 ** reconnectAttempts,
-      );
-      reconnectAttempts += 1;
-      emitStatus(hasConnectedOnce ? 'reconnecting' : 'connecting');
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null;
-        open();
-      }, delay);
-    };
-
-    open();
-
-    return {
-      disconnect() {
-        closedByClient = true;
-        clearReconnect();
-        if (socket && socket.readyState < WebSocket.CLOSING) {
-          socket.close();
-        }
-        socket = null;
-        emitStatus('idle');
       },
-    };
+      onStatus,
+    });
   }
 }
 
@@ -149,12 +53,22 @@ export function parseVenueLiveMessage(raw: unknown): VenueLiveEvent | null {
   if (!type) return null;
 
   switch (type) {
-    case 'new_post': {
+    case 'new_post':
+    case 'post_updated':
+    case 'post_update': {
       const post = coerceForumPost(
         extractObject(message, ['post', 'payload', 'data']) ?? message,
       );
       if (!post) return null;
       return { type: 'new_post', post };
+    }
+    case 'new_comment':
+    case 'comment_created': {
+      const comment = coerceForumComment(
+        extractObject(message, ['comment', 'payload', 'data']) ?? message,
+      );
+      if (!comment) return null;
+      return { type: 'new_comment', comment };
     }
     case 'upvote_update': {
       const payload =
@@ -212,21 +126,6 @@ export function parseVenueLiveMessage(raw: unknown): VenueLiveEvent | null {
     default:
       return null;
   }
-}
-
-function resolveWsOrigin(): string {
-  const configured = appConfig.wsUrl.replace(/\/$/, '');
-  if (configured) return configured;
-
-  const api = appConfig.apiUrl.replace(/\/$/, '');
-  if (api) return api.replace(/^http/i, 'ws');
-
-  if (typeof window !== 'undefined' && window.location?.host) {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}`;
-  }
-
-  return 'wss://fplaces-backend.vercel.app';
 }
 
 function extractObject(

@@ -452,16 +452,9 @@
   function startExperience() {
     if (started) return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get('preload') === '1' && !window.fplacesActiveRoute) return;
-    started = true;
-
-    DBG()?.log('Bootstrap', 'startExperience()', {
-      isSecureContext: window.isSecureContext,
-      href: window.location.href,
-    });
-    SLOG()?.log?.('start', 'Starting AR experience');
-    SLOG()?.runHealthCheck?.('bootstrap-start');
-    SLOG()?.scheduleAudits?.();
+    // Preload only warms XR scripts. Opening Live View always navigates
+    // to a real URL so camera + HUD boot on a fresh document.
+    if (params.get('preload') === '1') return;
 
     const route = window.fplacesActiveRoute;
     if (!route) {
@@ -472,6 +465,15 @@
       );
       return;
     }
+    started = true;
+
+    DBG()?.log('Bootstrap', 'startExperience()', {
+      isSecureContext: window.isSecureContext,
+      href: window.location.href,
+    });
+    SLOG()?.log?.('start', 'Starting AR experience');
+    SLOG()?.runHealthCheck?.('bootstrap-start');
+    SLOG()?.scheduleAudits?.();
 
     navigatorInstance.setRoute(route);
     window.FplacesRouteBridge?.flushPendingPositions?.();

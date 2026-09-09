@@ -51,3 +51,17 @@ export function mapForumCommentsToItems(
 ): PostCommentItem[] {
   return comments.map(mapForumCommentToItem);
 }
+
+/**
+ * Appends a comment to an open thread unless it is already there.
+ * The REST create response and the venue WebSocket `new_comment` broadcast
+ * race each other for the author's own comment, so both paths must dedupe.
+ */
+export function appendCommentOnce(
+  comments: PostCommentItem[],
+  item: PostCommentItem,
+): PostCommentItem[] {
+  return comments.some((comment) => comment.id === item.id)
+    ? comments
+    : [...comments, item];
+}

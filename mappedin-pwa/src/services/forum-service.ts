@@ -22,6 +22,12 @@ import type {
 } from '../forum/domain/entities';
 import { forumRepository } from '../forum/data/forum-repository-impl';
 
+export { applyVenueLiveEvent } from '../forum/domain/apply-venue-live-event';
+export {
+  forumPostMatchesLocation,
+  sectionIdForLocation,
+} from '../forum/domain/section-locations';
+
 export type {
   CreateCommentPayload,
   CreatePostPayload,
@@ -127,6 +133,19 @@ export async function loadInitialVenueFeed(
   return listVenuePosts({ venue: venueId, latest: true, page: 1 });
 }
 
+/** Conversation thread for one map area (forum section). */
+export async function loadVenueSectionFeed(
+  venueId: number,
+  sectionId: number,
+): Promise<PaginatedList<ForumPost>> {
+  return listVenuePosts({
+    venue: venueId,
+    section: sectionId,
+    latest: true,
+    page: 1,
+  });
+}
+
 /**
  * Open the receive-only venue WebSocket room.
  * Call immediately after `loadInitialVenueFeed`.
@@ -188,6 +207,35 @@ export function listForumComments(
   params?: ListCommentsParams,
 ): Promise<PaginatedList<ForumComment>> {
   return forumRepository.listComments(params);
+}
+
+/**
+ * Fetch authoritative comment counts for a set of posts.
+ * The post payload carries no comment count, so we read the paginated
+ * `count` from the comments endpoint (one lightweight request per post).
+ * Posts whose count request fails are omitted from the result.
+ */
+export async function loadForumCommentCounts(
+  postIds: number[],
+): Promise<Map<number, number>> {
+  const counts = new Map<number, number>();
+  const entries = await Promise.all(
+    postIds.map(async (postId) => {
+      try {
+        const page = await forumRepository.listComments({
+          post: postId,
+          page: 1,
+        });
+        return [postId, page.count] as const;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  for (const entry of entries) {
+    if (entry) counts.set(entry[0], entry[1]);
+  }
+  return counts;
 }
 
 export function getForumComment(commentId: number): Promise<ForumComment> {

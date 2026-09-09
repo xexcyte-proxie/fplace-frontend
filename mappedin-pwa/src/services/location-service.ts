@@ -61,6 +61,34 @@ export class LocationService {
     return coordinatesFromPosition(position);
   }
 
+  /**
+   * Stream live GPS fixes while location is granted. Returns an unsubscribe.
+   */
+  watchLocation(
+    onUpdate: (coords: UserCoordinates) => void,
+    onError?: (error: unknown) => void,
+    options?: { timeoutMs?: number },
+  ): () => void {
+    if (!navigator.geolocation) {
+      onError?.(new Error('Geolocation is not supported in this browser.'));
+      return () => {};
+    }
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => onUpdate(coordinatesFromPosition(position)),
+      (error) => onError?.(error),
+      {
+        enableHighAccuracy: true,
+        timeout: options?.timeoutMs ?? 15_000,
+        maximumAge: 1_000,
+      },
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }
+
   isPermissionDeniedError(error: unknown): boolean {
     return isPermissionDeniedError(error);
   }

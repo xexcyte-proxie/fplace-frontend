@@ -8,6 +8,7 @@ import type {
   RegisterCredentials,
   UpdateProfilePayload,
 } from '../../domain/entities';
+import { parseInterestOptionsPayload } from '../../domain/interest-options';
 import { apiRequest } from './api-client';
 
 function normalizeSession(body: AuthSession): AuthSession {
@@ -135,6 +136,14 @@ export class AuthRemoteDatasource {
       auth: true,
       fallbackError: 'Could not load your profile. Please try again.',
     });
+  }
+
+  async listInterestOptions(): Promise<string[]> {
+    const body = await apiRequest<unknown>('/api/users/interests/', {
+      method: 'GET',
+      fallbackError: 'Could not load interests. Please try again.',
+    });
+    return parseInterestOptionsPayload(body);
   }
 
   refreshTokens(refresh: string): Promise<AuthTokens> {

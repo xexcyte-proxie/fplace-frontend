@@ -71,7 +71,7 @@
     <div id="app">
       <div id="mappedin-map"></div>
       <div id="ui-root"></div>
-      <div id="ar-pip-shell" hidden>
+      <div id="ar-pip-shell" hidden role="complementary" aria-label="Live View">
         <iframe
           id="ar-frame"
           title="AR navigation"
@@ -79,13 +79,23 @@
         ></iframe>
         <div class="ar-pip-drag-layer" aria-hidden="true"></div>
         <div class="ar-pip-bar">
-          <span class="ar-pip-label">Live View</span>
-          <button type="button" id="ar-pip-expand" class="ar-pip-icon-btn" aria-label="Expand Live View">
-            <span aria-hidden="true">⛶</span>
-          </button>
-          <button type="button" id="ar-pip-close" class="ar-pip-icon-btn" aria-label="Close Live View">
-            <span aria-hidden="true">×</span>
-          </button>
+          <div class="ar-pip-live">
+            <span class="ar-pip-live-dot" aria-hidden="true"></span>
+            <span class="ar-pip-live-label">Live</span>
+          </div>
+          <div class="ar-pip-actions">
+            <button type="button" id="ar-pip-expand" class="ar-pip-icon-btn" aria-label="Expand Live View">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M8 3H4v4M16 3h4v4M8 21H4v-4M20 17v4h-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+              </svg>
+            </button>
+            <button type="button" id="ar-pip-close" class="ar-pip-icon-btn" aria-label="Close Live View">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"></path>
+              </svg>
+            </button>
+          </div>
+          <p class="ar-pip-hint">Tap to expand</p>
         </div>
       </div>
     </div>

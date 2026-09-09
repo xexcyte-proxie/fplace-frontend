@@ -1,9 +1,11 @@
 import {
   mediaPermissionFromBrowserState,
   mediaPermissionFromGetUserMediaError,
+  shouldSkipCameraPrompt,
   type ArMediaPermissionResult,
   type MediaPermissionState,
 } from '../permissions/domain/media-permission';
+import { permissionChoiceLocalDatasource } from '../permissions/data/datasources/permission-choice-local-datasource';
 
 export type {
   ArMediaPermissionResult,
@@ -96,17 +98,48 @@ function requestMotionAccess(): Promise<boolean> {
   );
 }
 
+function persistCameraChoice(camera: MediaPermissionState): void {
+  if (camera === 'granted' || camera === 'denied') {
+    permissionChoiceLocalDatasource.saveCamera(camera);
+  }
+}
+
 /**
  * Ask for camera + motion now. Must be called from a user gesture (AR click)
  * before any slow awaits so the browser can show its permission UI.
+ * After the first allow/deny, later opens reuse that choice and do not prompt.
  */
 export function primeArMediaPermissions(): Promise<ArMediaPermissionResult> {
-  const camera = requestCameraAccess();
-  const motion = requestMotionAccess();
-  return Promise.all([camera, motion]).then(([cameraState, motionGranted]) => ({
-    camera: cameraState,
-    motionGranted,
-  }));
+  const storedCamera = permissionChoiceLocalDatasource.loadCamera();
+  const camera = shouldSkipCameraPrompt(storedCamera)
+    ? Promise.resolve(storedCamera)
+    : requestCameraAccess();
+
+  const storedMotion = permissionChoiceLocalDatasource.loadMotion();
+  const motion =
+    storedMotion === 'granted'
+      ? Promise.resolve(true)
+      : storedMotion === 'denied'
+        ? Promise.resolve(false)
+        : requestMotionAccess();
+
+  return Promise.all([camera, motion]).then(([cameraState, motionGranted]) => {
+    persistCameraChoice(cameraState);
+    if (storedMotion === 'undecided') {
+      permissionChoiceLocalDatasource.saveMotion(
+        motionGranted ? 'granted' : 'denied',
+      );
+    }
+    return {
+      camera: cameraState,
+      motionGranted,
+    };
+  });
+}
+
+/** True when iOS motion permission was already decided — do not call requestPermission again. */
+export function shouldRequestArMotionPermission(): boolean {
+  return permissionChoiceLocalDatasource.loadMotion() === 'undecided';
 }
 
 /** Start the camera prompt from the AR click without blocking the rest of the flow. */
@@ -127,6 +160,7 @@ export async function consumeArMediaPermissionPrime(): Promise<ArMediaPermission
 /** Test helper. */
 export function resetArMediaPermissionPrime(): void {
   inFlightPrime = null;
+  permissionChoiceLocalDatasource.clearCameraAndMotion();
 }
 
 export { queryCameraPermission };

@@ -8,6 +8,20 @@ export function normalizeHeadingDegrees(heading: number): number {
   return ((heading % 360) + 360) % 360;
 }
 
+/**
+ * Browser Geolocation `coords.heading` is -1 / null while stationary.
+ * Do not substitute 0° (north) — that yanks the 2D follow camera on the
+ * first live fix before the compass has a sample.
+ */
+export function headingFromGeolocationCourse(
+  geoHeading: number | null | undefined,
+): number | undefined {
+  if (geoHeading == null || !Number.isFinite(geoHeading) || geoHeading < 0) {
+    return undefined;
+  }
+  return normalizeHeadingDegrees(geoHeading);
+}
+
 export function shortestHeadingDelta(fromDeg: number, toDeg: number): number {
   let delta = normalizeHeadingDegrees(toDeg) - normalizeHeadingDegrees(fromDeg);
   if (delta > 180) delta -= 360;
@@ -42,6 +56,23 @@ export function resolveNavigationConeHeading(options: {
 
   return compass;
 }
+
+/** Ease the displayed cone toward a target heading (circular, frame-rate independent). */
+export function stepVisualHeading(
+  displayDeg: number,
+  targetDeg: number,
+  dtSeconds: number,
+  followPerSecond = 12,
+): number {
+  const delta = shortestHeadingDelta(displayDeg, targetDeg);
+  const t = 1 - Math.exp(-Math.max(0, dtSeconds) * followPerSecond);
+  return normalizeHeadingDegrees(displayDeg + delta * t);
+}
+
+/** Skip Mappedin heading publishes that would only restart its tween. */
+export const HEADING_PUBLISH_MIN_DELTA_DEG = 0.6;
+
+export const HEADING_PUBLISH_MIN_INTERVAL_MS = 32;
 
 export function isCompassAccuracyReliable(
   accuracy: number | null | undefined,
@@ -104,9 +135,9 @@ export function createCompassHeadingFilter(options?: {
   smoothAlpha?: number;
   ignoreRelativeIfAbsoluteWithinMs?: number;
 }) {
-  const settleSamples = options?.settleSamples ?? 4;
-  const maxSpreadDeg = options?.maxSpreadDeg ?? 28;
-  const smoothAlpha = options?.smoothAlpha ?? 0.38;
+  const settleSamples = options?.settleSamples ?? 2;
+  const maxSpreadDeg = options?.maxSpreadDeg ?? 72;
+  const smoothAlpha = options?.smoothAlpha ?? 0.28;
   const ignoreRelativeMs = options?.ignoreRelativeIfAbsoluteWithinMs ?? 1600;
 
   let lastAbsoluteAt = Number.NEGATIVE_INFINITY;
@@ -122,7 +153,11 @@ export function createCompassHeadingFilter(options?: {
 
     if (!locked) {
       if (recent.length < settleSamples) return null;
-      if (circularSpreadDeg(recent) > maxSpreadDeg) return null;
+      if (circularSpreadDeg(recent) > maxSpreadDeg) {
+        // Indoor magnetometers wander; after enough samples still show a
+        // heading rather than leaving the glow stuck waiting for calm.
+        if (recent.length < Math.max(settleSamples * 2, 8)) return null;
+      }
       locked = true;
       smoothed = deg;
       return deg;

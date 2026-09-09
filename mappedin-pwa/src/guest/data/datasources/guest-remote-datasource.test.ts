@@ -65,6 +65,7 @@ describe('GuestRepositoryImpl (POST /api/users/guest/)', () => {
     expect(result.guestId).toBe('fp_test_1');
     expect(result.session?.mappedin.token).toBe('mappedin-access');
     expect(tokenLocalDatasource.getAccessToken()).toBe('guest.jwt.token');
+    expect(tokenLocalDatasource.getUserAccessToken()).toBeNull();
     expect(tokenLocalDatasource.isGuestToken()).toBe(true);
     expect(tokenLocalDatasource.load()).toBeNull();
     expect(guestSessionLocalDatasource.getMappedinToken()).toBe(
@@ -163,6 +164,7 @@ describe('GuestRepositoryImpl (POST /api/users/guest/)', () => {
     });
     expect(tokenLocalDatasource.getGuestAccessToken()).toBe('guest.jwt.token');
     expect(tokenLocalDatasource.getAccessToken()).toBe('user-access');
+    expect(tokenLocalDatasource.getUserAccessToken()).toBe('user-access');
   });
 
   it('validateGuestFingerprint resolves IP then obtains a session', async () => {

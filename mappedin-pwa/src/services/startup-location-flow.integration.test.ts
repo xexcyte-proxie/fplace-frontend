@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   isLocationGateAuthStep,
   nextMarketingOnboardingStep,
+  resolveLocationGateEntry,
   resolveLocationGateFailure,
   resolveLocationGatePreflight,
 } from '../location/domain/location-gate';
@@ -95,6 +96,12 @@ describe('startup location gate integration', () => {
     expect(preflight).toEqual({ action: 'required-permanent' });
     expect(getCurrentPosition).not.toHaveBeenCalled();
     expect(isLocationGateAuthStep('location-required')).toBe(true);
+  });
+
+  it('remembered deny skips the gate even when Permissions API still says prompt', () => {
+    expect(resolveLocationGateEntry('prompt', 'denied')).toEqual({
+      action: 'skip',
+    });
   });
 
   it('permission prompt denial routes to required; timeout routes to error', async () => {

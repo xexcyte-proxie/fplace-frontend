@@ -57,7 +57,7 @@ function classNames(model: SocialMarkerModel): string {
     classes.push('social-map-marker--trending');
   } else if (model.visualState === 'new') {
     classes.push('social-map-marker--new');
-  } else {
+  } else if (model.visualState === 'live') {
     classes.push('social-map-marker--live');
   }
   return classes.join(' ');
@@ -88,8 +88,8 @@ function leadingIcon(model: SocialMarkerModel): string {
 }
 
 function secondaryLine(model: SocialMarkerModel): string {
-  const text = model.secondary || 'live';
-  return `<div class="social-map-marker__secondary">${escapeHtml(text)}</div>`;
+  if (!model.secondary) return '';
+  return `<div class="social-map-marker__secondary">${escapeHtml(model.secondary)}</div>`;
 }
 
 export function renderSocialMapMarkerHtml(model: SocialMarkerModel): string {

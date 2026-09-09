@@ -1058,3 +1058,18 @@ body.lv-active #hud::before {
 .calibrate-ar-btn:active {
   transform: translateX(-50%) scale(0.98);
 }
+
+/* Compact camera-only preview while the parent shows the map + PiP chrome. */
+body.lv-minimized #lv-chrome,
+body.lv-minimized #hud,
+body.lv-minimized #trip-footer,
+body.lv-minimized .camera-start-layer,
+body.lv-minimized .lv-dialog-layer,
+body.lv-minimized #fplaces-orientation-compass,
+body.lv-minimized .calibrate-ar-btn {
+  display: none !important;
+}
+
+body.lv-minimized #hud::before {
+  display: none;
+}

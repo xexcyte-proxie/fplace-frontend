@@ -5,9 +5,21 @@ import {
   computeLiveRemainingMeters,
   estimateLiveWalkSeconds,
   hasArrivedAtDestination,
+  resolveCanonicalRouteDistanceMeters,
   shouldRevealDestinationMarker,
   LiveAlongPathStabilizer,
 } from './route-progress';
+
+describe('resolveCanonicalRouteDistanceMeters', () => {
+  it('prefers the geometric path length used by live remaining', () => {
+    expect(resolveCanonicalRouteDistanceMeters(94.2, 120)).toBe(94.2);
+  });
+
+  it('falls back to Mappedin distance when the path is empty', () => {
+    expect(resolveCanonicalRouteDistanceMeters(0, 80)).toBe(80);
+    expect(resolveCanonicalRouteDistanceMeters(0, null)).toBeNull();
+  });
+});
 
 describe('computeLiveRemainingMeters', () => {
   it('is unfinished path meters', () => {
@@ -70,6 +82,16 @@ describe('hasArrivedAtDestination', () => {
         offRouteMeters: 1,
       }),
     ).toBe(true);
+  });
+
+  it('is false at the start of a short path', () => {
+    expect(
+      hasArrivedAtDestination({
+        totalPathMeters: 2,
+        alongPathMeters: 0,
+        offRouteMeters: 0,
+      }),
+    ).toBe(false);
   });
 
   it('is false while still short of the destination', () => {
@@ -146,17 +168,25 @@ describe('shouldRevealDestinationMarker', () => {
 });
 
 describe('LiveAlongPathStabilizer', () => {
-  it('accepts the first fix so a mid-route start is not stuck at 0', () => {
+  it('keeps a mid-route resume baseline instead of adopting the first GPS snap', () => {
+    const stabilizer = new LiveAlongPathStabilizer();
+    stabilizer.reset(47);
+    expect(
+      stabilizer.update({ nextAlongMeters: 92, nowMs: 1_000 }),
+    ).toBe(47);
+  });
+
+  it('ignores a first indoor GPS snap to the destination after Begin', () => {
     const stabilizer = new LiveAlongPathStabilizer();
     stabilizer.reset(0);
     expect(
-      stabilizer.update({ nextAlongMeters: 47, nowMs: 1_000 }),
-    ).toBe(47);
+      stabilizer.update({ nextAlongMeters: 48, nowMs: 1_000 }),
+    ).toBe(0);
   });
 
   it('freezes along-path meters while standing still with snap jitter', () => {
     const stabilizer = new LiveAlongPathStabilizer();
-    stabilizer.reset(0);
+    stabilizer.reset(40);
     stabilizer.update({ nextAlongMeters: 40, nowMs: 1_000 });
 
     expect(
@@ -169,7 +199,7 @@ describe('LiveAlongPathStabilizer', () => {
 
   it('ignores a single indoor GPS jump along the corridor', () => {
     const stabilizer = new LiveAlongPathStabilizer();
-    stabilizer.reset(0);
+    stabilizer.reset(40);
     stabilizer.update({ nextAlongMeters: 40, nowMs: 1_000 });
 
     expect(
@@ -179,7 +209,7 @@ describe('LiveAlongPathStabilizer', () => {
 
   it('advances after consecutive walking samples', () => {
     const stabilizer = new LiveAlongPathStabilizer();
-    stabilizer.reset(0);
+    stabilizer.reset(10);
     stabilizer.update({ nextAlongMeters: 10, nowMs: 1_000 });
 
     expect(
@@ -193,17 +223,65 @@ describe('LiveAlongPathStabilizer', () => {
     expect(advanced).toBeLessThanOrEqual(12.8);
   });
 
-  it('accepts an off-route snap immediately so remaining can include the detour', () => {
+  it('holds sub-step snap jitter while standing still', () => {
+    const stabilizer = new LiveAlongPathStabilizer();
+    stabilizer.reset(10);
+    stabilizer.update({ nextAlongMeters: 10, nowMs: 1_000 });
+
+    expect(
+      stabilizer.update({ nextAlongMeters: 10.4, nowMs: 2_000 }),
+    ).toBe(10);
+    expect(
+      stabilizer.update({ nextAlongMeters: 9.6, nowMs: 3_000 }),
+    ).toBe(10);
+  });
+
+  it('still advances a real walker despite poor accuracy', () => {
     const stabilizer = new LiveAlongPathStabilizer();
     stabilizer.reset(0);
+    stabilizer.update({ nextAlongMeters: 0, accuracyMeters: 30, nowMs: 1_000 });
+
+    stabilizer.update({ nextAlongMeters: 9, accuracyMeters: 30, nowMs: 5_000 });
+    const advanced = stabilizer.update({
+      nextAlongMeters: 18,
+      accuracyMeters: 30,
+      nowMs: 9_000,
+    });
+    expect(advanced).toBeGreaterThan(0);
+  });
+
+  it('does not teleport along-path when an off-route snap lands on the far corridor', () => {
+    const stabilizer = new LiveAlongPathStabilizer();
+    stabilizer.reset(0);
+    stabilizer.update({ nextAlongMeters: 0, nowMs: 1_000 });
+
+    expect(
+      stabilizer.update({
+        nextAlongMeters: 22,
+        offRouteMeters: 9,
+        nowMs: 2_000,
+      }),
+    ).toBe(0);
+    expect(
+      stabilizer.update({
+        nextAlongMeters: 21.4,
+        offRouteMeters: 8,
+        nowMs: 3_000,
+      }),
+    ).toBe(0);
+  });
+
+  it('does not adopt a destination snap while mid-route and off-path', () => {
+    const stabilizer = new LiveAlongPathStabilizer();
+    stabilizer.reset(40);
     stabilizer.update({ nextAlongMeters: 40, nowMs: 1_000 });
 
     expect(
       stabilizer.update({
-        nextAlongMeters: 38,
+        nextAlongMeters: 92,
         offRouteMeters: 9,
         nowMs: 2_000,
       }),
-    ).toBe(38);
+    ).toBe(40);
   });
 });

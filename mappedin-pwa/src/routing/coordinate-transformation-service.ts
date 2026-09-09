@@ -4,6 +4,7 @@ import {
   segmentHorizontalMeters,
   isVerticalConnector,
 } from '../utils/geo-math';
+import { scoreSnapWithAlongContinuity } from './snap-along-continuity';
 
 export interface RichNavPoint extends RouteCoordinate {
   segmentIndex: number;
@@ -19,6 +20,8 @@ export interface SnapOptions {
   preferVenue?: boolean;
   currentLegIndex?: number;
   legs?: Array<{ index: number; legId: string; floorId: string; startIndex: number; endIndex: number }>;
+  /** Stabilized along-path metres — prefer the current corridor over a later one. */
+  previousAlongMeters?: number | null;
 }
 
 const PENALTY_WRONG_FLOOR_VENUE = 40;
@@ -204,7 +207,13 @@ export class CoordinateTransformationService {
         }
       }
 
-      const adjustedDist = proj.distToSegment + penalty;
+      const alongPathMeters = cumulative + proj.t * segLen;
+      const adjustedDist =
+        scoreSnapWithAlongContinuity({
+          distToSegment: proj.distToSegment,
+          alongPathMeters,
+          previousAlongMeters: options.previousAlongMeters,
+        }) + penalty;
 
       if (adjustedDist < bestScore) {
         bestScore = adjustedDist;
@@ -214,7 +223,7 @@ export class CoordinateTransformationService {
           {
             segmentIndex: i,
             t: proj.t,
-            distanceAlongPathMeters: cumulative + proj.t * segLen,
+            distanceAlongPathMeters: alongPathMeters,
             offRouteMeters: proj.distToSegment,
           },
         );

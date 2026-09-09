@@ -80,6 +80,15 @@ export interface RouteSheetSummary {
   isCalculating: boolean;
   /** True when the current points cannot produce a route - user should Reset. */
   needsReset: boolean;
+  /** Begin button copy; while navigating it must not claim motion on live GPS. */
+  beginLabel: string;
+}
+
+/** Live GPS is armed the instant Begin is tapped — the guest may still be still. */
+export function resolveBeginButtonLabel(
+  state: Pick<AppState, 'routeSimulating'>,
+): string {
+  return state.routeSimulating ? 'Navigating…' : 'Begin';
 }
 
 export function buildRouteSheetSummary(state: AppState): RouteSheetSummary {
@@ -118,6 +127,7 @@ export function buildRouteSheetSummary(state: AppState): RouteSheetSummary {
       walkDistance: 'NO ROUTE',
       isCalculating: false,
       needsReset: true,
+      beginLabel: 'Begin',
     };
   }
 
@@ -158,5 +168,6 @@ export function buildRouteSheetSummary(state: AppState): RouteSheetSummary {
         : formatWalkDistance(remainingDistance),
     isCalculating: state.isCalculatingRoute,
     needsReset: false,
+    beginLabel: resolveBeginButtonLabel(state),
   };
 }

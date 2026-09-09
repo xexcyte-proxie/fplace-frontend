@@ -2,6 +2,7 @@ import { PositionProvider, type PositionProviderStartOptions } from '../position
 import type { FplacesPositionFrame } from '../types';
 import {
   createCompassHeadingFilter,
+  headingFromGeolocationCourse,
   readScreenOrientationDeg,
 } from '../domain/cone-heading';
 import { appWarn } from '../../utils/logger';
@@ -26,10 +27,11 @@ export class GpsPositionProvider extends PositionProvider {
         this.lastAccuracy = position.coords.accuracy ?? this.lastAccuracy;
         this.lastLat = position.coords.latitude;
         this.lastLng = position.coords.longitude;
+        const heading = this.resolveHeading(position.coords.heading);
         this.emit({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
-          heading: this.resolveHeading(position.coords.heading),
+          ...(heading != null ? { heading } : {}),
           accuracy: this.lastAccuracy,
         });
       },
@@ -111,15 +113,12 @@ export class GpsPositionProvider extends PositionProvider {
     return requestDeviceOrientationPermission();
   }
 
-  private resolveHeading(geoHeading: number | null): number {
+  private resolveHeading(geoHeading: number | null): number | undefined {
     // Prefer compass for the direction glow; GPS course lags phone facing when turning.
     if (this.lastHeading != null && Number.isFinite(this.lastHeading)) {
       return this.lastHeading;
     }
-    if (geoHeading != null && Number.isFinite(geoHeading) && geoHeading >= 0) {
-      return geoHeading;
-    }
-    return 0;
+    return headingFromGeolocationCourse(geoHeading);
   }
 }
 

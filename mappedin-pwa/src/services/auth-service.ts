@@ -144,6 +144,11 @@ export async function fetchCurrentUser(): Promise<AuthUser> {
   return authRepository.getProfile();
 }
 
+/** Catalog of interest chips from GET /api/users/interests/. */
+export async function fetchInterestOptions(): Promise<string[]> {
+  return authRepository.listInterestOptions();
+}
+
 export async function logoutUser(): Promise<void> {
   const refresh = tokenLocalDatasource.getRefreshToken();
   if (!refresh) {

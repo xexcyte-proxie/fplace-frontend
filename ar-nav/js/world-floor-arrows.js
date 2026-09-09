@@ -379,7 +379,12 @@
     return bestAlong;
   }
 
+  let segmentTableCache = { points: null, table: null };
+
   function buildSegmentTable(points) {
+    if (segmentTableCache.points === points && segmentTableCache.table) {
+      return segmentTableCache.table;
+    }
     const segments = [];
     let accum = 0;
     for (let i = 0; i < points.length - 1; i++) {
@@ -402,7 +407,9 @@
       });
       accum += segLen;
     }
-    return { segments, totalLen: accum };
+    const table = { segments, totalLen: accum };
+    segmentTableCache = { points, table };
+    return table;
   }
 
   function findNextTurn(points, segments, startAlongM) {
@@ -467,8 +474,8 @@
     if (remaining < arrivalClearM) return placements;
 
     if (startAlong < nearFieldM || remaining <= shortThreshold) {
-      spacing = Math.max(spacing, cfg.nearFieldSpacingM ?? 5.5);
-      maxArrows = Math.min(maxArrows, cfg.nearFieldMaxArrows ?? 2);
+      spacing = Math.max(spacing, cfg.nearFieldSpacingM ?? 4.5);
+      maxArrows = Math.min(maxArrows, cfg.nearFieldMaxArrows ?? 3);
     }
 
     const leadGap = options.trailOnly

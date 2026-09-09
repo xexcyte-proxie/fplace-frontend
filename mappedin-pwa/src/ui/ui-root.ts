@@ -1,6 +1,11 @@
 import {
   isLocationGateAuthStep,
 } from "../location/domain/location-gate";
+import {
+  resolveStartupShell,
+  shouldHideMapCanvas,
+  shouldShowMapBootOverlay,
+} from "../session/domain/entities";
 import type { AppState, AuthStep } from "../types";
 import type { MapApp } from "../services/map-app";
 import { buildRouteSheetSummary } from "./route-summary";
@@ -15,6 +20,7 @@ import { renderResetPasswordConfirmScreen } from "./reset-password-confirm-scree
 import { renderCheckEmailScreen } from "./check-email-screen";
 import { renderVerifyEmailScreen } from "./verify-email-screen";
 import { renderPseudoNameScreen } from "./pseudo-name-screen";
+import { buildSearchResultViews } from "./search-results-data";
 import { renderVenueSelectScreen } from "./venue-select-screen";
 import {
   renderLocationErrorScreen,
@@ -47,8 +53,8 @@ import {
 import { renderNotificationsScreen } from "./notifications-screen";
 import { renderNotificationDetailScreen } from "./notification-detail-screen";
 import { renderGuestArGateDialog } from "./guest-ar-gate-dialog";
+import { renderInvalidTokenDialog } from "./invalid-token-dialog";
 import { renderArrivalDialog } from "./arrival-dialog";
-import { renderArNavigationScreen } from "./ar-navigation-screen";
 import { renderReturningHomeScreen } from "./returning-home-screen";
 import { renderFirstVisitVenueScreen } from "./first-visit-venue-screen";
 import { renderLocationActionSheet } from "./location-action-sheet";
@@ -164,6 +170,9 @@ export class UiRoot {
     if (this.patchSplashProgress(state)) {
       return;
     }
+    if (this.patchMapBootProgress(state)) {
+      return;
+    }
 
     if (this.lastRenderedState) {
       const kind = classifyUiStateChange(this.lastRenderedState, state);
@@ -182,7 +191,7 @@ export class UiRoot {
         this.lastRenderedState = state;
         return;
       }
-      if (kind === "heatmap-map") {
+      if (kind === "heatmap-map" || kind === "silent") {
         this.lastRenderedState = state;
         return;
       }
@@ -196,18 +205,21 @@ export class UiRoot {
     const selectionStart = focusedSearch?.selectionStart ?? null;
     const selectionEnd = focusedSearch?.selectionEnd ?? null;
 
-    const showOnboardingFlow =
-      state.mapStatus === "ready" && !state.onboardingComplete;
+    const startupShell = resolveStartupShell({
+      destinationResolved: state.startupReady,
+      onboardingComplete: state.onboardingComplete,
+    });
+    const showOnboardingFlow = startupShell === "onboarding";
     const locationDialogStep = isLocationGateAuthStep(state.authStep)
       ? state.authStep
       : null;
     const authUiStep: AuthStep = locationDialogStep
-      ? state.authStepBeforeLocation && state.authStepBeforeLocation !== "none"
-        ? state.authStepBeforeLocation
-        : "create"
+      ? state.authStepBeforeLocation ?? "create"
       : state.authStep;
     const showOnboardingScreen =
-      showOnboardingFlow && authUiStep === "none" && !state.authLoading;
+      showOnboardingFlow &&
+      authUiStep === "none" &&
+      (!state.authLoading || state.guestContinueLoading);
     const showArTeaser =
       showOnboardingFlow && authUiStep === "ar-teaser";
     const showIntroduction =
@@ -224,7 +236,7 @@ export class UiRoot {
     const showForgotPassword =
       showOnboardingFlow && authUiStep === "forgot-password";
     const showResetPasswordConfirm =
-      state.mapStatus === "ready" && authUiStep === "reset-password-confirm";
+      state.startupReady && authUiStep === "reset-password-confirm";
     const showAuthPrivacy =
       showOnboardingFlow && state.authLegalDocument === "privacy";
     const showCheckEmail =
@@ -243,10 +255,15 @@ export class UiRoot {
       showOnboardingFlow && locationDialogStep === "location-error";
     const arFullscreen = state.arPresentation === "fullscreen";
     const showOverlays =
-      state.mapStatus === "ready" &&
-      state.onboardingComplete &&
+      startupShell === "app" &&
       !arFullscreen &&
       !showResetPasswordConfirm;
+    const showMapBootOverlay = shouldShowMapBootOverlay({
+      shell: startupShell,
+      activeTab: state.activeTab,
+      navigateView: state.navigateView,
+      mapStatus: state.mapStatus,
+    });
     const onMapTab = state.activeTab === "map";
     const onNavigateHome =
       showOverlays && onMapTab && state.navigateView === "home";
@@ -301,6 +318,22 @@ export class UiRoot {
         : null;
     const venueSelectionStart = focusedVenueInput?.selectionStart ?? null;
     const venueSelectionEnd = focusedVenueInput?.selectionEnd ?? null;
+
+    // Full renders replace the DOM, which would snap the venue feed back to
+    // the top on every keystroke, upvote, or live WebSocket event. Capture
+    // the scroll offset so it can be restored after the rebuild.
+    const venueFeedScrollTop =
+      this.root.querySelector<HTMLElement>(".venue-feed-scroll")?.scrollTop ??
+      null;
+
+    const focusedPostCommentsInput =
+      activeEl?.id === "post-comments-input"
+        ? (activeEl as HTMLInputElement)
+        : null;
+    const postCommentsSelectionStart =
+      focusedPostCommentsInput?.selectionStart ?? null;
+    const postCommentsSelectionEnd =
+      focusedPostCommentsInput?.selectionEnd ?? null;
 
     const focusedPseudoName =
       activeEl?.id === "pseudo-name-input"
@@ -383,15 +416,16 @@ export class UiRoot {
     const homeVenueSearchSelectionEnd =
       focusedHomeVenueSearch?.selectionEnd ?? null;
 
+    // visibility:hidden keeps layout so Mappedin can boot off-screen.
+    // Hide as soon as we are not on the indoor map — do not wait for ready.
+    const hideMapCanvas = shouldHideMapCanvas({
+      shell: startupShell,
+      activeTab: state.activeTab,
+      navigateView: state.navigateView,
+    });
     document
       .getElementById("mappedin-map")
-      ?.classList.toggle(
-        "is-hidden",
-        showOnboardingFlow ||
-          showResetPasswordConfirm ||
-          onNavigateHome ||
-          (showOverlays && !onMapTab),
-      );
+      ?.classList.toggle("is-hidden", hideMapCanvas);
 
     const postCommentsPost =
       state.postCommentsPostId != null
@@ -402,7 +436,11 @@ export class UiRoot {
 
     this.root.innerHTML = `
       ${this.loadingOverlay(state)}
-      ${showOnboardingScreen ? renderOnboardingScreen() : ""}
+      ${onNavigateMap && showMapBootOverlay ? this.mapBootOverlay(state) : ""}
+      ${showOnboardingScreen ? renderOnboardingScreen({
+        guestAccessAllowed: state.guestAccessAllowed,
+        authLoading: state.authLoading,
+      }) : ""}
       ${showArTeaser ? renderArTeaserScreen() : ""}
       ${showIntroduction ? renderIntroductionScreen() : ""}
       ${showFeatures ? renderFeaturesScreen() : ""}
@@ -412,6 +450,11 @@ export class UiRoot {
         authFieldErrors: state.authFieldErrors,
         guestAccessAllowed: state.guestAccessAllowed,
       }) : ""}
+      ${
+        showCreateAccount && state.createAccountPrompt === "invalid-token"
+          ? renderInvalidTokenDialog()
+          : ""
+      }
       ${showLogin ? renderLoginScreen({
         authEmail: this.authEmailDraft || state.authEmail,
         authLoading: state.authLoading,
@@ -441,6 +484,7 @@ export class UiRoot {
         pseudoNameDraft: this.pseudoNameDraft ?? state.pseudoNameDraft,
         pseudoNameHint: state.pseudoNameHint,
         selectedInterests: state.selectedInterests,
+        interestOptions: state.interestOptions,
         authLoading: state.authLoading,
         authFieldErrors: state.authFieldErrors,
         allowBack: !state.authUser,
@@ -453,6 +497,8 @@ export class UiRoot {
         forumSections: state.forumSections,
         authLoading: state.authLoading,
         authFieldErrors: state.authFieldErrors,
+        locationPermission: state.locationPermission,
+        userLocation: state.userLocation,
       }) : ""}
       ${showLocationPermission ? renderLocationPermissionScreen({
         locationGateLoading: state.locationGateLoading,
@@ -488,6 +534,7 @@ export class UiRoot {
         pseudoNameDraft: this.pseudoNameDraft ?? state.pseudoNameDraft,
         pseudoNameHint: state.pseudoNameHint,
         selectedInterests: state.selectedInterests,
+        interestOptions: state.interestOptions,
         authLoading: state.authLoading,
         authFieldErrors: state.authFieldErrors,
       }) : ""}
@@ -500,7 +547,6 @@ export class UiRoot {
       ${showOverlays && onProfileAbout ? renderAboutSettingsScreen() : ""}
       ${showOverlays && onProfilePrivacy ? renderPrivacySettingsScreen() : ""}
       ${showOverlays && !onProfileOverlay && !onNotificationsInbox ? this.bottomNav(state) : ""}
-      ${arFullscreen ? renderArNavigationScreen(state) : ""}
       ${
         showOverlays && state.guestArGatePrompt
           ? renderGuestArGateDialog(state.guestArGatePrompt, {
@@ -527,6 +573,14 @@ export class UiRoot {
           : ""
       }
     `;
+
+    if (venueFeedScrollTop != null && venueFeedScrollTop > 0) {
+      const venueFeedScroll =
+        this.root.querySelector<HTMLElement>(".venue-feed-scroll");
+      if (venueFeedScroll) {
+        venueFeedScroll.scrollTop = venueFeedScrollTop;
+      }
+    }
 
     this.afterFullRender();
     this.bindOtpInputs(app, focusedOtpIndex);
@@ -610,6 +664,24 @@ export class UiRoot {
       }
     }
 
+    if (focusedPostCommentsInput && onPostComments) {
+      const postCommentsInput = this.root.querySelector<HTMLInputElement>(
+        "#post-comments-input",
+      );
+      if (postCommentsInput) {
+        postCommentsInput.focus();
+        if (
+          postCommentsSelectionStart !== null &&
+          postCommentsSelectionEnd !== null
+        ) {
+          postCommentsInput.setSelectionRange(
+            postCommentsSelectionStart,
+            postCommentsSelectionEnd,
+          );
+        }
+      }
+    }
+
     this.layoutProductTour();
     this.lastRenderedState = state;
   }
@@ -619,6 +691,9 @@ export class UiRoot {
    * was skipped (splash still showing, not ready/error).
    */
   private patchSplashProgress(state: AppState): boolean {
+    if (state.startupReady) {
+      return false;
+    }
     if (state.mapStatus === "ready" || state.mapStatus === "error") {
       return false;
     }
@@ -638,8 +713,32 @@ export class UiRoot {
     return true;
   }
 
+  /**
+   * Updates the in-map loader in place so background boot does not rebuild chrome.
+   */
+  private patchMapBootProgress(state: AppState): boolean {
+    if (!state.startupReady) return false;
+    if (state.mapStatus === "ready" || state.mapStatus === "error") {
+      return false;
+    }
+
+    const overlay = this.root.querySelector(".map-boot-overlay");
+    if (!overlay || overlay.classList.contains("map-boot-overlay--error")) {
+      return false;
+    }
+
+    const progress = Math.max(0, Math.min(100, state.loadingProgress));
+    const bar = overlay.querySelector<HTMLElement>(".map-boot-progress-bar");
+    const track = overlay.querySelector(".map-boot-progress");
+    if (!bar || !track) return false;
+
+    bar.style.width = `${progress}%`;
+    track.setAttribute("aria-valuenow", String(progress));
+    return true;
+  }
+
   private loadingOverlay(state: AppState): string {
-    if (state.mapStatus === "ready") {
+    if (state.startupReady) {
       return "";
     }
     const isError = state.mapStatus === "error";
@@ -662,6 +761,35 @@ export class UiRoot {
               aria-label="Loading"
             >
               <div class="splash-progress-bar" style="width:${progress}%"></div>
+            </div>
+          `
+        }
+      </div>
+    `;
+  }
+
+  private mapBootOverlay(state: AppState): string {
+    const isError = state.mapStatus === "error";
+    const progress = Math.max(0, Math.min(100, state.loadingProgress));
+    const message = isError
+      ? state.loadingMessage || "Map failed to load"
+      : "Loading map…";
+    return `
+      <div class="map-boot-overlay ${isError ? "map-boot-overlay--error" : ""}" role="status">
+        <p class="map-boot-message">${escapeHtml(message)}</p>
+        ${
+          isError
+            ? ""
+            : `
+            <div
+              class="map-boot-progress"
+              role="progressbar"
+              aria-valuenow="${progress}"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-label="Loading map"
+            >
+              <div class="map-boot-progress-bar" style="width:${progress}%"></div>
             </div>
           `
         }
@@ -733,12 +861,32 @@ export class UiRoot {
       return `<div class="search-results search-results--empty" role="status">No places found</div>`;
     }
 
-    const items = state.searchResults
+    const items = buildSearchResultViews(
+      state.searchResults,
+      state.locationPermission,
+      state.userLocation,
+    )
       .map(
         (r) => `
           <button type="button" class="search-result" data-location-id="${escapeHtml(r.id)}" data-location-name="${escapeHtml(r.name)}" data-floor-name="${escapeHtml(r.floorName ?? "")}">
             <span class="search-result-name">${escapeHtml(r.name)}</span>
-            ${r.floorName ? `<span class="search-result-floor">${escapeHtml(r.floorName)}</span>` : ""}
+            ${
+              r.distanceLabel || r.floorName
+                ? `<span class="search-result-meta">${
+                    r.distanceLabel
+                      ? `<span class="search-result-distance">${escapeHtml(r.distanceLabel)}</span>`
+                      : ""
+                  }${
+                    r.distanceLabel && r.floorName
+                      ? `<span class="search-result-meta-sep" aria-hidden="true">·</span>`
+                      : ""
+                  }${
+                    r.floorName
+                      ? `<span class="search-result-floor">${escapeHtml(r.floorName)}</span>`
+                      : ""
+                  }</span>`
+                : ""
+            }
           </button>
         `,
       )
@@ -880,7 +1028,7 @@ export class UiRoot {
             id="begin-route-btn"
             class="route-sheet-begin-btn ${beginDisabled ? "is-disabled" : ""}"
             ${beginDisabled ? "disabled" : ""}
-          >${state.routeSimulating ? "Moving…" : "Begin"}</button>
+          >${escapeHtml(summary.beginLabel)}</button>
           <button
             type="button"
             id="reset-route-sheet-btn"

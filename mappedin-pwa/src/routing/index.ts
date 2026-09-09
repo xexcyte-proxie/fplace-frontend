@@ -26,6 +26,11 @@ export {
   LiveAlongPathStabilizer,
 } from './route-progress';
 export {
+  alongPathContinuityPenalty,
+  DEFAULT_MAX_ALONG_DELTA_METERS,
+  scoreSnapWithAlongContinuity,
+} from './snap-along-continuity';
+export {
   navigationStateSynchronizer,
   routeSynchronizationManager,
   type NavigationSyncReason,

@@ -263,6 +263,9 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     case 'guest-ar-gate-dismiss-btn':
       app.dismissGuestArGate();
       return;
+    case 'invalid-token-dialog-dismiss-btn':
+      app.dismissInvalidTokenDialog();
+      return;
     case 'arrival-dialog-done-btn':
       void app.dismissArrivalDialog();
       return;
@@ -425,9 +428,6 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     case 'settings-change-venue-btn':
       app.openVenueSelectFromSettings();
       return;
-    case 'settings-simulation-toggle':
-      app.toggleSimulation();
-      return;
     case 'settings-logout-btn':
       app.requestLogoutConfirm();
       return;
@@ -480,6 +480,12 @@ function handleClick(event: Event, host: UiRootEventHost): void {
       return;
     case 'venue-feed-send-btn':
       void app.submitVenueFeedPost();
+      return;
+    case 'venue-feed-load-more-btn':
+      void app.loadMoreVenueFeedPosts();
+      return;
+    case 'venue-feed-clear-location-btn':
+      app.clearSocialLocation();
       return;
     case 'location-action-cancel':
       app.dismissLocationActionPrompt();

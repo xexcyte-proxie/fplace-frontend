@@ -15,7 +15,7 @@ export const appConfig = {
     venueName: 'Demo Mall',
   },
   /**
-   * API origin. Empty = same-origin `/api` (proxied to fplaces-backend in Vite dev + Netlify).
+   * API origin. Empty = same-origin `/api` (proxied to the AWS ALB in Vite dev + Netlify).
    * Set VITE_API_URL only when the backend allows your origin via CORS.
    */
   apiUrl: (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, ''),
@@ -23,6 +23,7 @@ export const appConfig = {
    * WebSocket origin for venue rooms (`/ws/venues/<id>/`).
    * Required in production (Netlify cannot proxy WebSocket upgrades).
    * Local dev: leave unset to use Vite's `/ws` proxy, or set to bypass proxy issues.
+   * `http://` values are converted to `ws://`.
    */
   wsUrl: (import.meta.env.VITE_WS_URL ?? '').replace(/\/$/, ''),
   /**
@@ -32,7 +33,7 @@ export const appConfig = {
   googleClientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '').trim(),
   arUrl: import.meta.env.VITE_AR_URL ?? '/ar/',
   /** Must match ar-nav/config.js buildId - busts iframe cache after AR deploys. */
-  arBuildId: import.meta.env.VITE_AR_BUILD_ID ?? '20260901-start-btn-v1',
+  arBuildId: import.meta.env.VITE_AR_BUILD_ID ?? '20260904-restore-trail-v1',
   mapInitTimeoutMs: 45_000,
   positioning: {
     bleRssiThresholdDbm: -70,

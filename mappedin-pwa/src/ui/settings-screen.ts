@@ -106,7 +106,6 @@ function renderSettingsConfirm(state: AppState): string {
 
 export function renderSettingsScreen(state: AppState): string {
   const notificationsOn = state.notificationsEnabled;
-  const simulationOn = state.simulationEnabled;
   const pseudoName = resolveDisplayName(state.authUser);
   const interests =
     state.authUser?.interests?.length
@@ -205,28 +204,6 @@ export function renderSettingsScreen(state: AppState): string {
               accessory: languageDisabled
                 ? `<span class="settings-row-locked" aria-hidden="true"></span>`
                 : chevronRight,
-            })}
-            <div class="settings-divider"></div>
-            ${settingsRow({
-              tag: 'div',
-              iconClass: 'settings-row-icon--teal',
-              icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 5.5v13l11-6.5L8 5.5z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path><path d="M4 8v8M20 8v8" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path></svg>`,
-              title: 'Simulation',
-              subtitle: simulationOn
-                ? 'Simulate movement along routes'
-                : 'Live indoor positioning on the route',
-              accessory: `
-                <button
-                  type="button"
-                  id="settings-simulation-toggle"
-                  class="settings-toggle ${simulationOn ? 'is-on' : ''}"
-                  role="switch"
-                  aria-checked="${simulationOn}"
-                  aria-label="Simulation"
-                >
-                  <span class="settings-toggle-thumb"></span>
-                </button>
-              `,
             })}
           </div>
         </section>

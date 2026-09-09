@@ -13,7 +13,6 @@ import {
   isArFrameVisible,
   isArSameOrigin,
   notifyArIframePermissions,
-  notifyArSimulatorStarted,
   openArFullscreen,
   setArMaximized,
   setArMinimized,
@@ -30,11 +29,17 @@ import {
   LiveAlongPathStabilizer,
 } from '../routing/route-progress';
 import {
+  parseCoordinateNumber,
+  shouldPublishUserLocation,
+} from '../location/domain/user-relative-distance';
+import type { PermissionChoice } from '../permissions/domain/permission-choice';
+import {
   AuthApiError,
   clearStoredAuthTokens,
   clearVenueSelection,
   deleteCurrentAccount,
   fetchCurrentUser,
+  fetchInterestOptions,
   hasStoredAuthTokens,
   loadVenueSelection,
   loginUser,
@@ -53,7 +58,15 @@ import {
   verifyEmail,
   type VenueSelection,
 } from './auth-service';
-import { isAuthCredentialFailure } from '../auth/data/datasources/api-client';
+import {
+  containsTokenNotValidDetail,
+  shouldDeferSessionRecoveryUi,
+} from '../auth/domain/invalid-access-token';
+import {
+  isAuthCredentialFailure,
+  isInvalidAccessTokenFailure,
+  type AuthSessionClearedReason,
+} from '../auth/data/datasources/api-client';
 import { consumePasswordResetLink } from '../auth/domain/password-reset-link';
 import { evaluatePasswordStrength } from '../auth/domain/password-strength';
 import {
@@ -77,6 +90,7 @@ import {
   isReturningSession,
   loadReturningSession,
   markDeviceHasUsedApp,
+  remainingStartupSplashMs,
   resolveStartupDestination,
   saveReturningSession,
   type ReturningSessionSnapshot,
@@ -108,16 +122,24 @@ import {
   listAllVenues,
   getForumVenue,
   listForumComments,
+  listVenuePosts,
+  forumPostMatchesLocation,
+  loadForumCommentCounts,
   loadInitialVenueFeed,
   loadVenueCatalog,
+  loadVenueSectionFeed,
+  sectionIdForLocation,
   subscribeVenueLiveFeed,
   toggleForumPostUpvote,
   updateForumPost,
+  type ForumComment,
   type ForumPost,
   type VenueLiveEvent,
   type VenueLiveSubscription,
 } from './forum-service';
+import { flaggedPostsLocalDatasource } from '../forum/data/datasources/flagged-posts-local-datasource';
 import {
+  applyPersonalNotificationEvent,
   countUnread,
   getNotification,
   listNotifications,
@@ -131,6 +153,7 @@ import {
   type PersonalNotificationSubscription,
 } from './notifications-service';
 import {
+  appendCommentOnce,
   mapForumCommentsToItems,
   mapForumCommentToItem,
 } from '../ui/post-comments-data';
@@ -143,12 +166,12 @@ import {
 import { resolveMapData } from './map-offline-service';
 import { BlueDotService } from './blue-dot-service';
 import type { PositionProvider } from '../position/positionProvider';
-import { HighFrequencyMockProvider } from '../position/providers/mockProvider';
 import { PositionProviderRegistry } from '../position/providerRegistry';
 import { requestDeviceOrientationPermission } from '../position/providers/gpsProvider';
 import {
   beginArMediaPermissionPrime,
   consumeArMediaPermissionPrime,
+  shouldRequestArMotionPermission,
   shouldReuseGrantedArCamera,
 } from './media-permission-service';
 import type { FplacesPositionFrame, PositionSourceType } from '../position/types';
@@ -156,9 +179,11 @@ import { scheduleSocialMapMarkers, type LocationCardSelection, type SocialMapMar
 import { LocationService } from './location-service';
 import {
   isLocationGateAuthStep,
+  resolveLocationGateEntry,
   resolveLocationGateFailure,
   resolveLocationGatePreflight,
 } from '../location/domain/location-gate';
+import { permissionChoiceLocalDatasource } from '../permissions/data/datasources/permission-choice-local-datasource';
 import {
   LOCATION_NOT_ROUTABLE_MESSAGE,
   toUserFacingRouteError,
@@ -171,12 +196,15 @@ import type {
   AppTab,
   BlueDotStatus,
   FloorInfo,
+  ForumVenueSummary,
   NotificationItem,
   RegisteredUser,
   RouteCoordinate,
   RoutePayload,
   SocialCategory,
+  UserLocationCoords,
   VenueFeedFilter,
+  VenueFeedPost,
 } from '../types';
 import {
   clearStoredAuthUser,
@@ -187,7 +215,13 @@ import {
 import { installCameraFollowRelease } from '../map/camera-follow-release';
 import { inferAreaHint } from '../ui/route-summary';
 import { INITIAL_SOCIAL_POSTS, SOCIAL_CATEGORY_LABELS, SOCIAL_LOCATIONS_BY_ID, SOCIAL_QUICK_TAG_LABELS } from '../ui/social-data';
-import { mapForumPostToVenueFeed, mapForumPostsToVenueFeed } from '../ui/venue-feed-data';
+import {
+  appendOlderVenueFeedPosts,
+  applyCommentCounts,
+  mapForumPostToVenueFeed,
+  mapForumPostsToVenueFeed,
+  nextFeedPageFromUrl,
+} from '../ui/venue-feed-data';
 import {
   generatePseudoName,
 } from '../ui/pseudo-name-data';
@@ -210,6 +244,10 @@ export class MapApp {
   /** Throttle for provider → AR iframe stream (separate from blue-dot animated path). */
   private lastArProviderStreamAt = 0;
   private initTimeout: ReturnType<typeof setTimeout> | null = null;
+  private splashShownAt = 0;
+  private splashReadyHold: Promise<void> | null = null;
+  /** Local destination applied under splash; skip the auth spinner until splash lifts. */
+  private shellDestinationApplied = false;
   private autoRoutePending = false;
   private locationPromptShown = false;
   private lastProgressUiAt = 0;
@@ -217,16 +255,20 @@ export class MapApp {
   private liveRouteTracking = false;
   /** Holds remaining distance/time while indoor GPS jitters and the user is standing still. */
   private readonly alongPathStabilizer = new LiveAlongPathStabilizer();
+  private stopUserLocationWatch: (() => void) | null = null;
+  private lastPublishedUserLocation: UserLocationCoords | null = null;
+  private lastUserLocationPublishAt = 0;
   private lastProviderFix: { latitude: number; longitude: number } | null = null;
   private cameraFollowReleaseUnsub: (() => void) | null = null;
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private searchGeneration = 0;
   private authFlowBootstrapped = false;
-  /** When session dies during splash, finish map load then open sign-in. */
-  private pendingSignInAfterSessionExpiry = false;
+  /** When session dies during splash, finish map load then open sign-in or create-account. */
+  private pendingSessionRecovery: AuthSessionClearedReason | null = null;
   private authResumeInFlight = false;
   private venueEnterInFlight = false;
   private handlingSessionExpiry = false;
+  private interestOptionsLoaded = false;
   /** One-shot: focus map search after the next UI paint (Try AR flow). */
   private pendingMapSearchFocus = false;
   /** In-memory only - used to obtain JWTs after email verification. */
@@ -241,23 +283,39 @@ export class MapApp {
   private venueFeedCreateInFlight = false;
   private readonly venueFeedUpvoteInFlight = new Set<string>();
   private readonly venueFeedFlagInFlight = new Set<string>();
+  /** Dedupes REST comment creates against venue-room `new_comment` echoes. */
+  private readonly seenForumCommentIds = new Set<number>();
+  private venueFeedCommentCountsInFlight = false;
+  /** Venue-wide feed parked while a map-area conversation is open. */
+  private venueWideFeedSnapshot: {
+    posts: VenueFeedPost[];
+    next: string | null;
+    count: number;
+  } | null = null;
+  private venueFeedScopeGeneration = 0;
 
   constructor(private readonly store: AppStore) {
     const preferences = loadAppPreferences();
+    const storedLocation = permissionChoiceLocalDatasource.loadLocation();
     this.store.patch({
       notificationsEnabled: preferences.notificationsEnabled,
       simulationEnabled: preferences.simulationEnabled,
       productTourCompleted: hasCompletedProductTour(),
+      locationPermission: storedLocation,
     });
-    onAuthSessionCleared(() => {
-      this.handleAuthSessionExpired();
+    if (storedLocation === 'granted') {
+      this.startLiveUserLocationWatch();
+    }
+    onAuthSessionCleared((reason) => {
+      this.handleAuthSessionExpired(reason);
     });
   }
 
   async start(mapContainer: HTMLElement): Promise<void> {
+    this.splashShownAt = Date.now();
     this.store.patch({
       mapStatus: 'loading',
-      loadingMessage: 'Loading map SDK…\nFirst open can take 1–2 minutes.',
+      loadingMessage: 'Loading map…',
       loadingProgress: 28,
     });
 
@@ -266,6 +324,95 @@ export class MapApp {
       appWarn('Guest', 'Fingerprint agent failed to initialize', error);
     });
 
+    this.revealStartupShell();
+    void this.bootstrapAuthFlow();
+    void this.loadMappedinScene(mapContainer);
+  }
+
+  /**
+   * Dismiss the orange splash from local storage only (no map / network).
+   * Token-only restore keeps splash until bootstrap routes away from welcome.
+   * Splash stays up for a minimum duration so the loader does not flash off.
+   */
+  private revealStartupShell(): void {
+    if (this.tryOpenPasswordResetFromUrl()) {
+      this.shellDestinationApplied = true;
+      this.ensureStartupReady();
+      return;
+    }
+
+    const returning =
+      loadReturningSession() ?? this.inferReturningSessionFromLocalAuth();
+    const destination = resolveStartupDestination({
+      hasReturningSession: isReturningSession(returning),
+      hasAuthTokens: hasStoredAuthTokens(),
+      deviceHasUsedApp: hasDeviceUsedApp() || Boolean(loadStoredUser()),
+    });
+
+    if (destination === 'app' && isReturningSession(returning)) {
+      this.shellDestinationApplied = true;
+      this.store.patch({
+        onboardingComplete: true,
+        selectedVenueId: returning.selectedVenueId,
+        selectedGateId: returning.selectedGateId,
+        guestId: returning.guestId ?? this.store.get().guestId,
+        authStep: 'none',
+        authStepBeforeLocation: null,
+        authLoading: true,
+        authFieldErrors: {},
+        navigateView: 'home',
+        homeExperience: 'returning',
+      });
+      this.ensureStartupReady();
+      return;
+    }
+
+    if (destination === 'sign-in') {
+      this.shellDestinationApplied = true;
+      markDeviceHasUsedApp();
+      this.store.patch({
+        authLoading: false,
+        authFieldErrors: {},
+        authLegalDocument: null,
+        legalWebView: null,
+      });
+      this.showLogin();
+      this.ensureStartupReady();
+      return;
+    }
+
+    if (destination === 'marketing') {
+      this.shellDestinationApplied = true;
+      this.store.patch({
+        authStep: 'none',
+        authLoading: false,
+        authFieldErrors: {},
+      });
+      this.ensureStartupReady();
+    }
+  }
+
+  private ensureStartupReady(): void {
+    if (this.store.get().startupReady) return;
+    if (!this.splashReadyHold) {
+      this.splashReadyHold = this.holdSplashThenReady();
+    }
+  }
+
+  private async holdSplashThenReady(): Promise<void> {
+    const remaining = remainingStartupSplashMs(this.splashShownAt, Date.now());
+    if (remaining > 0) {
+      await new Promise((resolve) => {
+        setTimeout(resolve, remaining);
+      });
+    }
+    if (!this.store.get().startupReady) {
+      this.store.patch({ startupReady: true });
+    }
+    this.applyPendingSessionRecovery();
+  }
+
+  private async loadMappedinScene(mapContainer: HTMLElement): Promise<void> {
     this.initTimeout = setTimeout(() => {
       const state = this.store.get();
       if (state.mapStatus !== 'ready') {
@@ -320,9 +467,7 @@ export class MapApp {
         onAnimatedPosition: (position) => this.handleBlueDotAnimatedPosition(position),
         onStatus: (status) => this.handleBlueDotStatus(status),
       });
-      this.blueDotService.prepare({
-        simulatorBoot: this.store.get().simulationEnabled,
-      });
+      this.blueDotService.prepare({ simulatorBoot: false });
 
       this.wireMapEvents();
       this.publishFloors();
@@ -358,13 +503,9 @@ export class MapApp {
         () => this.releaseCameraFollowFromUserPan(),
       );
 
-      void this.bootstrapAuthFlow();
-
       this.maybePromptLocation();
       void this.maybeAutoStartBlueDot();
-      if (PositionProviderRegistry.resolveActiveSource() !== 'simulator') {
-        positionTelemetry.setActiveSource(PositionProviderRegistry.resolveActiveSource());
-      }
+      positionTelemetry.setActiveSource(PositionProviderRegistry.resolveActiveSource());
       appLog('Map', 'Ready');
     } catch (error) {
       if (this.initTimeout) clearTimeout(this.initTimeout);
@@ -377,15 +518,32 @@ export class MapApp {
         clearStoredAuthUser();
         clearReturningSession();
         markDeviceHasUsedApp();
-        this.pendingSignInAfterSessionExpiry = true;
+        const recovery: AuthSessionClearedReason = isInvalidAccessTokenFailure(
+          error,
+        )
+          ? 'invalid-token'
+          : 'expired';
+        this.pendingSessionRecovery = recovery;
         this.store.patch({
           authUser: null,
           onboardingComplete: false,
           mapStatus: 'error',
           mapError: message,
-          loadingMessage: 'Your session expired. Refresh to sign in again.',
+          loadingMessage:
+            recovery === 'invalid-token'
+              ? 'Create an account to continue.'
+              : 'Your session expired. Please log in again.',
           loadingProgress: 0,
         });
+        if (
+          !shouldDeferSessionRecoveryUi({
+            startupReady: this.store.get().startupReady,
+            authShellVisible: this.shellDestinationApplied,
+            authFlowBootstrapped: this.authFlowBootstrapped,
+          })
+        ) {
+          this.applyPendingSessionRecovery();
+        }
         return;
       }
 
@@ -395,6 +553,9 @@ export class MapApp {
         loadingMessage: message,
         loadingProgress: 0,
       });
+      if (this.store.get().startupReady) {
+        this.showToast(message);
+      }
     }
   }
 
@@ -490,15 +651,28 @@ export class MapApp {
       return;
     }
 
+    const openingSocialTab = tab === 'social';
+    const leavingSocial = state.activeTab === 'social' && tab !== 'social';
+
     this.store.patch({
       activeTab: tab,
       profileView: 'main',
       settingsConfirm: null,
       notificationsOpen: false,
-      socialLocation: tab === 'social' ? null : state.socialLocation,
+      socialLocation: openingSocialTab ? null : state.socialLocation,
+      socialLocationName: openingSocialTab ? null : state.socialLocationName,
       socialDraft: this.captureSocialDraft(),
       venueFeedDraft: this.captureVenueFeedDraft(),
     });
+
+    if (openingSocialTab || leavingSocial) {
+      this.restoreVenueWideFeed();
+    }
+
+    if (tab === 'social') {
+      // Refresh comment counts so the feed reflects threads updated elsewhere.
+      void this.hydrateVenueFeedCommentCounts();
+    }
   }
 
   setHomeVenueSearchQuery(query: string): void {
@@ -601,6 +775,7 @@ export class MapApp {
       pseudoNameHint: state.pseudoNameHint || generatePseudoName(),
       selectedInterests: interests,
     });
+    void this.loadInterestOptions();
   }
 
   closeEditProfileSettings(): void {
@@ -1039,30 +1214,6 @@ export class MapApp {
     }
   }
 
-  toggleSimulation(): void {
-    const enabled = !this.store.get().simulationEnabled;
-    const wasNavigating =
-      this.store.get().routeSimulating || this.liveRouteTracking;
-    const progressMeters = this.store.get().routeTraveledMeters;
-
-    patchAppPreferences({ simulationEnabled: enabled });
-    this.store.patch({ simulationEnabled: enabled });
-
-    const path = this.store.get().route?.pathCoordinates;
-    if (!path?.length) {
-      if (!enabled) {
-        this.liveRouteTracking = false;
-      }
-      return;
-    }
-
-    this.applyNavigationPositionMode({
-      path,
-      resumeNavigating: wasNavigating,
-      alongPathMeters: progressMeters,
-    });
-  }
-
   completeOnboarding(options?: { homeExperience?: HomeExperience }): void {
     const state = this.store.get();
     const homeExperience =
@@ -1083,6 +1234,8 @@ export class MapApp {
       onboardingComplete: true,
       authStep: 'none',
       authStepBeforeLocation: null,
+      authLoading: false,
+      guestContinueLoading: false,
       locationGateLoading: false,
       locationGateError: null,
       activeTab: 'map',
@@ -1288,15 +1441,119 @@ export class MapApp {
   }
 
   /** After auth + venue setup, gate the main app on geolocation. */
-  beginLocationPermissionGate(): void {
+  beginLocationPermissionGate(): Promise<void> {
+    return this.openLocationPermissionGate();
+  }
+
+  private persistLocationChoice(choice: PermissionChoice): void {
+    permissionChoiceLocalDatasource.saveLocation(choice);
+    if (choice === 'granted') {
+      this.store.patch({ locationPermission: choice });
+      this.startLiveUserLocationWatch();
+      return;
+    }
+    this.stopLiveUserLocationWatch();
+    this.store.patch({
+      locationPermission: choice,
+      userLocation: null,
+    });
+  }
+
+  private startLiveUserLocationWatch(): void {
+    if (this.stopUserLocationWatch) return;
+    if (this.store.get().locationPermission !== 'granted') return;
+    this.stopUserLocationWatch = this.locationService.watchLocation(
+      (coords) => this.publishUserLocation(coords),
+      (error) => {
+        appWarn('Location', 'Live user location watch failed', error);
+      },
+    );
+  }
+
+  private stopLiveUserLocationWatch(): void {
+    this.stopUserLocationWatch?.();
+    this.stopUserLocationWatch = null;
+    this.lastPublishedUserLocation = null;
+    this.lastUserLocationPublishAt = 0;
+  }
+
+  private publishUserLocation(coords: UserLocationCoords): void {
+    if (this.store.get().locationPermission !== 'granted') return;
+    if (this.liveRouteTracking || this.store.get().routeSimulating) return;
+
+    const now =
+      typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const previous =
+      this.lastPublishedUserLocation ?? this.store.get().userLocation;
+    const elapsed = this.lastUserLocationPublishAt
+      ? now - this.lastUserLocationPublishAt
+      : Number.POSITIVE_INFINITY;
+    if (!shouldPublishUserLocation(previous, coords, elapsed)) return;
+
+    this.lastPublishedUserLocation = coords;
+    this.lastUserLocationPublishAt = now;
+    this.store.patch({ userLocation: coords });
+  }
+
+  private toVenueSummary(venue: {
+    id: number;
+    name: string;
+    location: string;
+    latitude?: string | number | null;
+    longitude?: string | number | null;
+  }): ForumVenueSummary {
+    return {
+      id: venue.id,
+      name: venue.name,
+      location: venue.location,
+      latitude: parseCoordinateNumber(venue.latitude),
+      longitude: parseCoordinateNumber(venue.longitude),
+    };
+  }
+
+  private seedRouteProgressFromUser(route: RoutePayload): {
+    traveled: number;
+    remaining: number | null;
+  } {
+    const total =
+      route.distanceMeters ??
+      coordinateTransformationService.totalPathLengthMeters(
+        route.pathCoordinates,
+      );
+    const remainingFallback = total > 0 ? total : (route.distanceMeters ?? null);
+    // Indoor GPS nearest-snap often lands on the destination of a short venue
+    // path. A new route always starts at the origin — never pretends the user
+    // has already walked it.
+    return { traveled: 0, remaining: remainingFallback };
+  }
+
+  /**
+   * Show Enable Location only on the first choice. Later visits reuse grant
+   * silently or skip GPS after a deny so the browser is not prompted again.
+   */
+  private async openLocationPermissionGate(): Promise<void> {
     const state = this.store.get();
     const underlyingStep = isLocationGateAuthStep(state.authStep)
       ? state.authStepBeforeLocation ?? 'none'
       : state.authStep;
 
-    // Never mount the location dialog over the welcome "Find places" screen.
-    if (underlyingStep === 'none') {
-      void this.continueAfterLocationGranted();
+    const browser = await this.locationService.queryPermission();
+    const stored = permissionChoiceLocalDatasource.loadLocation();
+    const entry = resolveLocationGateEntry(browser, stored);
+
+    if (entry.action === 'error-unsupported' || entry.action === 'skip') {
+      if (entry.action === 'skip') {
+        this.persistLocationChoice('denied');
+      }
+      await this.continueAfterLocationGranted();
+      return;
+    }
+
+    if (entry.action === 'silent-request') {
+      await this.runLocationGateRequest({
+        fromPermissionRequired: false,
+        silent: true,
+      });
       return;
     }
 
@@ -1305,6 +1562,7 @@ export class MapApp {
       authStep: 'location-permission',
       authStepBeforeLocation: underlyingStep,
       authLoading: false,
+      guestContinueLoading: false,
       locationGateLoading: false,
       locationPermanentlyDenied: false,
       locationGateError: null,
@@ -1352,12 +1610,27 @@ export class MapApp {
       authStep: 'pseudo-name',
       authStepBeforeLocation: null,
       locationGateLoading: false,
+      authLoading: false,
+      guestContinueLoading: false,
       onboardingComplete: false,
       authFieldErrors: {},
       pseudoNameDraft: existingName,
       pseudoNameHint: state.pseudoNameHint || generatePseudoName(),
       selectedInterests: existingInterests,
     });
+    void this.loadInterestOptions();
+  }
+
+  private async loadInterestOptions(): Promise<void> {
+    if (this.interestOptionsLoaded) return;
+    try {
+      const options = await fetchInterestOptions();
+      if (!options.length) return;
+      this.interestOptionsLoaded = true;
+      this.store.patch({ interestOptions: options });
+    } catch (error) {
+      appWarn('Auth', 'Could not load interest catalog', error);
+    }
   }
 
   dismissPseudoNameSetup(): void {
@@ -1466,6 +1739,8 @@ export class MapApp {
       authStep: 'venue-select',
       authStepBeforeLocation: null,
       locationGateLoading: false,
+      authLoading: false,
+      guestContinueLoading: false,
       onboardingComplete: false,
       authFieldErrors: {},
     });
@@ -1547,11 +1822,7 @@ export class MapApp {
           : null;
 
       this.store.patch({
-        forumVenues: venues.map((venue) => ({
-          id: venue.id,
-          name: venue.name,
-          location: venue.location,
-        })),
+        forumVenues: venues.map((venue) => this.toVenueSummary(venue)),
         selectedVenueId,
         selectedGateId: existingStillValid ? state.selectedGateId : null,
         forumSections: existingStillValid ? state.forumSections : [],
@@ -1656,16 +1927,14 @@ export class MapApp {
     let forumVenues = state.forumVenues;
 
     this.venueEnterInFlight = true;
+    this.venueWideFeedSnapshot = null;
+    this.venueFeedScopeGeneration += 1;
     this.store.patch({ authLoading: true, authFieldErrors: {} });
     try {
       if (!venue) {
         try {
           const fetched = await getForumVenue(venueId);
-          venue = {
-            id: fetched.id,
-            name: fetched.name,
-            location: fetched.location,
-          };
+          venue = this.toVenueSummary(fetched);
           forumVenues = [
             ...state.forumVenues.filter((item) => item.id !== fetched.id),
             venue,
@@ -1727,6 +1996,7 @@ export class MapApp {
         forumFeedNext: feed.next,
         forumFeedCount: feed.count,
         upvotedPostIds,
+        flaggedPostIds: flaggedPostsLocalDatasource.load(this.flagViewerKey()),
         venueFeedFilter: 'all',
         sectionHeatmap: [],
         sectionHeatmapActive: false,
@@ -1734,6 +2004,8 @@ export class MapApp {
         authLoading: false,
         authFieldErrors: {},
       });
+      this.seenForumCommentIds.clear();
+      void this.hydrateVenueFeedCommentCounts();
       this.connectVenueLiveFeed(venueId);
       void this.bootstrapPersonalNotifications();
       if (options?.welcomeToast !== false) {
@@ -1762,7 +2034,6 @@ export class MapApp {
 
   private connectVenueLiveFeed(venueId: number): void {
     this.disconnectVenueLiveFeed();
-    this.store.patch({ venueLiveStatus: 'connecting' });
     this.venueLiveSubscription = subscribeVenueLiveFeed(
       venueId,
       (event) => {
@@ -1814,7 +2085,6 @@ export class MapApp {
         this.applyPersonalNotificationEvent(event);
       },
     );
-    appLog('NotificationsWS', 'Connected to personal notifications room');
   }
 
   private disconnectPersonalNotifications(): void {
@@ -1826,17 +2096,25 @@ export class MapApp {
     event: PersonalNotificationEvent,
   ): void {
     if (!this.store.get().notificationsEnabled) return;
-    if (event.type !== 'new_notification') return;
 
-    const mapped = mapNotificationToItem(event.notification);
     const state = this.store.get();
-    if (state.notifications.some((item) => item.id === mapped.id)) return;
+    const next = applyPersonalNotificationEvent(
+      {
+        notifications: state.notifications.map(notificationItemToDomain),
+        unreadCount: state.notificationsUnreadCount,
+      },
+      event,
+    );
+    if (
+      next.notifications.length === state.notifications.length &&
+      next.unreadCount === state.notificationsUnreadCount
+    ) {
+      return;
+    }
 
     this.store.patch({
-      notifications: [mapped, ...state.notifications],
-      notificationsUnreadCount: mapped.isRead
-        ? state.notificationsUnreadCount
-        : state.notificationsUnreadCount + 1,
+      notifications: next.notifications.map(mapNotificationToItem),
+      notificationsUnreadCount: next.unreadCount,
     });
   }
 
@@ -1844,6 +2122,10 @@ export class MapApp {
     switch (event.type) {
       case 'new_post': {
         this.mergeForumPostIntoFeed(event.post);
+        return;
+      }
+      case 'new_comment': {
+        this.mergeLiveForumComment(event.comment);
         return;
       }
       case 'upvote_update': {
@@ -1896,27 +2178,32 @@ export class MapApp {
 
     // Password-reset email deep links (uid + token → confirm screen) must win
     // over guest/auth routing so /api/users/password-reset-confirm/ can complete.
+    if (this.store.get().authStep === 'reset-password-confirm') {
+      this.ensureStartupReady();
+      return;
+    }
     if (this.tryOpenPasswordResetFromUrl()) {
+      this.ensureStartupReady();
       return;
     }
 
-    // Expired session during splash → open sign-in once the map is ready.
-    if (this.pendingSignInAfterSessionExpiry) {
-      this.pendingSignInAfterSessionExpiry = false;
-      this.resetAuthState({
-        showLogin: true,
-        formError: 'Your session expired. Please log in again.',
-        toast: 'Session expired. Please log in again.',
-      });
+    if (this.pendingSessionRecovery) {
+      this.applyPendingSessionRecovery();
+      this.ensureStartupReady();
       return;
     }
 
-    // Fingerprint + guest validation before deciding welcome vs create-account.
-    // Registered users with JWTs still get fingerprinted for future association,
-    // but are not blocked by guest limits.
-    this.store.patch({ authLoading: true, authFieldErrors: {} });
+    // Fingerprint + guest validation. Skip the global auth spinner when the
+    // marketing/sign-in/home shell is already queued under the splash.
+    if (!this.shellDestinationApplied && !this.store.get().startupReady) {
+      this.store.patch({ authLoading: true, authFieldErrors: {} });
+    }
     const guestGatePassed = await this.resolveGuestFingerprintGate();
     if (!guestGatePassed) {
+      this.ensureStartupReady();
+      return;
+    }
+    if (this.finishIfInvalidTokenRecovery()) {
       return;
     }
 
@@ -1929,17 +2216,16 @@ export class MapApp {
     });
 
     if (destination === 'app' && isReturningSession(returning)) {
-      // Skip welcome/marketing - restore home for auth or guest returners.
       await this.restoreReturningSession(returning);
+      this.ensureStartupReady();
       return;
     }
 
     if (destination === 'app' && hasStoredAuthTokens()) {
-      // Keep marketing UI hidden while profile restore runs.
       this.store.patch({ authLoading: true, authFieldErrors: {} });
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          void this.resumeAuthSession();
+          void this.resumeAuthSession().finally(() => this.ensureStartupReady());
         });
       });
       return;
@@ -1953,16 +2239,25 @@ export class MapApp {
         authLegalDocument: null,
         legalWebView: null,
       });
-      this.showLogin();
+      if (this.pendingSessionRecovery === 'invalid-token') {
+        this.applyPendingSessionRecovery();
+      } else {
+        this.showLogin();
+      }
+      this.ensureStartupReady();
       return;
     }
 
-    // Brand-new device - Find places / marketing onboarding.
+    if (this.finishIfInvalidTokenRecovery()) {
+      return;
+    }
+
     this.store.patch({
       authStep: 'none',
       authLoading: false,
       authFieldErrors: {},
     });
+    this.ensureStartupReady();
   }
 
   /**
@@ -2059,6 +2354,14 @@ export class MapApp {
         clearStoredAuthUser();
         this.store.patch({ authUser: null });
         appWarn('Auth', 'Returning session tokens expired', error);
+
+        if (
+          isInvalidAccessTokenFailure(error) ||
+          this.store.get().createAccountPrompt === 'invalid-token'
+        ) {
+          this.routeToCreateAccountForInvalidToken();
+          return;
+        }
 
         if (snapshot.mode !== 'guest' || !venueId || !gateId) {
           clearReturningSession();
@@ -2160,6 +2463,7 @@ export class MapApp {
         guestHasTried2dView: false,
         guestArGatePrompt: null,
         guestArGateLoading: false,
+        guestContinueLoading: false,
       });
       return true;
     }
@@ -2172,6 +2476,7 @@ export class MapApp {
       authFieldErrors: {},
       guestAccessAllowed: false,
       guestAccessReason: reason,
+      guestContinueLoading: false,
     });
     this.showToast(guestDenialUserMessage(reason));
   }
@@ -2180,7 +2485,7 @@ export class MapApp {
     if (this.authResumeInFlight) return;
 
     const state = this.store.get();
-    if (state.mapStatus !== 'ready' || state.onboardingComplete) {
+    if (state.onboardingComplete) {
       return;
     }
 
@@ -2220,8 +2525,15 @@ export class MapApp {
         authFieldErrors: {},
       });
       appWarn('Auth', 'Stored session expired', error);
-      this.showLogin();
-      this.showToast('Session expired. Please log in again.');
+      if (
+        isInvalidAccessTokenFailure(error) ||
+        this.store.get().createAccountPrompt === 'invalid-token'
+      ) {
+        this.routeToCreateAccountForInvalidToken();
+      } else {
+        this.showLogin();
+        this.showToast('Session expired. Please log in again.');
+      }
     } finally {
       this.authResumeInFlight = false;
     }
@@ -2229,6 +2541,10 @@ export class MapApp {
 
   showCreateAccount(): void {
     this.store.patch({ authStep: 'create', authFieldErrors: {} });
+  }
+
+  dismissInvalidTokenDialog(): void {
+    this.store.patch({ createAccountPrompt: null });
   }
 
   /**
@@ -2243,7 +2559,12 @@ export class MapApp {
     }
 
     markDeviceHasUsedApp();
-    this.store.patch({ authLoading: true, authFieldErrors: {} });
+    const fromWelcome = state.authStep === 'none';
+    this.store.patch({
+      authLoading: true,
+      authFieldErrors: {},
+      guestContinueLoading: fromWelcome,
+    });
     try {
       const result = await registerCurrentGuestFingerprint();
       this.store.patch({
@@ -2264,13 +2585,12 @@ export class MapApp {
       }
 
       this.store.patch({
-        authLoading: false,
         authFieldErrors: {},
         authLegalDocument: null,
         legalWebView: null,
       });
-      // Stay on create-account underneath; location dialog opens next.
-      this.beginLocationPermissionGate();
+      // Keep Continuing… until the location dialog (or next screen) is ready.
+      await this.beginLocationPermissionGate();
     } catch (error) {
       appWarn('Guest', 'Continue as guest failed', error);
       const message =
@@ -2279,10 +2599,14 @@ export class MapApp {
           : 'Could not continue as guest. Please try again.';
       this.store.patch({
         authLoading: false,
+        guestContinueLoading: false,
         authFieldErrors: {
           _form: message,
         },
       });
+      if (fromWelcome) {
+        this.showToast(message);
+      }
     }
   }
 
@@ -2307,6 +2631,13 @@ export class MapApp {
   }
 
   showLogin(): void {
+    if (
+      this.pendingSessionRecovery === 'invalid-token' ||
+      this.store.get().createAccountPrompt === 'invalid-token'
+    ) {
+      this.routeToCreateAccountForInvalidToken();
+      return;
+    }
     markDeviceHasUsedApp();
     this.store.patch({
       authStep: 'login',
@@ -2314,6 +2645,7 @@ export class MapApp {
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
+      createAccountPrompt: null,
     });
   }
 
@@ -2350,7 +2682,7 @@ export class MapApp {
     if (!params) return false;
 
     markDeviceHasUsedApp();
-    this.pendingSignInAfterSessionExpiry = false;
+    this.pendingSessionRecovery = null;
     this.store.patch({
       onboardingComplete: false,
       authStep: 'reset-password-confirm',
@@ -2835,6 +3167,7 @@ export class MapApp {
     showLogin?: boolean;
     formError?: string;
     toast?: string;
+    createAccountPrompt?: 'invalid-token' | null;
     /** After account deletion, allow marketing onboarding again. */
     preserveAsNewDevice?: boolean;
   }): void {
@@ -2849,6 +3182,10 @@ export class MapApp {
     }
     this.disconnectVenueLiveFeed();
     this.disconnectPersonalNotifications();
+    this.stopLiveUserLocationWatch();
+    this.venueWideFeedSnapshot = null;
+    this.venueFeedScopeGeneration += 1;
+    const storedLocation = permissionChoiceLocalDatasource.loadLocation();
     this.store.patch({
       authUser: null,
       authEmail: '',
@@ -2861,6 +3198,7 @@ export class MapApp {
       onboardingComplete: false,
       homeExperience: 'returning',
       userLocation: null,
+      locationPermission: storedLocation,
       locationGateLoading: false,
       locationPermanentlyDenied: false,
       locationGateError: null,
@@ -2872,6 +3210,8 @@ export class MapApp {
       guestHasTried2dView: false,
       guestArGatePrompt: null,
       guestArGateLoading: false,
+      guestContinueLoading: false,
+      createAccountPrompt: options?.createAccountPrompt ?? null,
       pseudoNameDraft: '',
       pseudoNameHint: '',
       selectedInterests: [],
@@ -2885,9 +3225,12 @@ export class MapApp {
       sectionHeatmap: [],
       sectionHeatmapActive: false,
       venueLiveStatus: 'idle',
+      socialLocation: null,
+      socialLocationName: null,
       venueFeedPosts: [],
       venueFeedFilter: 'all',
       upvotedPostIds: [],
+      flaggedPostIds: [],
       notificationsOpen: false,
       notifications: [],
       notificationsUnreadCount: 0,
@@ -2923,9 +3266,14 @@ export class MapApp {
     if (options?.toast) {
       this.showToast(options.toast);
     }
+    if (storedLocation === 'granted') {
+      this.startLiveUserLocationWatch();
+    }
   }
 
-  private handleAuthSessionExpired(): void {
+  private handleAuthSessionExpired(
+    reason: AuthSessionClearedReason = 'expired',
+  ): void {
     if (this.handlingSessionExpiry) return;
     this.handlingSessionExpiry = true;
     try {
@@ -2934,26 +3282,71 @@ export class MapApp {
       clearReturningSession();
       clearStoredAuthUser();
       markDeviceHasUsedApp();
+      this.pendingSessionRecovery = reason;
+      this.store.patch({
+        authUser: null,
+        onboardingComplete: false,
+        authLoading: false,
+      });
 
-      // Map still booting: finish as guest, then route to sign-in in bootstrap.
-      if (this.store.get().mapStatus !== 'ready') {
-        this.pendingSignInAfterSessionExpiry = true;
-        this.store.patch({
-          authUser: null,
-          onboardingComplete: false,
-          authLoading: false,
-        });
+      if (
+        shouldDeferSessionRecoveryUi({
+          startupReady: this.store.get().startupReady,
+          authShellVisible: this.shellDestinationApplied,
+          authFlowBootstrapped: this.authFlowBootstrapped,
+        })
+      ) {
         return;
       }
 
-      this.resetAuthState({
-        showLogin: true,
-        formError: 'Your session expired. Please log in again.',
-        toast: 'Session expired. Please log in again.',
-      });
+      this.applyPendingSessionRecovery();
     } finally {
       this.handlingSessionExpiry = false;
     }
+  }
+
+  private applyPendingSessionRecovery(): void {
+    const recovery = this.pendingSessionRecovery;
+    if (!recovery) return;
+    this.pendingSessionRecovery = null;
+    if (recovery === 'invalid-token') {
+      this.routeToCreateAccountForInvalidToken();
+      return;
+    }
+    this.resetAuthState({
+      showLogin: true,
+      formError: 'Your session expired. Please log in again.',
+      toast: 'Session expired. Please log in again.',
+    });
+  }
+
+  private finishIfInvalidTokenRecovery(): boolean {
+    if (
+      this.pendingSessionRecovery !== 'invalid-token' &&
+      this.store.get().createAccountPrompt !== 'invalid-token'
+    ) {
+      return false;
+    }
+    this.applyPendingSessionRecovery();
+    this.ensureStartupReady();
+    return true;
+  }
+
+  private routeToCreateAccountForInvalidToken(): void {
+    this.pendingSessionRecovery = null;
+    this.ensureStartupReady();
+    const alreadyPrompted =
+      this.store.get().authStep === 'create' &&
+      this.store.get().createAccountPrompt === 'invalid-token';
+    if (alreadyPrompted) return;
+
+    this.resetAuthState({
+      showCreate: true,
+      createAccountPrompt: 'invalid-token',
+    });
+    this.store.patch({
+      guestAccessAllowed: false,
+    });
   }
 
   private persistSessionUser(user: RegisteredUser): void {
@@ -3064,6 +3457,10 @@ export class MapApp {
   }
 
   private handleAuthFailure(error: unknown, fallbackMessage: string): void {
+    if (isInvalidAccessTokenFailure(error)) {
+      this.routeToCreateAccountForInvalidToken();
+      return;
+    }
     if (error instanceof AuthApiError) {
       const knownFields = new Set([
         'email',
@@ -3095,6 +3492,11 @@ export class MapApp {
       ) {
         fieldErrors._form =
           fieldErrors._form || orphanMessages[0] || error.summary;
+      }
+
+      if (containsTokenNotValidDetail(fieldErrors)) {
+        this.routeToCreateAccountForInvalidToken();
+        return;
       }
 
       this.store.patch({
@@ -3141,13 +3543,101 @@ export class MapApp {
     });
   }
 
-  setSocialLocation(locationId: string | null): void {
+  setSocialLocation(locationId: string | null, locationName?: string | null): void {
     if (!locationId) return;
+    const state = this.store.get();
+    const sectionId = sectionIdForLocation(state.forumSections, locationId);
+    const sectionName =
+      state.forumSections.find((section) => section.id === sectionId)?.name ??
+      null;
+    const trimmedName = locationName?.trim() || '';
     this.store.patch({
       activeTab: 'social',
       socialLocation: locationId,
+      socialLocationName: trimmedName || sectionName,
       venueFeedDraft: this.captureVenueFeedDraft(),
     });
+    void this.loadConversationFeed(locationId);
+  }
+
+  /** Back to the venue-wide feed from a location-scoped view. */
+  clearSocialLocation(): void {
+    this.store.patch({
+      socialLocation: null,
+      socialLocationName: null,
+      venueFeedDraft: this.captureVenueFeedDraft(),
+    });
+    this.restoreVenueWideFeed();
+    void this.hydrateVenueFeedCommentCounts();
+  }
+
+  private captureVenueWideFeedSnapshot(state: AppState): void {
+    if (this.venueWideFeedSnapshot) return;
+    this.venueWideFeedSnapshot = {
+      posts: state.venueFeedPosts,
+      next: state.forumFeedNext,
+      count: state.forumFeedCount,
+    };
+  }
+
+  private restoreVenueWideFeed(): void {
+    const snapshot = this.venueWideFeedSnapshot;
+    this.venueWideFeedSnapshot = null;
+    this.venueFeedScopeGeneration += 1;
+    if (!snapshot) return;
+    this.store.patch({
+      venueFeedPosts: snapshot.posts,
+      forumFeedNext: snapshot.next,
+      forumFeedCount: snapshot.count,
+    });
+  }
+
+  private async loadConversationFeed(locationId: string): Promise<void> {
+    const state = this.store.get();
+    const venueId = Number(state.selectedVenueId);
+    if (!Number.isFinite(venueId) || venueId <= 0) return;
+
+    this.captureVenueWideFeedSnapshot(state);
+    const generation = ++this.venueFeedScopeGeneration;
+    const sectionId = sectionIdForLocation(state.forumSections, locationId);
+
+    if (sectionId == null) {
+      this.store.patch({
+        venueFeedPosts: [],
+        forumFeedNext: null,
+        forumFeedCount: 0,
+      });
+      return;
+    }
+
+    try {
+      const feed = await loadVenueSectionFeed(venueId, sectionId);
+      if (generation !== this.venueFeedScopeGeneration) return;
+      const current = this.store.get();
+      if (current.socialLocation !== locationId) return;
+
+      const venueFeedPosts = mapForumPostsToVenueFeed(
+        feed.results,
+        current.forumSections,
+        current.forumCategories,
+      );
+      const sectionUpvotedIds = venueFeedPosts
+        .filter((post) => post.hasUpvoted)
+        .map((post) => post.id);
+      this.store.patch({
+        venueFeedPosts,
+        forumFeedNext: feed.next,
+        forumFeedCount: feed.count,
+        upvotedPostIds: [
+          ...new Set([...current.upvotedPostIds, ...sectionUpvotedIds]),
+        ],
+      });
+      void this.hydrateVenueFeedCommentCounts();
+    } catch (error) {
+      if (generation !== this.venueFeedScopeGeneration) return;
+      appWarn('Forum', 'Load conversation feed failed', error);
+      this.showToast('Could not load this conversation. Please try again.');
+    }
   }
 
   handleLocationCardSelect(selection: LocationCardSelection): void {
@@ -3162,7 +3652,7 @@ export class MapApp {
     const prompt = this.store.get().locationActionPrompt;
     if (!prompt) return;
     this.store.patch({ locationActionPrompt: null });
-    this.setSocialLocation(prompt.locationId);
+    this.setSocialLocation(prompt.locationId, prompt.name);
   }
 
   confirmLocationNavigate(): void {
@@ -3327,12 +3817,36 @@ export class MapApp {
     }
   }
 
+  /** Storage key isolating each viewer's flagged-post history. */
+  private flagViewerKey(): string {
+    const state = this.store.get();
+    if (state.authUser) return `user:${state.authUser.id}`;
+    if (state.guestId) return `guest:${state.guestId}`;
+    return 'guest';
+  }
+
+  /**
+   * Toggles the viewer's report on a post. Flagging POSTs to the backend;
+   * unflagging only clears the local "Reported" mark because the API has no
+   * user-facing unflag endpoint (the server-side flag stays for moderators).
+   */
   async flagVenueFeedPost(postId: string, reason?: string): Promise<void> {
     const numericId = Number(postId);
     if (!Number.isFinite(numericId) || numericId <= 0) return;
     if (this.venueFeedFlagInFlight.has(postId)) return;
     if (!hasStoredAuthTokens()) {
       this.showToast('Sign in to report posts.');
+      return;
+    }
+
+    if (this.store.get().flaggedPostIds.includes(postId)) {
+      flaggedPostsLocalDatasource.remove(this.flagViewerKey(), postId);
+      this.store.patch({
+        flaggedPostIds: this.store
+          .get()
+          .flaggedPostIds.filter((id) => id !== postId),
+      });
+      this.showToast('Report removed.');
       return;
     }
 
@@ -3347,6 +3861,12 @@ export class MapApp {
         this.showToast('Post reported and removed.');
       } else {
         this.mergeForumPostIntoFeed(updated);
+        flaggedPostsLocalDatasource.add(this.flagViewerKey(), postId);
+        this.store.patch({
+          flaggedPostIds: [
+            ...new Set([...this.store.get().flaggedPostIds, postId]),
+          ],
+        });
         this.showToast('Thanks. Post reported.');
       }
     } catch (error) {
@@ -3358,6 +3878,63 @@ export class MapApp {
       appWarn('Forum', 'Flag post failed', error);
     } finally {
       this.venueFeedFlagInFlight.delete(postId);
+    }
+  }
+
+  /** Fetches the next (older) page of venue posts via the stored DRF `next` URL. */
+  async loadMoreVenueFeedPosts(): Promise<void> {
+    const state = this.store.get();
+    if (state.venueFeedLoadingMore) return;
+
+    const page = nextFeedPageFromUrl(state.forumFeedNext);
+    const venueId = Number(state.selectedVenueId);
+    if (page == null || !Number.isFinite(venueId) || venueId <= 0) return;
+
+    this.store.patch({
+      venueFeedLoadingMore: true,
+      venueFeedDraft: this.captureVenueFeedDraft(),
+    });
+    try {
+      const sectionId = sectionIdForLocation(
+        state.forumSections,
+        state.socialLocation,
+      );
+      const response = await listVenuePosts({
+        venue: venueId,
+        latest: true,
+        page,
+        ...(sectionId != null ? { section: sectionId } : {}),
+      });
+      const current = this.store.get();
+      const older = mapForumPostsToVenueFeed(
+        response.results,
+        current.forumSections,
+        current.forumCategories,
+      );
+      const venueFeedPosts = appendOlderVenueFeedPosts(
+        current.venueFeedPosts,
+        older,
+      );
+      const olderUpvotedIds = older
+        .filter((post) => post.hasUpvoted)
+        .map((post) => post.id);
+      this.store.patch({
+        venueFeedPosts,
+        forumFeedNext: response.next,
+        forumFeedCount: response.count,
+        upvotedPostIds: [
+          ...new Set([...current.upvotedPostIds, ...olderUpvotedIds]),
+        ],
+        venueFeedLoadingMore: false,
+      });
+      const appendedIds = older
+        .map((post) => Number(post.id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+      void this.hydrateVenueFeedCommentCounts(appendedIds);
+    } catch (error) {
+      this.store.patch({ venueFeedLoadingMore: false });
+      appWarn('Forum', 'Load more posts failed', error);
+      this.showToast('Could not load older posts. Please try again.');
     }
   }
 
@@ -3378,10 +3955,23 @@ export class MapApp {
       return;
     }
 
+    // A map-area conversation posts only to that section. The venue-wide
+    // composer still uses the gate picked during onboarding.
+    const scopedSectionId = sectionIdForLocation(
+      state.forumSections,
+      state.socialLocation,
+    );
+    if (state.socialLocation && scopedSectionId == null) {
+      this.showToast('This area is not open for posts yet.');
+      return;
+    }
     const section =
-      state.forumSections.find(
-        (item) => String(item.id) === state.selectedGateId,
-      ) ?? null;
+      scopedSectionId != null
+        ? state.forumSections.find((item) => item.id === scopedSectionId) ??
+          null
+        : state.forumSections.find(
+            (item) => String(item.id) === state.selectedGateId,
+          ) ?? null;
 
     const filterCategory =
       state.venueFeedFilter !== 'all'
@@ -3483,6 +4073,9 @@ export class MapApp {
       const page = await listForumComments({ post: numericId, ordering: 'created_at' });
       if (this.store.get().postCommentsPostId !== postId) return;
       const items = mapForumCommentsToItems(page.results);
+      for (const item of items) {
+        this.seenForumCommentIds.add(item.id);
+      }
       this.store.patch({
         postComments: items,
         postCommentsLoading: false,
@@ -3531,7 +4124,10 @@ export class MapApp {
       });
       if (this.store.get().postCommentsPostId !== postId) return;
       const item = mapForumCommentToItem(created);
-      const comments = [...this.store.get().postComments, item];
+      this.seenForumCommentIds.add(created.id);
+      // The venue WebSocket `new_comment` broadcast can beat this response
+      // and already have appended the comment - never add it twice.
+      const comments = appendCommentOnce(this.store.get().postComments, item);
       this.store.patch({
         postComments: comments,
         postCommentsSubmitting: false,
@@ -3680,6 +4276,11 @@ export class MapApp {
     }
 
     const state = this.store.get();
+    const venueId = Number(state.selectedVenueId);
+    if (Number.isFinite(venueId) && venueId > 0 && post.venue !== venueId) {
+      return;
+    }
+
     const postId = String(post.id);
     const existing = state.venueFeedPosts.find((entry) => entry.id === postId);
     const sectionById = new Map(
@@ -3688,7 +4289,12 @@ export class MapApp {
     const categoryById = new Map(
       state.forumCategories.map((category) => [category.id, category]),
     );
-    const mapped = mapForumPostToVenueFeed(post, sectionById, categoryById);
+    const mapped = mapForumPostToVenueFeed(
+      post,
+      sectionById,
+      categoryById,
+      existing,
+    );
     const isPartial = !post.content || post.user.id <= 0;
 
     const merged = existing && isPartial
@@ -3698,6 +4304,17 @@ export class MapApp {
           hasUpvoted: mapped.hasUpvoted,
         }
       : mapped;
+
+    this.mergePostIntoVenueWideSnapshot(post, merged);
+
+    const belongsInConversation = forumPostMatchesLocation(
+      post.section,
+      state.socialLocation,
+      state.forumSections,
+    );
+    if (!belongsInConversation && !existing) {
+      return;
+    }
 
     const venueFeedPosts = existing
       ? state.venueFeedPosts.map((entry) =>
@@ -3715,14 +4332,111 @@ export class MapApp {
     });
   }
 
+  private mergePostIntoVenueWideSnapshot(
+    post: ForumPost,
+    mapped: VenueFeedPost,
+  ): void {
+    const snapshot = this.venueWideFeedSnapshot;
+    if (!snapshot) return;
+
+    const existing = snapshot.posts.find((entry) => entry.id === mapped.id);
+    const isPartial = !post.content || post.user.id <= 0;
+    const merged =
+      existing && isPartial
+        ? {
+            ...existing,
+            upvotes: mapped.upvotes,
+            hasUpvoted: mapped.hasUpvoted,
+          }
+        : mapped;
+    snapshot.posts = existing
+      ? snapshot.posts.map((entry) =>
+          entry.id === mapped.id ? merged : entry,
+        )
+      : [merged, ...snapshot.posts];
+    if (!existing) {
+      snapshot.count += 1;
+    }
+  }
+
+  /**
+   * The post payload has no comment count, so counts start at 0 after a feed
+   * load. Fetch the authoritative counts so the feed is correct without
+   * opening each thread. Runs on feed load and on Social tab navigation.
+   */
+  private async hydrateVenueFeedCommentCounts(
+    onlyPostIds?: number[],
+  ): Promise<void> {
+    if (this.venueFeedCommentCountsInFlight) return;
+    if (!hasStoredAuthTokens()) return;
+    const feedIds = this.store
+      .get()
+      .venueFeedPosts.map((post) => Number(post.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    const postIds = onlyPostIds
+      ? feedIds.filter((id) => onlyPostIds.includes(id))
+      : feedIds;
+    if (!postIds.length) return;
+
+    this.venueFeedCommentCountsInFlight = true;
+    try {
+      const counts = await loadForumCommentCounts(postIds);
+      const countsByPostId = new Map(
+        [...counts].map(([postId, count]) => [String(postId), count]),
+      );
+      this.store.patch({
+        venueFeedPosts: applyCommentCounts(
+          this.store.get().venueFeedPosts,
+          countsByPostId,
+        ),
+      });
+    } catch (error) {
+      appWarn('Forum', 'Comment count refresh failed', error);
+    } finally {
+      this.venueFeedCommentCountsInFlight = false;
+    }
+  }
+
+  private mergeLiveForumComment(comment: ForumComment): void {
+    if (this.seenForumCommentIds.has(comment.id)) return;
+    this.seenForumCommentIds.add(comment.id);
+
+    const postId = String(comment.post);
+    const state = this.store.get();
+    const threadOpen =
+      state.postCommentsOpen && state.postCommentsPostId === postId;
+    const venueFeedPosts = state.venueFeedPosts.map((post) =>
+      post.id === postId ? { ...post, comments: post.comments + 1 } : post,
+    );
+    this.store.patch({
+      venueFeedPosts,
+      postComments: threadOpen
+        ? appendCommentOnce(state.postComments, mapForumCommentToItem(comment))
+        : state.postComments,
+    });
+  }
+
   private removeVenueFeedPost(postId: string): void {
+    const snapshot = this.venueWideFeedSnapshot;
+    if (snapshot) {
+      const nextSnapshotPosts = snapshot.posts.filter(
+        (post) => post.id !== postId,
+      );
+      if (nextSnapshotPosts.length !== snapshot.posts.length) {
+        snapshot.posts = nextSnapshotPosts;
+        snapshot.count = Math.max(0, snapshot.count - 1);
+      }
+    }
+
     const state = this.store.get();
     const nextPosts = state.venueFeedPosts.filter((post) => post.id !== postId);
     if (nextPosts.length === state.venueFeedPosts.length) return;
+    flaggedPostsLocalDatasource.remove(this.flagViewerKey(), postId);
     this.store.patch({
       venueFeedPosts: nextPosts,
       forumFeedCount: Math.max(0, state.forumFeedCount - 1),
       upvotedPostIds: state.upvotedPostIds.filter((id) => id !== postId),
+      flaggedPostIds: state.flaggedPostIds.filter((id) => id !== postId),
     });
   }
 
@@ -3948,6 +4662,8 @@ export class MapApp {
       const coords = await this.locationService.requestLocation({
         timeoutMs: 15_000,
       });
+      this.persistLocationChoice('granted');
+      this.publishUserLocation(coords);
       const floorId =
         this.mapView.currentFloor?.id ??
         this.store.get().currentFloorId ??
@@ -4002,6 +4718,9 @@ export class MapApp {
           : 'You are here.',
       );
     } catch (error) {
+      if (this.locationService.isPermissionDeniedError(error)) {
+        this.persistLocationChoice('denied');
+      }
       const message =
         error instanceof GeolocationPositionError ||
         this.locationService.isPermissionDeniedError(error)
@@ -4238,7 +4957,10 @@ export class MapApp {
 
   private async warmArSensors(): Promise<void> {
     const pendingSource = PositionProviderRegistry.resolveActiveSource();
-    if (pendingSource === 'gps' || pendingSource === 'apple_indoor') {
+    if (
+      (pendingSource === 'gps' || pendingSource === 'apple_indoor') &&
+      shouldRequestArMotionPermission()
+    ) {
       void requestDeviceOrientationPermission();
     }
     if (!this.blueDotService?.isTracking) {
@@ -4301,28 +5023,13 @@ export class MapApp {
     );
   }
 
-  private getSimulatorProvider(): HighFrequencyMockProvider | null {
-    const provider = this.positionProvider;
-    if (!provider?.isRunning) return null;
-    if (typeof (provider as HighFrequencyMockProvider).startSimulationMove !== 'function') {
-      return null;
-    }
-    return provider as HighFrequencyMockProvider;
-  }
-
   private resolveNavigationSource(): PositionSourceType {
-    return PositionProviderRegistry.resolveNavigationSource(
-      this.store.get().simulationEnabled,
-    );
-  }
-
-  private isSimulationNavigation(): boolean {
-    return this.resolveNavigationSource() === 'simulator';
+    return PositionProviderRegistry.resolveNavigationSource();
   }
 
   /**
-   * Switch or (re)start the position provider for the active route without
-   * wiping navigation progress. Used by applyRoute, Begin, and Simulation toggle.
+   * Switch or (re)start the live position provider for the active route without
+   * wiping navigation progress.
    */
   private applyNavigationPositionMode(options: {
     path: RoutePayload['pathCoordinates'];
@@ -4336,50 +5043,43 @@ export class MapApp {
       this.store.get().route?.distanceMeters ??
       null;
 
-    this.stopPositionProvider({ preserveProgress: true });
-    this.startPositionProvider(options.path);
+    const nextSource = this.resolveNavigationSource();
+    const canReuseLiveProvider =
+      this.positionProvider?.isRunning === true &&
+      this.activePositionSource === nextSource;
 
-    if (this.isSimulationNavigation()) {
+    if (!canReuseLiveProvider) {
+      this.stopPositionProvider({ preserveProgress: true });
+      this.startPositionProvider(options.path);
+    }
+
+    if (this.store.get().locationPermission !== 'granted') {
       this.liveRouteTracking = false;
-      const provider = this.getSimulatorProvider();
-      provider?.seekAlongPath(alongPathMeters);
-      if (resumeNavigating) {
-        provider?.startSimulationMove();
-        this.blueDotService?.follow();
-        const traveled = provider?.getMetersAlongPath() ?? alongPathMeters;
-        const total = provider?.getTotalPathMeters() ?? this.store.get().route?.distanceMeters ?? traveled;
-        const atEnd = provider?.isAtPathEnd() ?? false;
-        this.store.patch({
-          blueDotFollowing: true,
-          routeSimulating: Boolean(provider?.moving && !atEnd),
-          routeSimulationComplete: atEnd && traveled > 0,
-          routeTraveledMeters: traveled,
-          routeRemainingMeters: Math.max(0, total - traveled),
-        });
-        this.maybeRevealArrivalDialog(atEnd && traveled > 0);
-        if (isArSessionActive(this.store.get().arPresentation)) {
-          const snapshot = this.getNavigationProgressSnapshot();
-          notifyArSimulatorStarted({
-            alongPathMeters: snapshot.alongPathMeters,
-            pathPoints: options.path.length,
-          });
-          syncNavigationToAr(snapshot);
-        }
-      } else {
-        this.store.patch({
-          routeTraveledMeters: alongPathMeters,
-          routeRemainingMeters: remainingHint,
-          routeSimulating: false,
-          routeSimulationComplete: false,
-        });
-      }
+      this.store.patch({
+        routeSimulating: false,
+        routeSimulationComplete: false,
+        routeTraveledMeters: alongPathMeters,
+        routeRemainingMeters: remainingHint,
+      });
+      this.showToast('Turn on location to track as you walk.');
       return;
     }
 
-    // Live indoor positioning (GPS / beacons / IPS) projected onto the route.
     this.alongPathStabilizer.reset(alongPathMeters);
+    if (!resumeNavigating) {
+      this.liveRouteTracking = false;
+      this.store.patch({
+        routeTraveledMeters: alongPathMeters,
+        routeRemainingMeters: remainingHint,
+        routeSimulating: false,
+        routeSimulationComplete: false,
+      });
+      return;
+    }
+
     this.liveRouteTracking = true;
     this.blueDotService?.follow();
+    void this.blueDotService?.enableHeading({ forceDuringSimulator: true });
     this.store.patch({
       blueDotFollowing: true,
       routeSimulating: true,
@@ -4404,6 +5104,7 @@ export class MapApp {
         preferVenue: true,
         floorId: frame.floorId ?? this.store.get().currentFloorId,
         currentLegIndex: this.store.get().currentLegIndex,
+        previousAlongMeters: this.store.get().routeTraveledMeters,
       },
     );
     if (!snapped) return frame;
@@ -4418,30 +5119,42 @@ export class MapApp {
     };
   }
 
+  /** Draw the avatar at the stabilized odometer, not the raw nearest vertex. */
+  private bindFrameToStabilizedAlong(
+    projected: FplacesPositionFrame,
+    alongMeters: number,
+  ): FplacesPositionFrame {
+    const path = this.store.get().route?.pathCoordinates;
+    if (!path?.length) {
+      return { ...projected, alongPathMeters: alongMeters };
+    }
+    const point = coordinateTransformationService.snapAtDistanceAlongPath(
+      path,
+      alongMeters,
+    );
+    if (!point) {
+      return { ...projected, alongPathMeters: alongMeters };
+    }
+    return {
+      ...projected,
+      latitude: point.latitude,
+      longitude: point.longitude,
+      floorId: point.floorId ?? projected.floorId,
+      alongPathMeters: alongMeters,
+    };
+  }
+
   private getNavigationProgressSnapshot(): NavigationProgressSnapshot {
     const state = this.store.get();
-    const provider = this.getSimulatorProvider();
 
-    let alongPathMeters = state.routeTraveledMeters;
-    let routeTraveledMeters = state.routeTraveledMeters;
+    const alongPathMeters = state.routeTraveledMeters;
+    const routeTraveledMeters = state.routeTraveledMeters;
     let routeRemainingMeters = state.routeRemainingMeters;
-    let routeSimulating = state.routeSimulating;
-    let routeSimulationComplete = state.routeSimulationComplete;
-    let source: NavigationProgressSnapshot['source'] = state.routeSimulating
-      ? this.activePositionSource === 'simulator'
-        ? 'simulator'
-        : this.activePositionSource
-      : undefined;
+    const routeSimulating = state.routeSimulating;
+    const routeSimulationComplete = state.routeSimulationComplete;
+    let source: NavigationProgressSnapshot['source'];
 
-    if (provider && this.isSimulationNavigation()) {
-      alongPathMeters = provider.getMetersAlongPath();
-      routeTraveledMeters = alongPathMeters;
-      const total = provider.getTotalPathMeters();
-      routeRemainingMeters = Math.max(0, total - alongPathMeters);
-      routeSimulating = provider.moving && !provider.isAtPathEnd();
-      routeSimulationComplete = provider.isAtPathEnd() && alongPathMeters > 0;
-      source = 'simulator';
-    } else if (
+    if (
       routeRemainingMeters == null &&
       state.route?.distanceMeters != null
     ) {
@@ -4451,25 +5164,17 @@ export class MapApp {
       );
     }
 
-    if (!this.isSimulationNavigation() && (state.routeSimulating || this.liveRouteTracking)) {
+    if (state.routeSimulating || this.liveRouteTracking) {
       source = PositionProviderRegistry.isLiveHardwareSource(this.activePositionSource)
         ? this.activePositionSource
         : 'gps';
     }
 
-    const providerFrame = provider?.buildCurrentFrame?.() ?? null;
     const lastPos = this.blueDotService?.getLastPosition();
-    const latitude =
-      providerFrame?.latitude ??
-      lastPos?.coordinate.latitude;
-    const longitude =
-      providerFrame?.longitude ??
-      lastPos?.coordinate.longitude;
-    const heading = providerFrame?.heading ?? lastPos?.heading ?? undefined;
-    const floorId =
-      providerFrame?.floorId ??
-      lastPos?.floorId ??
-      lastPos?.coordinate.floorId;
+    const latitude = lastPos?.coordinate.latitude;
+    const longitude = lastPos?.coordinate.longitude;
+    const heading = lastPos?.heading ?? undefined;
+    const floorId = lastPos?.floorId ?? lastPos?.coordinate.floorId;
 
     return {
       alongPathMeters,
@@ -4490,14 +5195,7 @@ export class MapApp {
     const state = this.store.get();
     if (!state.route?.pathCoordinates?.length) return;
 
-    if (this.isSimulationNavigation()) {
-      const provider = this.getSimulatorProvider();
-      if (provider?.moving) {
-        this.syncRouteProgress(true);
-        syncNavigationToAr(this.getNavigationProgressSnapshot());
-        return;
-      }
-    } else if (this.liveRouteTracking || state.routeSimulating) {
+    if (this.liveRouteTracking || state.routeSimulating) {
       this.syncRouteProgress(true);
       syncNavigationToAr(this.getNavigationProgressSnapshot());
       return;
@@ -4515,7 +5213,7 @@ export class MapApp {
     this.startRouteMovement();
   }
 
-  /** Kick simulated walk or live GPS tracking along the active route. */
+  /** Kick live GPS / IPS tracking along the active route. */
   startRouteMovement(options?: {
     alongPathMeters?: number;
     resetProgress?: boolean;
@@ -4532,87 +5230,27 @@ export class MapApp {
       return;
     }
 
-    const currentProgress = this.getNavigationProgressSnapshot();
-    const resetProgress = options?.resetProgress === true;
-    let targetAlong: number;
-    if (typeof options?.alongPathMeters === 'number') {
-      targetAlong = options.alongPathMeters;
-    } else if (
-      !resetProgress &&
-      (currentProgress.routeSimulating || currentProgress.alongPathMeters > 0.05)
-    ) {
-      targetAlong = currentProgress.alongPathMeters;
-    } else {
-      targetAlong = 0;
-    }
+    const targetAlong =
+      typeof options?.alongPathMeters === 'number' ? options.alongPathMeters : 0;
 
-    if (!this.isSimulationNavigation()) {
-      this.alongPathStabilizer.reset(targetAlong);
-      this.applyNavigationPositionMode({
-        path: state.route.pathCoordinates,
-        resumeNavigating: true,
-        alongPathMeters: targetAlong,
-      });
-      this.lastProgressUiAt = 0;
-      appLog('Position', 'Live IPS route tracking armed', {
-        alongPathMeters: targetAlong,
-        pathPoints: state.route.pathCoordinates.length,
-        source: this.resolveNavigationSource(),
-      });
-      if (isArSessionActive(this.store.get().arPresentation)) {
-        syncNavigationToAr(this.getNavigationProgressSnapshot());
-      }
+    if (this.store.get().locationPermission !== 'granted') {
+      this.showToast('Turn on location to track as you walk.');
       return;
     }
-
-    this.activePositionSource = 'simulator';
-    positionTelemetry.setActiveSource('simulator');
-
-    let provider = this.getSimulatorProvider();
-    if (!provider) {
-      this.startPositionProvider(state.route.pathCoordinates);
-      provider = this.getSimulatorProvider();
-    }
-
-    if (!provider) {
-      this.showToast('Could not start route simulation.');
-      console.error('[PWA Bridge] startRouteMovement failed - simulator provider unavailable');
-      return;
-    }
-
-    this.liveRouteTracking = false;
-    provider.seekAlongPath(targetAlong);
-    provider.startSimulationMove();
-    this.blueDotService?.follow();
+    this.alongPathStabilizer.reset(targetAlong);
+    this.applyNavigationPositionMode({
+      path: state.route.pathCoordinates,
+      resumeNavigating: true,
+      alongPathMeters: targetAlong,
+    });
     this.lastProgressUiAt = 0;
-
-    const traveled = provider.getMetersAlongPath();
-    const total = provider.getTotalPathMeters();
-    const remaining = Math.max(0, total - traveled);
-    const atEnd = provider.isAtPathEnd();
-
-    this.store.patch({
-      blueDotFollowing: true,
-      routeSimulating: provider.moving && !atEnd,
-      routeSimulationComplete: atEnd && traveled > 0,
-      routeTraveledMeters: traveled,
-      routeRemainingMeters: remaining,
-    });
-
-    console.log('[PWA Bridge] Simulator 10Hz loop armed', {
-      alongPathMeters: traveled,
+    appLog('Position', 'Live IPS route tracking armed', {
+      alongPathMeters: targetAlong,
       pathPoints: state.route.pathCoordinates.length,
-      moving: provider.moving,
-      resumed: !resetProgress && targetAlong > 0,
-    });
-
-    const snapshot = this.getNavigationProgressSnapshot();
-    notifyArSimulatorStarted({
-      alongPathMeters: snapshot.alongPathMeters,
-      pathPoints: state.route.pathCoordinates.length,
+      source: this.resolveNavigationSource(),
     });
     if (isArSessionActive(this.store.get().arPresentation)) {
-      syncNavigationToAr(snapshot);
+      syncNavigationToAr(this.getNavigationProgressSnapshot());
     }
   }
 
@@ -4624,9 +5262,6 @@ export class MapApp {
     const state = this.store.get();
     if (!state.route?.pathCoordinates?.length) return;
 
-    const provider = this.getSimulatorProvider();
-    provider?.seekAlongPath(0);
-    provider?.stopSimulationMove();
     this.liveRouteTracking = false;
     this.routePlanner?.clearTravelledPathTracking();
 
@@ -4643,61 +5278,27 @@ export class MapApp {
   private syncRouteProgress(force = false): void {
     const state = this.store.get();
     if (!state.route) return;
-
-    if (!this.isSimulationNavigation()) {
-      if (!force && !state.routeSimulating && !this.liveRouteTracking && !state.routeSimulationComplete) {
-        return;
-      }
-      const now = performance.now();
-      if (!force && !state.routeSimulationComplete && now - this.lastProgressUiAt < 200) return;
-      this.lastProgressUiAt = now;
-      // Live progress is patched in handleProviderFrame from snapped meters.
+    if (!force && !state.routeSimulating && !this.liveRouteTracking && !state.routeSimulationComplete) {
       return;
     }
-
-    const provider = this.getSimulatorProvider();
-    if (!provider) return;
-
-    const atEnd = provider.isAtPathEnd();
-    if (
-      !force &&
-      !state.routeSimulating &&
-      !state.routeSimulationComplete &&
-      !atEnd
-    ) {
-      return;
-    }
-
     const now = performance.now();
-    if (!force && !atEnd && now - this.lastProgressUiAt < 200) return;
+    if (!force && !state.routeSimulationComplete && now - this.lastProgressUiAt < 200) return;
     this.lastProgressUiAt = now;
-
-    const traveled = provider.getMetersAlongPath();
-    const total = provider.getTotalPathMeters();
-    const remaining = Math.max(0, total - traveled);
-
-    this.store.patch({
-      routeTraveledMeters: traveled,
-      routeRemainingMeters: remaining,
-      routeSimulating: provider.moving && !atEnd,
-      routeSimulationComplete: atEnd && traveled > 0,
-    });
-    this.routePlanner?.updateDestinationProximity(remaining, total);
-    this.maybeRevealArrivalDialog(atEnd && traveled > 0);
+    // Live progress is patched in handleProviderFrame from snapped meters.
   }
 
   private syncLiveRouteProgress(
     alongPathMeters: number,
-    options?: { offRouteMeters?: number; force?: boolean },
-  ): void {
+    options?: {
+      offRouteMeters?: number;
+      accuracyMeters?: number | null;
+      force?: boolean;
+    },
+  ): number | null {
     const state = this.store.get();
-    if (!state.route) return;
+    if (!state.route) return null;
     const force = options?.force === true;
-    if (!this.liveRouteTracking && !state.routeSimulating && !force) return;
-
-    const now = performance.now();
-    if (!force && now - this.lastProgressUiAt < 200) return;
-    this.lastProgressUiAt = now;
+    if (!this.liveRouteTracking && !state.routeSimulating && !force) return null;
 
     const total =
       state.route.distanceMeters ??
@@ -4705,6 +5306,7 @@ export class MapApp {
     const stabilizedAlong = this.alongPathStabilizer.update({
       nextAlongMeters: alongPathMeters,
       offRouteMeters: options?.offRouteMeters,
+      accuracyMeters: options?.accuracyMeters,
     });
     const traveled = Math.max(0, Math.min(total, stabilizedAlong));
     const remaining = computeLiveRemainingMeters({
@@ -4727,6 +5329,7 @@ export class MapApp {
     });
     this.routePlanner?.updateDestinationProximity(remaining, total);
     this.maybeRevealArrivalDialog(atEnd && traveled > 0);
+    return traveled;
   }
 
   private maybeRevealArrivalDialog(atEnd: boolean): void {
@@ -4872,7 +5475,8 @@ export class MapApp {
 
     routeLifecycleManager.transition('recalculating');
     this.liveRouteTracking = false;
-    this.alongPathStabilizer.reset(0);
+    const progress = this.seedRouteProgressFromUser(route);
+    this.alongPathStabilizer.reset(progress.traveled);
 
     this.store.patch({
       route,
@@ -4880,8 +5484,8 @@ export class MapApp {
       currentLegIndex: 0,
       routeInstructions: instructions,
       markers: this.routePlanner.markersState,
-      routeTraveledMeters: 0,
-      routeRemainingMeters: route.distanceMeters ?? null,
+      routeTraveledMeters: progress.traveled,
+      routeRemainingMeters: progress.remaining,
       routeSimulating: false,
       routeSimulationComplete: false,
       arrivalDialogOpen: false,
@@ -5008,11 +5612,9 @@ export class MapApp {
     positionTelemetry.setActiveSource(this.activePositionSource);
     this.floorOrchestrator.reset();
     positionTelemetry.setOrchestratorState(this.floorOrchestrator.getState());
-    // Inject provider frames into Blue Dot (sim walk or live IPS snapped onto route).
-    const drivesAvatar =
-      this.activePositionSource === 'simulator' ||
-      PositionProviderRegistry.isLiveHardwareSource(this.activePositionSource);
-    this.blueDotService?.setSimulatorParallelMode(drivesAvatar);
+    this.blueDotService?.setSimulatorParallelMode(true, {
+      compassGlow: true,
+    });
 
     const originFloorId = path[0]?.floorId ?? this.store.get().currentFloorId;
     if (originFloorId) {
@@ -5021,8 +5623,11 @@ export class MapApp {
       this.applyOrchestratedFloor(originFloorId);
     }
 
-    if (this.activePositionSource === 'simulator' && path[0]) {
-      this.snapBlueDotToPathOrigin(path[0]);
+    if (this.store.get().locationPermission !== 'granted') {
+      appLog('Position', 'Skipping live GPS - location permission is not granted');
+      this.positionProvider = null;
+      this.blueDotService?.setSimulatorParallelMode(false);
+      return;
     }
 
     this.positionProvider = PositionProviderRegistry.getProvider(
@@ -5042,32 +5647,6 @@ export class MapApp {
       source: this.activePositionSource,
       pathPoints: path.length,
       originFloorId,
-      simulationEnabled: this.store.get().simulationEnabled,
-    });
-
-    if (this.activePositionSource !== 'simulator') {
-      // Live IPS: project hardware fixes onto the route and track as they arrive.
-      this.liveRouteTracking = true;
-      this.blueDotService?.follow();
-      this.store.patch({
-        blueDotFollowing: true,
-        routeSimulating: true,
-        routeSimulationComplete: false,
-      });
-    }
-  }
-
-  private snapBlueDotToPathOrigin(origin: RoutePayload['pathCoordinates'][number]): void {
-    if (origin.latitude == null || origin.longitude == null) return;
-
-    this.blueDotService?.applySimulatorFrame({
-      latitude: origin.latitude,
-      longitude: origin.longitude,
-      heading: 0,
-      accuracy: 4,
-      source: 'simulator',
-      floorId: origin.floorId,
-      timestamp: Date.now(),
     });
   }
 
@@ -5149,10 +5728,7 @@ export class MapApp {
   }
 
   private handleProviderFrame(frame: FplacesPositionFrame): void {
-    if (
-      frame.source !== 'simulator' &&
-      isHeadingOnlyPositionFix(this.lastProviderFix, frame)
-    ) {
+    if (isHeadingOnlyPositionFix(this.lastProviderFix, frame)) {
       this.blueDotService?.applyHeadingOnly(frame.heading);
       if (isArFrameVisible() || isArSessionActive(this.store.get().arPresentation)) {
         const now = performance.now();
@@ -5168,60 +5744,50 @@ export class MapApp {
       longitude: frame.longitude,
     };
 
-    const projected =
-      frame.source === 'simulator'
-        ? frame
-        : this.projectFrameOntoRoute(frame);
+    this.publishUserLocation({
+      latitude: frame.latitude,
+      longitude: frame.longitude,
+      accuracy: frame.accuracy ?? null,
+    });
 
-    this.ingestPositionFrame(projected);
+    const projected = this.projectFrameOntoRoute(frame);
 
-    if (isArFrameVisible() || isArSessionActive(this.store.get().arPresentation)) {
-      if (projected.source === 'simulator') {
-        // Full simulator clock at 10 Hz - single source of truth for AR.
-        syncNavigationToAr(this.getNavigationProgressSnapshot());
-      } else if (this.liveRouteTracking || this.store.get().routeSimulating) {
-        const now = performance.now();
-        if (now - this.lastArProviderStreamAt >= 90) {
-          this.lastArProviderStreamAt = now;
-          syncNavigationToAr(this.getNavigationProgressSnapshot());
-        }
-      } else {
-        const now = performance.now();
-        if (now - this.lastArProviderStreamAt >= 90) {
-          this.lastArProviderStreamAt = now;
-          dispatchPositionToAr(projected);
-        }
+    let display = projected;
+    if (typeof projected.alongPathMeters === 'number') {
+      const traveled = this.syncLiveRouteProgress(projected.alongPathMeters, {
+        offRouteMeters: projected.offRouteMeters,
+        accuracyMeters: projected.accuracy,
+      });
+      if (traveled != null) {
+        display = this.bindFrameToStabilizedAlong(projected, traveled);
       }
     }
 
-    const drivesMapAvatar =
-      this.activePositionSource === 'simulator' ||
-      PositionProviderRegistry.isLiveHardwareSource(this.activePositionSource);
+    this.ingestPositionFrame(display);
 
-    if (drivesMapAvatar) {
-      this.blueDotService?.applySimulatorFrame(projected);
-      const tracking =
-        this.activePositionSource === 'simulator'
-          ? this.store.get().routeSimulating || this.store.get().routeSimulationComplete
-          : this.liveRouteTracking ||
-            this.store.get().routeSimulating ||
-            this.store.get().routeSimulationComplete;
-      if (tracking) {
-        this.routePlanner?.updateTravelledPath({
-          latitude: projected.latitude,
-          longitude: projected.longitude,
-          floorId: projected.floorId ?? 'unknown',
-        });
+    this.blueDotService?.applySimulatorFrame(display);
+    const tracking =
+      this.liveRouteTracking ||
+      this.store.get().routeSimulating ||
+      this.store.get().routeSimulationComplete;
+    if (tracking) {
+      this.routePlanner?.updateTravelledPath({
+        latitude: display.latitude,
+        longitude: display.longitude,
+        floorId: display.floorId ?? 'unknown',
+      });
+    }
+
+    if (isArFrameVisible() || isArSessionActive(this.store.get().arPresentation)) {
+      const now = performance.now();
+      if (now - this.lastArProviderStreamAt >= 90) {
+        this.lastArProviderStreamAt = now;
+        if (this.liveRouteTracking || this.store.get().routeSimulating) {
+          syncNavigationToAr(this.getNavigationProgressSnapshot());
+        } else {
+          dispatchPositionToAr(display);
+        }
       }
-      if (this.activePositionSource === 'simulator') {
-        this.syncRouteProgress();
-      } else if (typeof projected.alongPathMeters === 'number') {
-        this.syncLiveRouteProgress(projected.alongPathMeters, {
-          offRouteMeters: projected.offRouteMeters,
-        });
-      }
-    } else if (isArSessionActive(this.store.get().arPresentation)) {
-      this.blueDotService?.applyProviderFrame(projected);
     }
   }
 
@@ -5236,17 +5802,17 @@ export class MapApp {
     if (
       !this.blueDotService ||
       !navigator.permissions?.query ||
-      this.store.get().simulationEnabled
+      this.store.get().locationPermission !== 'granted'
     ) {
       return;
     }
 
     try {
       const status = await navigator.permissions.query({ name: 'geolocation' });
-      if (status.state === 'granted') {
-        await this.blueDotService.startTracking();
-        appLog('BlueDot', 'Auto-started (permission already granted)');
-      }
+      if (status.state !== 'granted') return;
+      if (this.positionProvider?.isRunning) return;
+      await this.blueDotService.startTracking();
+      appLog('BlueDot', 'Auto-started (permission already granted)');
     } catch (error) {
       appWarn('BlueDot', 'Could not query geolocation permission', error);
     }
@@ -5256,6 +5822,7 @@ export class MapApp {
     // Location is requested explicitly during the post-auth location gate.
     if (!this.store.get().onboardingComplete) return;
     if (this.locationPromptShown || !navigator.geolocation) return;
+    if (permissionChoiceLocalDatasource.loadLocation() === 'denied') return;
     this.locationPromptShown = true;
     if (navigator.permissions?.query) {
       navigator.permissions
@@ -5298,28 +5865,39 @@ export class MapApp {
 
   private async runLocationGateRequest(options: {
     fromPermissionRequired: boolean;
+    silent?: boolean;
   }): Promise<void> {
     if (this.store.get().locationGateLoading) return;
 
-    // Show progress immediately and keep the underlying auth screen frozen
-    // (authStepBeforeLocation) before any async permission / GPS work.
+    const silent = Boolean(options.silent);
     const currentStep = this.store.get().authStep;
-    this.store.patch({
-      authStep: options.fromPermissionRequired
-        ? 'location-required'
-        : currentStep === 'location-error'
-          ? 'location-error'
-          : 'location-permission',
-      locationGateLoading: true,
-      locationPermanentlyDenied: false,
-      locationGateError: null,
-    });
+    if (!silent) {
+      // Show progress immediately and keep the underlying auth screen frozen
+      // (authStepBeforeLocation) before any async permission / GPS work.
+      this.store.patch({
+        authStep: options.fromPermissionRequired
+          ? 'location-required'
+          : currentStep === 'location-error'
+            ? 'location-error'
+            : 'location-permission',
+        locationGateLoading: true,
+        locationPermanentlyDenied: false,
+        locationGateError: null,
+      });
+    } else {
+      this.store.patch({ locationGateLoading: true });
+    }
 
     try {
       const permission = await this.locationService.queryPermission();
       const preflight = resolveLocationGatePreflight(permission);
 
       if (preflight.action === 'error-unsupported') {
+        if (silent) {
+          this.store.patch({ locationGateLoading: false });
+          await this.continueAfterLocationGranted();
+          return;
+        }
         this.store.patch({
           authStep: 'location-error',
           locationGateLoading: false,
@@ -5330,6 +5908,12 @@ export class MapApp {
       }
 
       if (preflight.action === 'required-permanent') {
+        this.persistLocationChoice('denied');
+        if (silent) {
+          this.store.patch({ locationGateLoading: false });
+          await this.continueAfterLocationGranted();
+          return;
+        }
         this.store.patch({
           authStep: 'location-required',
           locationPermanentlyDenied: true,
@@ -5340,6 +5924,7 @@ export class MapApp {
       }
 
       const coords = await this.locationService.requestLocation();
+      this.persistLocationChoice('granted');
       // Keep the dialog + underlying screen until continueAfterLocationGranted
       // swaps authStep in one patch (avoids flashing Find places behind).
       this.store.patch({
@@ -5370,12 +5955,26 @@ export class MapApp {
       );
 
       if (failure.action === 'required') {
+        this.persistLocationChoice('denied');
+        this.store.patch({ locationGateLoading: false });
+        if (silent || !options.fromPermissionRequired) {
+          this.showToast(
+            'Location is off. Tap ⊕ anytime if you want to turn it on.',
+          );
+          await this.continueAfterLocationGranted();
+          return;
+        }
         this.store.patch({
           authStep: 'location-required',
-          locationGateLoading: false,
           locationPermanentlyDenied: failure.permanentlyDenied,
           locationGateError: null,
         });
+        return;
+      }
+
+      if (silent) {
+        this.store.patch({ locationGateLoading: false });
+        await this.continueAfterLocationGranted();
         return;
       }
 

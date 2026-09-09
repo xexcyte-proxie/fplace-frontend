@@ -3,8 +3,9 @@
   publish = "mappedin-pwa/dist"
 
 # Netlify cannot proxy WebSocket upgrades - connect the PWA directly to the backend WS host.
+# ALB is HTTP-only today (ws://). HTTPS pages block mixed-content sockets until TLS is on the ALB.
 [build.environment]
-  VITE_WS_URL = "wss://fplaces-backend.vercel.app"
+  VITE_WS_URL = "ws://fplaces-alb-1964416382.us-east-1.elb.amazonaws.com"
 
 # Fresh shell after every deploy (SPA routes + index.html + SW).
 # Hashed /assets/* override below so bundles stay immutable.
@@ -21,7 +22,7 @@
 # Proxy API requests to the fPlaces backend (must be before SPA fallback).
 [[redirects]]
   from = "/api/*"
-  to = "https://fplaces-backend.vercel.app/api/:splat"
+  to = "http://fplaces-alb-1964416382.us-east-1.elb.amazonaws.com/api/:splat"
   status = 200
   force = true
 

@@ -100,7 +100,7 @@
   function instructionLabel(primary) {
     const label = primary?.label || 'Follow route';
     if (primary?.symbol === 'straight' || /straight/i.test(label)) {
-      return 'Continue straight';
+      return 'Head straight';
     }
     return label;
   }
@@ -312,15 +312,14 @@
       }
 
       if (turnTextEl && distBar) {
+        // Never announce an upcoming route turn early — only head-straight
+        // while aligned, or alignment corrections (left/right/around).
+        turnTextEl.textContent = instructionLabel(primary);
         if (!aligned) {
-          turnTextEl.textContent = instructionLabel(primary);
           distBar.textContent = 'Point your phone at the path';
-        } else if (liveDist != null && liveDist <= 8 && !isStraight) {
-          turnTextEl.textContent = instructionLabel(primary);
-          distBar.textContent = 'Now';
         } else {
-          turnTextEl.textContent = instructionLabel(primary);
-          distBar.textContent = distancePhrase(liveDist) || guidance.distanceLabel || '';
+          distBar.textContent =
+            distancePhrase(liveDist) || guidance.distanceLabel || '';
         }
       }
 

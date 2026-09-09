@@ -6,7 +6,7 @@
 
   window.FPLACES_AR_CONFIG = {
     /** Bumped when AR camera/SLAM boot changes - check console on load. */
-    buildId: "20260901-start-btn-v1",
+    buildId: "20260908-near-field-cap-v1",
     eighthWallAppKey: "",
     xrMode: "auto",
     arrowDistanceM: 2.5,
@@ -29,21 +29,20 @@
     incrementalPathHorizonM: 22,
     incrementalPathPruneBehindM: 14,
     /** Progressive reveal: arrows spawn only this far ahead of current progress. */
-    incrementalPathRevealAheadM: 6,
+    incrementalPathRevealAheadM: 8,
     /** One-at-a-time build-up: min delay between consecutive arrow spawns. */
-    incrementalPathSpawnIntervalMs: 320,
-    incrementalPathSpacingM: 4.5,
-    /** Cap trail chevrons visible at once (near-field uses a lower cap). */
-    incrementalPathMaxVisible: 4,
+    incrementalPathSpawnIntervalMs: 260,
+    incrementalPathSpacingM: 4,
+    incrementalPathMaxVisible: 6,
     /**
      * Opening stretch / near-camera densification guard.
-     * First `nearFieldStartM` of progress uses wider spacing, fewer arrows, smaller scale
-     * so the first viewport does not clog into a teal pile.
+     * Keep mid-route density (reveal 8 / spacing 4 / max 6) so the trail is
+     * not pin-only, but cap count + scale in the first viewport.
      */
     nearFieldStartM: 6,
-    nearFieldSpacingM: 5.5,
-    nearFieldMaxArrows: 2,
-    nearFieldArrowScale: 0.72,
+    nearFieldSpacingM: 4.5,
+    nearFieldMaxArrows: 3,
+    nearFieldArrowScale: 0.75,
     /** When remaining path is short, shrink reveal + density instead of dumping a full trail. */
     shortRemainingThresholdM: 12,
     shortRemainingRevealM: 4,
@@ -51,15 +50,15 @@
     arrivalClearRemainingM: 1.8,
     /** Show the gold destination pin only when remaining walk is this close. */
     destinationRevealRemainingM: 20,
-    floorArrowSpacingM: 3.5,
+    floorArrowSpacingM: 3,
     turnCurveBendM: 2.2,
     turnCurveArrowSpacingM: 2.0,
-    floorArrowCount: 4,
-    floorArrowLeadInM: 1.6,
+    floorArrowCount: 6,
+    floorArrowLeadInM: 1.1,
     /** Single leading guidance arrow - meters ahead along path floor. */
     leadingArrowDistanceM: 2.2,
     /** Visual scale - match trail chevrons (Google shows uniform row). */
-    leadingArrowScale: 1.05,
+    leadingArrowScale: 1.22,
     /** Advance to next path node when within this distance (Google AR: 2–5 m). */
     waypointAdvanceThresholdM: 3,
     /** Per-frame Quaternion.Slerp factor toward target orientation. */

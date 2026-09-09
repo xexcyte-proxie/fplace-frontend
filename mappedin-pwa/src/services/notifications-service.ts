@@ -10,6 +10,8 @@ import type {
 } from '../notifications/domain/entities';
 import { notificationsRepository } from '../notifications/data/notifications-repository-impl';
 
+export { applyPersonalNotificationEvent } from '../notifications/domain/apply-personal-notification-event';
+
 export type {
   AppNotification,
   PaginatedList,

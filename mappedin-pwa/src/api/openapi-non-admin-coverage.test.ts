@@ -134,6 +134,20 @@ describe('OpenAPI non-admin endpoint coverage', () => {
       expect(call.url).toContain('/api/users/change-password/');
     });
 
+    it('GET /api/users/interests/', async () => {
+      mockJson({
+        count: 1,
+        next: null,
+        previous: null,
+        results: [{ id: 1, name: 'Home team', slug: 'home-team' }],
+      });
+      const options = await auth.listInterestOptions();
+      expect(options).toEqual(['Home team']);
+      const call = lastCall();
+      expect(call.method).toBe('GET');
+      expect(call.url).toContain('/api/users/interests/');
+    });
+
     it('PUT /api/users/me/', async () => {
       mockJson({
         id: 1,

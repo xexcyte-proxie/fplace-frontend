@@ -83,8 +83,21 @@ export function isGuestMode(): boolean {
  * App-init entry: fingerprint the browser, then obtain/refresh a guest JWT
  * via POST /api/users/guest/. Authenticated (user) sessions skip the guest API
  * so we never overwrite registered-user tokens.
+ *
+ * Parallel callers (map credentials + auth bootstrap) share one in-flight request.
  */
+let guestAccessInFlight: Promise<GuestAccessResult> | null = null;
+
 export async function validateCurrentGuestAccess(): Promise<GuestAccessResult> {
+  if (!guestAccessInFlight) {
+    guestAccessInFlight = validateCurrentGuestAccessUncached().finally(() => {
+      guestAccessInFlight = null;
+    });
+  }
+  return guestAccessInFlight;
+}
+
+async function validateCurrentGuestAccessUncached(): Promise<GuestAccessResult> {
   const visitorId = await fingerprintService.getVisitorId();
 
   if (tokenLocalDatasource.load()) {

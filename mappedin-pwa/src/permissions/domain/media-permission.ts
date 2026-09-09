@@ -51,3 +51,10 @@ export function shouldReuseGrantedArCamera(
 ): boolean {
   return camera === 'granted' && arIsSameOrigin;
 }
+
+/** Skip getUserMedia after the first camera allow/deny. */
+export function shouldSkipCameraPrompt(
+  stored: 'undecided' | 'granted' | 'denied',
+): stored is 'granted' | 'denied' {
+  return stored === 'granted' || stored === 'denied';
+}

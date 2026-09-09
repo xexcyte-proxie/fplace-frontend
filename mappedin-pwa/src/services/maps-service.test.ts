@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AuthApiError,
   isAuthCredentialFailure,
+  isInvalidAccessTokenFailure,
 } from '../auth/data/datasources/api-client';
 import {
   extractMappedinAccessToken,
@@ -82,6 +83,39 @@ describe('isAuthCredentialFailure', () => {
       isAuthCredentialFailure(
         new Error(
           'Authentication credentials were not provided or are invalid. Please log in again.',
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it('detects SimpleJWT token_not_valid as an invalid access token', () => {
+    expect(
+      isInvalidAccessTokenFailure(
+        new AuthApiError(
+          {
+            detail: 'Given token not valid for any token type',
+            code: 'token_not_valid',
+          },
+          'Unauthorized',
+          401,
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it('detects SimpleJWT nested under DRF details, not only top-level detail', () => {
+    expect(
+      isInvalidAccessTokenFailure(
+        new AuthApiError(
+          {
+            status: 'error',
+            message: 'Your session expired. Please log in again.',
+            details: {
+              detail: 'Given token not valid for any token type',
+            },
+          },
+          'Unauthorized',
+          401,
         ),
       ),
     ).toBe(true);

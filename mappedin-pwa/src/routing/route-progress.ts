@@ -15,17 +15,50 @@ export const DESTINATION_MARKER_REVEAL_M = 20;
 /** Ignore sub-step along-path wiggles from heading-only frames and snap noise. */
 const ALONG_PATH_JITTER_M = 0.85;
 
+/** Poor accuracy widens the hold slightly; it must not unlock a corridor jump. */
+const ACCURACY_JITTER_FRACTION = 0.06;
+const MAX_ACCURACY_JITTER_M = 2.5;
+
+function alongPathJitterMeters(accuracyMeters?: number | null): number {
+  if (accuracyMeters == null || !Number.isFinite(accuracyMeters) || accuracyMeters <= 0) {
+    return ALONG_PATH_JITTER_M;
+  }
+  return Math.max(
+    ALONG_PATH_JITTER_M,
+    Math.min(MAX_ACCURACY_JITTER_M, accuracyMeters * ACCURACY_JITTER_FRACTION),
+  );
+}
+
 /** Below this along-path rate the user is treated as standing still. */
 const STATIONARY_ALONG_MPS = 0.28;
 
 /** Cap how fast remaining can fall so a noisy fix cannot sprint the odometer. */
 const MAX_WALK_MPS = 2.4;
 
-/** Faster than a sprint along the polyline: indoor GPS jump, not a step. */
-const GPS_JUMP_MPS = 3.5;
+/** Instant teleports along the polyline — not a walking step. */
+const GPS_JUMP_MPS = 8;
 
 /** Consecutive forward samples required before leaving the standing-still hold. */
 const FORWARD_UNLOCK_SAMPLES = 2;
+
+/**
+ * Prefer the geometric path length used by live snap progress over Mappedin's
+ * reported `directions.distance`, which can include vertical connectors.
+ */
+export function resolveCanonicalRouteDistanceMeters(
+  pathMeters: number,
+  mappedinDistance?: number | null,
+): number | null {
+  if (Number.isFinite(pathMeters) && pathMeters > 0) return pathMeters;
+  if (
+    mappedinDistance != null &&
+    Number.isFinite(mappedinDistance) &&
+    mappedinDistance > 0
+  ) {
+    return mappedinDistance;
+  }
+  return null;
+}
 
 /**
  * Live remaining walk distance: unfinished path + distance to get back on route.
@@ -87,8 +120,12 @@ export function hasArrivedAtDestination(options: {
   if (total <= 0) return false;
   const along = Math.max(0, options.alongPathMeters);
   const off = options.offRouteMeters ?? 0;
+  // A brand-new route with along=0 can satisfy `along >= total - 0.75` when
+  // the path is shorter than the tolerance. Require real progress first.
+  const minTravel = Math.min(3, Math.max(ARRIVAL_ALONG_PATH_TOLERANCE_M, total * 0.35));
   return (
     along >= total - ARRIVAL_ALONG_PATH_TOLERANCE_M &&
+    along >= minTravel &&
     off <= ARRIVAL_OFF_ROUTE_MAX_M
   );
 }
@@ -120,68 +157,95 @@ export function shouldRevealDestinationMarker(options: {
 export class LiveAlongPathStabilizer {
   private alongMeters = 0;
   private atMs: number | null = null;
+  /** When the published baseline last moved; caps unlock catch-up speed. */
+  private baselineMovedAtMs: number | null = null;
+  /** Previous raw snap; motion checks compare consecutive samples, not the held baseline. */
+  private lastRawAlongMeters: number | null = null;
   private forwardStreak = 0;
 
   reset(alongMeters = 0): void {
     this.alongMeters = Math.max(0, alongMeters);
     this.atMs = null;
+    this.baselineMovedAtMs = null;
+    this.lastRawAlongMeters = null;
     this.forwardStreak = 0;
   }
 
   update(options: {
     nextAlongMeters: number;
+    /** Ignored for the odometer — remaining metres add this separately. */
     offRouteMeters?: number | null;
+    /** Reported fix accuracy; poor accuracy widens the jitter deadband. */
+    accuracyMeters?: number | null;
     nowMs?: number;
   }): number {
     const next = Math.max(0, options.nextAlongMeters);
     const now =
       options.nowMs ??
       (typeof performance !== 'undefined' ? performance.now() : Date.now());
-    const off = options.offRouteMeters ?? 0;
 
     if (this.atMs == null) {
-      this.alongMeters = next;
       this.atMs = now;
+      this.baselineMovedAtMs = now;
+      this.lastRawAlongMeters = next;
+      // Keep the reset baseline (0 at Begin). The first indoor GPS snap is
+      // often the nearest point on a short path — adopting it teleports the
+      // odometer to the destination while the user is still standing still.
       return this.alongMeters;
     }
 
     const dt = Math.max(0.05, Math.min(4, (now - this.atMs) / 1000));
     this.atMs = now;
 
-    if (Number.isFinite(off) && off > OFF_ROUTE_ETA_THRESHOLD_M) {
-      this.alongMeters = next;
+    const previousRaw = this.lastRawAlongMeters ?? this.alongMeters;
+    this.lastRawAlongMeters = next;
+
+    // Off-route distance belongs on remaining metres (`computeLiveRemainingMeters`),
+    // not this odometer. Adopting `next` when off-route is what teleported the
+    // avatar to the destination on short L-shaped indoor paths.
+
+    // Judge motion from consecutive raw samples: while the baseline is held,
+    // a walker's delta-to-baseline keeps growing and would read as a fake
+    // "GPS jump" even though each step is perfectly plausible.
+    const sampleRate = (next - previousRaw) / dt;
+    if (Math.abs(sampleRate) > GPS_JUMP_MPS) {
       this.forwardStreak = 0;
       return this.alongMeters;
     }
+    if (Math.abs(sampleRate) < STATIONARY_ALONG_MPS) {
+      this.forwardStreak = 0;
+      return this.alongMeters;
+    }
+    this.forwardStreak = sampleRate > 0 ? this.forwardStreak + 1 : 0;
 
     const delta = next - this.alongMeters;
-    if (Math.abs(delta) < ALONG_PATH_JITTER_M) {
-      this.forwardStreak = 0;
-      return this.alongMeters;
-    }
-
-    const rate = delta / dt;
-    if (Math.abs(rate) > GPS_JUMP_MPS) {
-      this.forwardStreak = 0;
-      return this.alongMeters;
-    }
-
-    if (Math.abs(rate) < STATIONARY_ALONG_MPS) {
-      this.forwardStreak = 0;
+    const jitter = alongPathJitterMeters(options.accuracyMeters);
+    if (Math.abs(delta) < jitter) {
       return this.alongMeters;
     }
 
     if (delta > 0) {
-      this.forwardStreak += 1;
       if (this.forwardStreak < FORWARD_UNLOCK_SAMPLES) {
         return this.alongMeters;
       }
-      this.alongMeters += Math.min(delta, MAX_WALK_MPS * dt);
+      const heldSeconds = Math.max(
+        dt,
+        (now - (this.baselineMovedAtMs ?? now)) / 1000,
+      );
+      this.acceptBaseline(
+        this.alongMeters + Math.min(delta, MAX_WALK_MPS * heldSeconds),
+        now,
+      );
       return this.alongMeters;
     }
 
-    this.forwardStreak = 0;
-    this.alongMeters = next;
+    // Walking backward beyond the deadband: accept so remaining grows honestly.
+    this.acceptBaseline(next, now);
     return this.alongMeters;
+  }
+
+  private acceptBaseline(alongMeters: number, nowMs: number): void {
+    this.alongMeters = Math.max(0, alongMeters);
+    this.baselineMovedAtMs = nowMs;
   }
 }

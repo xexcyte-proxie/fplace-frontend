@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   COMPASS_FRESH_MS,
   createCompassHeadingFilter,
+  headingFromGeolocationCourse,
   headingFromOrientationEvent,
   resolveNavigationConeHeading,
+  stepVisualHeading,
 } from './cone-heading';
 
 describe('resolveNavigationConeHeading', () => {
@@ -34,6 +36,19 @@ describe('resolveNavigationConeHeading', () => {
         pathHeading: 180,
       }),
     ).toBe(180);
+  });
+});
+
+describe('headingFromGeolocationCourse', () => {
+  it('returns a finite course when the browser reports one', () => {
+    expect(headingFromGeolocationCourse(91)).toBe(91);
+    expect(headingFromGeolocationCourse(0)).toBe(0);
+  });
+
+  it('omits heading while GPS course is unknown or stationary', () => {
+    expect(headingFromGeolocationCourse(null)).toBeUndefined();
+    expect(headingFromGeolocationCourse(-1)).toBeUndefined();
+    expect(headingFromGeolocationCourse(Number.NaN)).toBeUndefined();
   });
 });
 
@@ -73,6 +88,18 @@ describe('createCompassHeadingFilter', () => {
     expect(filter.ingest({ alpha: 10, absolute: false }, 1100)).toBeNull();
   });
 
+  it('locks onto a noisy indoor compass after enough samples', () => {
+    const filter = createCompassHeadingFilter({
+      settleSamples: 2,
+      maxSpreadDeg: 28,
+    });
+    for (let i = 0; i < 7; i++) {
+      expect(filter.ingestHeading(i * 40)).toBeNull();
+    }
+    expect(filter.ingestHeading(20)).not.toBeNull();
+    expect(filter.isLocked()).toBe(true);
+  });
+
   it('does not lock onto a jumping compass', () => {
     const filter = createCompassHeadingFilter({
       settleSamples: 4,
@@ -97,5 +124,21 @@ describe('createCompassHeadingFilter', () => {
     expect(filter.ingestHeading(45)).toBe(45);
     expect(filter.isLocked()).toBe(true);
     expect(filter.ingestHeading(50)).toBe(50);
+  });
+});
+
+describe('stepVisualHeading', () => {
+  it('eases toward the target without wrapping the long way', () => {
+    const stepped = stepVisualHeading(350, 10, 1 / 60, 12);
+    expect(stepped).toBeGreaterThan(350);
+    expect(stepped).toBeLessThan(360);
+  });
+
+  it('reaches the target after enough time', () => {
+    let display = 0;
+    for (let i = 0; i < 80; i++) {
+      display = stepVisualHeading(display, 90, 1 / 30, 12);
+    }
+    expect(display).toBeCloseTo(90, 0);
   });
 });

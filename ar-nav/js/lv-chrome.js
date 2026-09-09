@@ -21,6 +21,12 @@
     chrome.classList.toggle('hidden', !visible);
   }
 
+  function applyPresentation(mode) {
+    const minimized = mode === 'minimized';
+    document.body.classList.toggle('lv-minimized', minimized);
+    setChromeVisible(mode === 'fullscreen');
+  }
+
   function tripFooter() {
     return document.getElementById('trip-footer');
   }
@@ -109,11 +115,12 @@
     if (event.origin !== parentOrigin()) return;
     const data = event.data;
     if (!data || data.type !== 'fplaces_presentation') return;
-    setChromeVisible(data.mode === 'fullscreen');
+    applyPresentation(data.mode);
   });
 
   bindBottomSheet();
-  setChromeVisible(true);
+  applyPresentation('fullscreen');
+  postToParent('fplaces_ar_ready');
 
   window.FplacesLvChrome = {
     setSheetCollapsed,

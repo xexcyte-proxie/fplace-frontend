@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { FPLACES_BACKEND_HTTP_ORIGIN } from '../config/fplaces-backend';
 import {
   guestCanUseArTrial,
   type GuestSession,
@@ -14,7 +15,7 @@ import {
  * Live e2e against the deployed guest API.
  * Uses unique fingerprints so runs do not exhaust a shared trial window.
  */
-const BACKEND = 'https://fplaces-backend.vercel.app';
+const BACKEND = FPLACES_BACKEND_HTTP_ORIGIN;
 const LIVE_TIMEOUT_MS = 45_000;
 
 function uniqueFingerprint(): string {

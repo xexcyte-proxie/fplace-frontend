@@ -8,10 +8,24 @@ import {
   resetArMediaPermissionPrime,
 } from './media-permission-service';
 
+function installMemoryStorage(): void {
+  const store = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      store.set(key, value);
+    },
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+  });
+}
+
 describe('media-permission-service', () => {
   beforeEach(() => {
-    resetArMediaPermissionPrime();
     vi.unstubAllGlobals();
+    installMemoryStorage();
+    resetArMediaPermissionPrime();
   });
 
   afterEach(() => {
@@ -86,5 +100,27 @@ describe('media-permission-service', () => {
     const result = await consumeArMediaPermissionPrime();
     expect(result.camera).toBe('granted');
     expect(getUserMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call getUserMedia again after the first grant', async () => {
+    const stop = vi.fn();
+    const getUserMedia = vi.fn().mockResolvedValue({
+      getTracks: () => [{ stop }],
+    });
+    vi.stubGlobal('isSecureContext', true);
+    vi.stubGlobal('navigator', {
+      mediaDevices: { getUserMedia },
+    });
+    vi.stubGlobal('DeviceOrientationEvent', undefined);
+    vi.stubGlobal('DeviceMotionEvent', undefined);
+
+    await primeArMediaPermissions();
+    getUserMedia.mockClear();
+
+    await expect(primeArMediaPermissions()).resolves.toEqual({
+      camera: 'granted',
+      motionGranted: true,
+    });
+    expect(getUserMedia).not.toHaveBeenCalled();
   });
 });

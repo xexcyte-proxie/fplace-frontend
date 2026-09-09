@@ -81,9 +81,4 @@ export function collectLocationAnchors(mapData: MapData): LocationAnchor[] {
   return entries;
 }
 
-export function slugifyLocationName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-}
+export { slugifyLocationName } from '../forum/domain/section-locations';

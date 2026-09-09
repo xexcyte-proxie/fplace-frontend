@@ -1,5 +1,4 @@
 import type { PositionSourceType } from './types';
-import { HighFrequencyMockProvider } from './providers/mockProvider';
 import { GpsPositionProvider } from './providers/gpsProvider';
 import { AppleIndoorProvider } from './providers/appleProvider';
 import { IndoorAtlasProvider } from './providers/indoorAtlasProvider';
@@ -40,61 +39,49 @@ function appleIndoorLikelyAvailable(): boolean {
   return false;
 }
 
+function envLiveSource(): PositionSourceType | null {
+  const raw = import.meta.env.VITE_POSITION_SOURCE as PositionSourceType | undefined;
+  if (PositionProviderRegistry.isLiveHardwareSource(raw ?? '')) {
+    return raw as PositionSourceType;
+  }
+  return null;
+}
+
 export class PositionProviderRegistry {
   static getProvider(sourceType: PositionSourceType): PositionProvider {
     switch (sourceType) {
-      case 'simulator':
-        return new HighFrequencyMockProvider();
-      case 'gps':
-        return new GpsPositionProvider();
       case 'apple_indoor':
         return new AppleIndoorProvider();
       case 'indoor_atlas':
         return new IndoorAtlasProvider();
       case 'ble_beacon':
         return new BleBeaconProvider();
+      case 'gps':
       default:
-        return new HighFrequencyMockProvider();
+        return new GpsPositionProvider();
     }
   }
 
   /** True for real IPS / device sources (GPS, Apple Indoor, Indoor Atlas, BLE beacons). */
-  static isLiveHardwareSource(source: PositionSourceType): boolean {
+  static isLiveHardwareSource(source: string): source is PositionSourceType {
     return (LIVE_HARDWARE_SOURCES as readonly string[]).includes(source);
   }
 
-  /** Env-configured source preference (may be simulator). */
-  static resolveActiveSource(): PositionSourceType {
-    const raw = import.meta.env.VITE_POSITION_SOURCE as PositionSourceType | undefined;
-    if (
-      raw === 'simulator' ||
-      raw === 'gps' ||
-      raw === 'apple_indoor' ||
-      raw === 'indoor_atlas' ||
-      raw === 'ble_beacon'
-    ) {
-      return raw;
-    }
-    return 'simulator';
-  }
-
   /**
-   * Live indoor positioning source when Simulation is OFF.
-   * Auto-picks the best available hardware - you do not need to change env for normal use.
+   * Live indoor positioning source.
+   * Auto-picks the best available hardware — you do not need to change env for normal use.
    * Optional override: set VITE_POSITION_SOURCE to a live source (gps | apple_indoor |
    * indoor_atlas | ble_beacon) to force one stack.
    *
-   * Priority when unset / simulator:
+   * Priority when unset:
    * 1. Indoor Atlas (API key present)
    * 2. BLE beacons (Web Bluetooth + venue beacon matrix)
    * 3. Apple Indoor (iPhone / iPad)
    * 4. GPS (always-available live fallback; still projected onto the route)
    */
   static resolveLiveHardwareSource(): PositionSourceType {
-    const env = PositionProviderRegistry.resolveActiveSource();
-    if (PositionProviderRegistry.isLiveHardwareSource(env)) {
-      return env;
-    }
+    const env = envLiveSource();
+    if (env) return env;
 
     if (import.meta.env.VITE_INDOOR_ATLAS_API_KEY) {
       return 'indoor_atlas';
@@ -108,12 +95,12 @@ export class PositionProviderRegistry {
     return 'gps';
   }
 
-  /**
-   * Runtime source for route navigation.
-   * Simulation ON → simulated walk. OFF → auto live IPS hardware (not simulator).
-   */
-  static resolveNavigationSource(simulationEnabled: boolean): PositionSourceType {
-    if (simulationEnabled) return 'simulator';
+  /** Runtime source for route navigation — live IPS only. */
+  static resolveNavigationSource(): PositionSourceType {
+    return PositionProviderRegistry.resolveLiveHardwareSource();
+  }
+
+  static resolveActiveSource(): PositionSourceType {
     return PositionProviderRegistry.resolveLiveHardwareSource();
   }
 }

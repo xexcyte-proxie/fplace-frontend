@@ -10,6 +10,7 @@ import {
   type THydrateMapDataBundle,
 } from '@mappedin/mappedin-js';
 
+import { FPLACES_BACKEND_HTTP_ORIGIN } from '../src/config/fplaces-backend';
 import type { OfflineMapCacheRecord } from '../src/map/domain/entities';
 import type { MapOfflineRepository } from '../src/map/domain/repositories/map-offline-repository';
 import {
@@ -19,7 +20,7 @@ import {
 } from '../src/services/map-offline-service';
 
 const MAP_ID = '65c0ff7430b94e3fabd5bb8c';
-const BACKEND = 'https://fplaces-backend.vercel.app';
+const BACKEND = FPLACES_BACKEND_HTTP_ORIGIN;
 
 class MemoryMapOfflineRepository implements MapOfflineRepository {
   private readonly store = new Map<string, OfflineMapCacheRecord>();

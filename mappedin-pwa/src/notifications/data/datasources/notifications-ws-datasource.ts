@@ -1,15 +1,12 @@
-import { appConfig } from '../../../config';
+import { resolveWsOrigin } from '../../../config/ws-origin';
+import { connectReconnectingWebSocket } from '../../../config/reconnecting-websocket';
 import { tokenLocalDatasource } from '../../../auth/data/datasources/token-local-datasource';
 import type {
   PersonalNotificationEvent,
   PersonalNotificationEventHandler,
   PersonalNotificationSubscription,
 } from '../../domain/entities';
-import { appWarn } from '../../../utils/logger';
 import { coerceNotification } from './notifications-remote-datasource';
-
-const RECONNECT_BASE_MS = 1_500;
-const RECONNECT_MAX_MS = 20_000;
 
 /**
  * Receive-only WebSocket to `ws/notifications/?token=<access_token>`.
@@ -19,88 +16,19 @@ export class NotificationsWsDatasource {
   connect(
     onEvent: PersonalNotificationEventHandler,
   ): PersonalNotificationSubscription {
-    let socket: WebSocket | null = null;
-    let closedByClient = false;
-    let reconnectAttempts = 0;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const clearReconnect = () => {
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-    };
-
-    const open = () => {
-      const token = tokenLocalDatasource.getAccessToken();
-      if (!token) {
-        appWarn('NotificationsWS', 'No access token; skipping personal socket');
-        return;
-      }
-
-      const url = buildNotificationsWsUrl(token);
-      try {
-        socket = new WebSocket(url);
-      } catch (error) {
-        appWarn('NotificationsWS', 'Failed to open socket', error);
-        scheduleReconnect();
-        return;
-      }
-
-      socket.addEventListener('open', () => {
-        reconnectAttempts = 0;
-      });
-
-      socket.addEventListener('message', (event) => {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(String(event.data));
-        } catch {
-          appWarn('NotificationsWS', 'Non-JSON message ignored');
-          return;
-        }
-
+    return connectReconnectingWebSocket({
+      logTag: 'NotificationsWS',
+      buildUrl: () => {
+        const token = tokenLocalDatasource.getUserAccessToken();
+        if (!token) return null;
+        return buildNotificationsWsUrl(token);
+      },
+      onMessage: (parsed) => {
         const liveEvent = parsePersonalNotificationMessage(parsed);
         if (!liveEvent) return;
         onEvent(liveEvent);
-      });
-
-      socket.addEventListener('close', () => {
-        socket = null;
-        if (!closedByClient) scheduleReconnect();
-      });
-
-      socket.addEventListener('error', () => {
-        // `close` follows; reconnect is scheduled there.
-      });
-    };
-
-    const scheduleReconnect = () => {
-      if (closedByClient) return;
-      clearReconnect();
-      const delay = Math.min(
-        RECONNECT_MAX_MS,
-        RECONNECT_BASE_MS * 2 ** reconnectAttempts,
-      );
-      reconnectAttempts += 1;
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null;
-        open();
-      }, delay);
-    };
-
-    open();
-
-    return {
-      disconnect() {
-        closedByClient = true;
-        clearReconnect();
-        if (socket && socket.readyState < WebSocket.CLOSING) {
-          socket.close();
-        }
-        socket = null;
       },
-    };
+    });
   }
 }
 
@@ -117,28 +45,17 @@ export function parsePersonalNotificationMessage(
   if (!raw || typeof raw !== 'object') return null;
   const message = raw as Record<string, unknown>;
   const type = String(message.type ?? message.event ?? '').trim();
-  if (type !== 'new_notification') return null;
+  if (type !== 'new_notification' && type !== 'notification') return null;
 
-  const notification = coerceNotification(
-    extractObject(message, ['notification', 'payload', 'data']) ?? message,
-  );
+  const payload =
+    extractObject(message, ['notification', 'payload', 'data']) ?? message;
+  const cleaned = { ...payload };
+  if (cleaned.type === 'new_notification' || cleaned.type === 'notification') {
+    delete cleaned.type;
+  }
+  const notification = coerceNotification(cleaned);
   if (!notification) return null;
   return { type: 'new_notification', notification };
-}
-
-function resolveWsOrigin(): string {
-  const configured = appConfig.wsUrl.replace(/\/$/, '');
-  if (configured) return configured;
-
-  const api = appConfig.apiUrl.replace(/\/$/, '');
-  if (api) return api.replace(/^http/i, 'ws');
-
-  if (typeof window !== 'undefined' && window.location?.host) {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}`;
-  }
-
-  return 'wss://fplaces-backend.vercel.app';
 }
 
 function extractObject(

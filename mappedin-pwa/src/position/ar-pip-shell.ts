@@ -2,6 +2,8 @@ import type { ArPresentation } from './bridge';
 import { appLog } from '../utils/logger';
 
 const PIP_STORAGE_KEY = 'fplaces.ar.pipPosition';
+const PIP_FALLBACK_WIDTH = 152;
+const PIP_FALLBACK_HEIGHT = 216;
 
 interface PipPosition {
   x: number;
@@ -67,17 +69,26 @@ function clampPip(x: number, y: number, width: number, height: number): PipPosit
   };
 }
 
-function defaultPipPosition(): PipPosition {
-  const width = 168;
-  const height = 224;
-  const gap = 12;
-  const bottomInset = 68;
-  return clampPip(
-    window.innerWidth - width - gap,
-    window.innerHeight - height - bottomInset,
-    width,
-    height,
-  );
+function placeDefaultPip(shell: HTMLElement, width: number, height: number): PipPosition {
+  shell.style.left = 'auto';
+  shell.style.right = 'var(--ar-pip-gap)';
+  shell.style.top = 'var(--ar-pip-stack-top)';
+  shell.style.bottom = 'auto';
+  void shell.offsetWidth;
+  const rect = shell.getBoundingClientRect();
+  return clampPip(rect.left, rect.top, width, height);
+}
+
+function measuredPipSize(shell: HTMLElement): { width: number; height: number } {
+  const previousTransition = shell.style.transition;
+  shell.style.transition = 'none';
+  void shell.offsetWidth;
+  const size = pipSize(shell);
+  shell.style.transition = previousTransition;
+  return {
+    width: size.width || PIP_FALLBACK_WIDTH,
+    height: size.height || PIP_FALLBACK_HEIGHT,
+  };
 }
 
 export function applyPipShellLayout(mode: ArPresentation): void {
@@ -114,9 +125,10 @@ export function applyPipShellLayout(mode: ArPresentation): void {
   }
 
   shell.classList.add('ar-pip-shell--minimized');
-  const { width, height } = pipSize(shell);
-  const pos = pipPosition ?? defaultPipPosition();
-  const clamped = clampPip(pos.x, pos.y, width || 168, height || 224);
+  const { width, height } = measuredPipSize(shell);
+  const clamped = pipPosition
+    ? clampPip(pipPosition.x, pipPosition.y, width, height)
+    : placeDefaultPip(shell, width, height);
   shell.style.left = `${clamped.x}px`;
   shell.style.top = `${clamped.y}px`;
   shell.style.right = 'auto';
@@ -211,7 +223,7 @@ export function installArPipShell(handlers: {
 
   window.addEventListener('resize', () => {
     if (!shell.classList.contains('ar-pip-shell--minimized') || shell.hidden) return;
-    const { width, height } = pipSize(shell);
+    const { width, height } = measuredPipSize(shell);
     const rect = shell.getBoundingClientRect();
     const clamped = clampPip(rect.left, rect.top, width, height);
     shell.style.left = `${clamped.x}px`;
