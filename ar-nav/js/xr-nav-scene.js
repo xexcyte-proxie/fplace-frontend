@@ -7,6 +7,12 @@
     if (document.getElementById('fplaces-calibrate-btn')) return;
     const cfg = window.FPLACES_AR_CONFIG || {};
     if (cfg.autoCalibrate) return;
+    if (
+      new URLSearchParams(window.location.search).get('preload') === '1' &&
+      !window.__fplacesLiveViewRequested
+    ) {
+      return;
+    }
 
     const btn = document.createElement('button');
     btn.id = 'fplaces-calibrate-btn';
@@ -154,42 +160,13 @@
     }
     if (!window.__fplacesXrAttempted && !window.FplacesCameraStart?.isStarted?.()) return;
     window.__fplacesPreviewFallbackDone = true;
-    SLOG()?.log?.('cameraFallback', 'Falling back to preview camera', { reason });
-    resetXrSessionFlags();
-    window.__fplacesXrRunCalled = false;
-    window.__fplacesXrScene = null;
-    window.__fplacesXrCamera = null;
-    try {
-      window.XR8?.stop?.();
-    } catch (_) {}
-    document.getElementById('camerafeed')?.remove();
-    window.FplacesSlamHeading?.deactivate?.();
-    window.FplacesSlamPose?.deactivate?.();
+    SLOG()?.log?.('cameraFallback', 'Recovering SLAM instead of compass', { reason });
     window.FplacesCameraStart?.resetForXrRetry?.();
-    try {
-      await window.FplacesFallbackNav.attachCamera();
-      document.body.classList.add('lv-compass-camera');
-      window.FplacesCameraStart?.markStarted?.();
-      window.__fplacesArMode = 'compass';
-      window.__fplacesOnCameraStarted?.();
-      window.FplacesLiveViewHud?.setTrackingMode?.(
-        'compass',
-        'Preview camera (AR unavailable)',
-      );
-      window.FplacesLiveViewHud?.setStatus?.(
-        'Camera on — AR could not start. Compass navigation is active.',
-      );
-      SLOG()?.audit?.('preview-fallback');
-    } catch (error) {
-      SLOG()?.log?.('cameraFallback', 'Preview camera failed', {
-        error: String(error),
-      });
-      window.FplacesCameraStart?.showPrompt?.(
-        'Camera blocked - allow access, then tap Start',
-        () => window.FplacesFallbackNav.attachCamera(),
-        { syncXr: false },
-      );
-    }
+    window.__fplacesArMode = 'slam';
+    document.body.classList.remove('lv-compass-camera');
+    document.body.classList.add('lv-slam-active');
+    window.FplacesLiveViewHud?.setTrackingMode?.('slam-loading', 'Resuming AR…');
+    window.__fplacesRecoverSlam?.(reason);
   }
 
   window.__fplacesFallbackToPreviewCamera = fallbackToPreviewCamera;
@@ -327,54 +304,12 @@
 
   async function forcePreviewCamera(reason) {
     window.__fplacesLastCameraFallbackReason = reason;
-    SLOG()?.log?.('cameraFallback', 'Forcing preview camera', { reason });
-    SLOG()?.logCheck?.(
-      'force-preview',
-      false,
-      `Switching to preview camera: ${reason}`,
-      { reason },
-    );
-    window.__fplacesCameraSessionNotified = false;
-    window.__fplacesXrRunCalled = false;
-    window.__fplacesXrAwaitingOnStart = false;
-    window.__fplacesCameraTextureApplied = false;
-    resetXrSessionFlags();
-    window.__fplacesXrScene = null;
-    window.__fplacesXrCamera = null;
-    try {
-      window.XR8?.stop?.();
-    } catch (_) {}
-    window.FplacesFallbackNav?.hideXrFeed?.();
-    window.FplacesSlamHeading?.deactivate?.();
-    window.FplacesSlamPose?.deactivate?.();
-    window.__fplacesArMode = 'compass';
-    document.body.classList.remove('lv-slam-active');
-    window.__fplacesMarkCompassFallback?.(reason);
-
-    await new Promise((resolve) => window.setTimeout(resolve, 350));
-
-    try {
-      await window.FplacesFallbackNav.attachCamera();
-      window.FplacesFallbackNav?.showPreviewVideo?.();
-      window.FplacesCameraStart?.markStarted?.();
-      window.__fplacesOnCameraStarted?.();
-      window.FplacesLiveViewHud?.setTrackingMode?.(
-        'compass',
-        'Camera on (compass mode)',
-      );
-      window.FplacesLiveViewHud?.setStatus?.('Camera on - compass navigation active.');
-      SLOG()?.audit?.('preview-forced');
-      SLOG()?.runHealthCheck?.('preview-forced');
-    } catch (error) {
-      SLOG()?.log?.('cameraFallback', 'Forced preview camera failed', {
-        error: String(error),
-      });
-      window.FplacesCameraStart?.showPrompt?.(
-        'Camera blocked - allow access, then tap Start',
-        () => window.FplacesFallbackNav.attachCamera(),
-        { syncXr: false },
-      );
-    }
+    SLOG()?.log?.('cameraFallback', 'Recovering SLAM instead of compass', { reason });
+    window.__fplacesArMode = 'slam';
+    document.body.classList.remove('lv-compass-camera');
+    document.body.classList.add('lv-slam-active');
+    window.FplacesLiveViewHud?.setTrackingMode?.('slam-loading', 'Resuming AR…');
+    window.__fplacesRecoverSlam?.(reason);
   }
 
   function scheduleCameraFeedHealthCheck() {
@@ -581,7 +516,14 @@
   }
 
   function runXrEngine(DBG) {
-    if (window.__fplacesXrRunCalled) return;
+    if (window.__fplacesXrRunCalled && window.__fplacesXrSessionActive) return;
+    if (window.__fplacesXrRunCalled && !window.__fplacesXrSessionActive) {
+      try {
+        window.XR8?.stop?.();
+      } catch (_) {}
+      window.__fplacesXrRunCalled = false;
+      window.__fplacesXrAwaitingOnStart = false;
+    }
     window.__fplacesXrRunCalled = true;
     window.__fplacesXrAttempted = true;
 
@@ -638,6 +580,11 @@
     runXrEngine(window.FplacesArDebug);
   };
 
+  let resetNavScene = null;
+  window.__fplacesResetXrNavScene = function resetXrNavScene() {
+    resetNavScene?.();
+  };
+
   window.FplacesXrNavScene = {
     start({ navigator, hud }) {
       const DBG = window.FplacesArDebug;
@@ -668,6 +615,13 @@
       let xrScene = null;
       let routeBuilt = false;
       let xrInitialized = false;
+
+      resetNavScene = () => {
+        xrInitialized = false;
+        xrScene = null;
+        xrCamera = null;
+        routeBuilt = false;
+      };
 
       function setupXrScene() {
         if (xrInitialized) return true;

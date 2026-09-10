@@ -96,6 +96,61 @@
   color: #5c5c6a;
 }
 
+.product-tour-dont-show {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 0;
+  cursor: pointer;
+}
+
+.product-tour-dont-show-box {
+  position: relative;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+}
+
+.product-tour-dont-show-input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.product-tour-dont-show-check {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid #c7cad1;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.product-tour-dont-show-input:checked + .product-tour-dont-show-check {
+  border-color: var(--brand-orange);
+  background: var(--brand-orange);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 14px 14px;
+}
+
+.product-tour-dont-show-input:focus-visible + .product-tour-dont-show-check {
+  outline: 2px solid #3a5ba0;
+  outline-offset: 2px;
+}
+
+.product-tour-dont-show-copy {
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #5c5f69;
+}
+
 .product-tour-dots {
   display: flex;
   flex-wrap: wrap;

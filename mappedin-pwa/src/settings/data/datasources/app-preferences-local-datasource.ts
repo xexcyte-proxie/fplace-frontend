@@ -16,7 +16,7 @@ export class AppPreferencesLocalDatasource {
           typeof parsed.notificationsEnabled === 'boolean'
             ? parsed.notificationsEnabled
             : DEFAULT_APP_PREFERENCES.notificationsEnabled,
-        // Simulation mode is gone — never restore a leftover toggle.
+        // Simulation mode is gone: never restore a leftover toggle.
         simulationEnabled: false,
       };
     } catch {

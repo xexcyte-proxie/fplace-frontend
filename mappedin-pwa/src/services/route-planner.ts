@@ -173,7 +173,7 @@ export class RoutePlanner {
     this.destinationAreaHint =
       meta?.areaHint ??
       (label !== 'End point' ? inferAreaHint(label) : 'On this level');
-    // Pin stays off until the walker is close — see beginGuidedNavigation.
+    // Pin stays off until the walker is close: see beginGuidedNavigation.
     this.hideDestinationMarker();
     appLog('Route', `Destination set (${source}): ${label}`);
   }

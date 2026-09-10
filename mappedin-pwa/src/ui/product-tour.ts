@@ -13,6 +13,7 @@ export function renderProductTour(options: {
   step: ProductTourStep;
   index: number;
   total: number;
+  dontShowAgain?: boolean;
 }): string {
   const view = buildProductTourCardView(options);
   const dots = Array.from({ length: view.total }, (_, i) => {
@@ -41,6 +42,18 @@ export function renderProductTour(options: {
         </div>
         <h2 id="product-tour-title" class="product-tour-title">${escapeHtml(view.title)}</h2>
         <p id="product-tour-body" class="product-tour-body">${escapeHtml(view.body)}</p>
+        <label class="product-tour-dont-show">
+          <span class="product-tour-dont-show-box">
+            <input
+              id="product-tour-dont-show"
+              type="checkbox"
+              class="product-tour-dont-show-input"
+              ${view.dontShowAgain ? 'checked' : ''}
+            />
+            <span class="product-tour-dont-show-check" aria-hidden="true"></span>
+          </span>
+          <span class="product-tour-dont-show-copy">Don't show this again</span>
+        </label>
         <div class="product-tour-dots" aria-hidden="true">${dots}</div>
         <div class="product-tour-actions">
           ${

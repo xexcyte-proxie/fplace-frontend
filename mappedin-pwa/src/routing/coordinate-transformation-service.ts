@@ -20,7 +20,7 @@ export interface SnapOptions {
   preferVenue?: boolean;
   currentLegIndex?: number;
   legs?: Array<{ index: number; legId: string; floorId: string; startIndex: number; endIndex: number }>;
-  /** Stabilized along-path metres — prefer the current corridor over a later one. */
+  /** Stabilized along-path metres: prefer the current corridor over a later one. */
   previousAlongMeters?: number | null;
 }
 

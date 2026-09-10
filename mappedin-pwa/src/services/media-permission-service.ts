@@ -137,7 +137,7 @@ export function primeArMediaPermissions(): Promise<ArMediaPermissionResult> {
   });
 }
 
-/** True when iOS motion permission was already decided — do not call requestPermission again. */
+/** True when iOS motion permission was already decided: do not call requestPermission again. */
 export function shouldRequestArMotionPermission(): boolean {
   return permissionChoiceLocalDatasource.loadMotion() === 'undecided';
 }

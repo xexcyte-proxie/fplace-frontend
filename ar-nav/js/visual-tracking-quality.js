@@ -1,6 +1,6 @@
 /**
  * Domain: decide when Live View lighting / visual tracking is too weak for SLAM.
- * Framework-agnostic — used by the camera sampler + compass prompt.
+ * Framework-agnostic: used by the camera sampler + compass prompt.
  */
 (function (root) {
   const DEFAULT_THRESHOLDS = {

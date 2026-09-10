@@ -100,7 +100,7 @@ export function isMixedContentWebSocketUrl(url: string): boolean {
   return isInsecureWsUrl(url);
 }
 
-/** Origin + path only — never log the access token query string. */
+/** Origin + path only: never log the access token query string. */
 export function describeWsUrl(url: string): string {
   try {
     const parsed = new URL(url);

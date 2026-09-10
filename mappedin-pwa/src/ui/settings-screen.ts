@@ -106,6 +106,7 @@ function renderSettingsConfirm(state: AppState): string {
 
 export function renderSettingsScreen(state: AppState): string {
   const notificationsOn = state.notificationsEnabled;
+  const tourOn = state.productTourEnabled;
   const pseudoName = resolveDisplayName(state.authUser);
   const interests =
     state.authUser?.interests?.length
@@ -195,6 +196,26 @@ export function renderSettingsScreen(state: AppState): string {
             })}
             <div class="settings-divider"></div>
             ${settingsRow({
+              tag: 'div',
+              iconClass: 'settings-row-icon--orange',
+              icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.75"></circle><path d="M12 8v4l3 2" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path></svg>`,
+              title: 'App tour',
+              subtitle: 'Show the highlight walkthrough',
+              accessory: `
+                <button
+                  type="button"
+                  id="settings-tour-toggle"
+                  class="settings-toggle ${tourOn ? 'is-on' : ''}"
+                  role="switch"
+                  aria-checked="${tourOn}"
+                  aria-label="App tour"
+                >
+                  <span class="settings-toggle-thumb"></span>
+                </button>
+              `,
+            })}
+            <div class="settings-divider"></div>
+            ${settingsRow({
               id: 'settings-language-btn',
               iconClass: 'settings-row-icon--indigo',
               icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.75"></circle><path d="M3 12h18M12 3c2.8 2.6 4.2 5.8 4.2 9s-1.4 6.4-4.2 9c-2.8-2.6-4.2-5.8-4.2-9S9.2 5.6 12 3z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path></svg>`,
@@ -221,14 +242,6 @@ export function renderSettingsScreen(state: AppState): string {
             })}
             <div class="settings-divider"></div>
             ${settingsRow({
-              id: 'settings-replay-tour-btn',
-              iconClass: 'settings-row-icon--orange',
-              icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.75"></circle><path d="M12 8v4l3 2" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path></svg>`,
-              title: 'App tour',
-              subtitle: 'Replay the highlight walkthrough',
-            })}
-            <div class="settings-divider"></div>
-            ${settingsRow({
               id: 'settings-privacy-btn',
               iconClass: 'settings-row-icon--indigo',
               icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-2.8 8.2-7 10-4.2-1.8-7-5.5-7-10V6l7-3z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path></svg>`,
@@ -252,8 +265,7 @@ export function renderSettingsScreen(state: AppState): string {
           </div>
         </section>
 
-        <section class="settings-group settings-group--danger">
-          <h2 class="settings-group-label settings-group-label--danger">Danger zone</h2>
+        <section class="settings-group">
           <div class="settings-card settings-card--danger">
             ${settingsRow({
               id: 'settings-logout-btn',

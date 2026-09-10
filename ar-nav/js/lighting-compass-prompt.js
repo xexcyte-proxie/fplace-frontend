@@ -4,7 +4,7 @@
 (function () {
   const TITLE = 'Poor lighting here';
   const BODY =
-    'This spot is too dark for camera tracking. Compass mode can keep guiding you along the route.';
+    'This spot is too dark for camera tracking. Keep the camera on the path and wait for AR to recover.';
 
   function layer() {
     return document.getElementById('lv-lighting-dialog');
@@ -24,7 +24,7 @@
 
   function reasonCopy(reason) {
     if (reason === 'feature-poor') {
-      return 'Camera tracking is too weak in this area (low light or little texture). Compass mode can keep guiding you along the route.';
+      return 'Camera tracking is weak here. Keep moving the phone slowly — AR will recover.';
     }
     return BODY;
   }
@@ -33,7 +33,7 @@
     const copy = document.getElementById('lv-lighting-dialog-body');
     if (copy) copy.textContent = reasonCopy(reason);
     setOpen(true);
-    window.FplacesArDebug?.log('LightingPrompt', 'Showing compass switch dialog', {
+    window.FplacesArDebug?.log('LightingPrompt', 'Showing lighting dialog', {
       reason,
     });
   }
@@ -42,20 +42,9 @@
     setOpen(false);
   }
 
-  async function switchToCompass(reason) {
+  function keepAr() {
     hide();
-    const granted =
-      (await window.FplacesOrientationCompass?.requestHeadingPermission?.()) !==
-      false;
-    if (granted) {
-      window.FplacesOrientationCompass?.bindHeading?.();
-    }
-    window.FplacesVisualTrackingMonitor?.markSwitched?.();
-    window.__fplacesStartFallback?.(
-      reason === 'feature-poor'
-        ? 'Weak camera tracking — compass mode'
-        : 'Poor lighting — compass mode',
-    );
+    window.FplacesVisualTrackingMonitor?.dismiss?.();
   }
 
   function bind() {
@@ -66,9 +55,7 @@
       useBtn.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        switchToCompass(window.__fplacesLightingPromptReason || 'dark').catch(
-          () => {},
-        );
+        keepAr();
       });
     }
     if (keepBtn && !keepBtn.dataset.bound) {
@@ -76,8 +63,7 @@
       keepBtn.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        hide();
-        window.FplacesVisualTrackingMonitor?.dismiss?.();
+        keepAr();
       });
     }
   }

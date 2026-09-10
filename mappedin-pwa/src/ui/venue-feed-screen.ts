@@ -228,7 +228,7 @@ export function renderVenueFeedScreen(state: AppState): string {
               data-flag-id="${escapeHtml(post.id)}"
               aria-pressed="${flagged ? 'true' : 'false'}"
               aria-label="${flagged ? 'Remove report' : 'Report'}"
-              title="${flagged ? 'Reported — tap to remove your report' : 'Report this post'}"
+              title="${flagged ? 'Reported. Tap to remove your report' : 'Report this post'}"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 ${

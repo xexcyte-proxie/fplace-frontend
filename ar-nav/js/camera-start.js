@@ -8,6 +8,7 @@
   let starting = false;
   let startWatchdog = null;
   const XR_START_WATCHDOG_MS = 8000;
+  const XR_CAMERA_FEED_WATCHDOG_MS = 8000;
 
   function getLayer() {
     return document.getElementById('camera-start-layer');
@@ -78,13 +79,36 @@
     startWatchdog = null;
   }
 
-  function armStartWatchdog() {
+  function postToParent(type) {
+    try {
+      const cfg = window.FPLACES_AR_CONFIG || {};
+      window.parent?.postMessage?.({ type }, cfg.pwaOrigin || window.location.origin);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function recoverStuckXrStart() {
+    if (started) return;
+    starting = false;
+    window.__fplacesXrAwaitingOnStart = false;
+    if (window.__fplacesXrRunCalled && !window.__fplacesXrSessionActive) {
+      try {
+        window.XR8?.stop?.();
+      } catch {
+        /* ignore */
+      }
+      window.__fplacesXrRunCalled = false;
+    }
+    showLayer('Camera needs a tap. Tap Start to open it.');
+    postToParent('fplaces_ar_needs_tap');
+  }
+
+  function armStartWatchdog(timeoutMs) {
     clearStartWatchdog();
     startWatchdog = window.setTimeout(() => {
-      if (started) return;
-      starting = false;
-      showLayer('Camera needs a tap — tap Start to open it.');
-    }, XR_START_WATCHDOG_MS);
+      recoverStuckXrStart();
+    }, timeoutMs ?? XR_START_WATCHDOG_MS);
   }
 
   function shouldAutoStartCamera() {
@@ -112,7 +136,11 @@
     if (camera === 'granted') {
       window.__fplacesCameraPermissionGranted = true;
       persistCameraGranted(true);
-      // XR8.run() needs a tap inside this iframe — do not auto-start AR.
+      if (starting || window.__fplacesStartXrNow) return;
+      if (!started && window.__fplacesXrSyncStart) {
+        showLayer('Hold your phone up and tap Start to open the camera.');
+        return;
+      }
       if (pendingCallback && !started && !starting) {
         handleStart('parent');
       }
@@ -123,6 +151,7 @@
       window.__fplacesCameraPermissionGranted = false;
       if (!started) {
         showLayer('Camera blocked - allow access in Settings, then tap Start again');
+        postToParent('fplaces_ar_needs_tap');
       }
     }
   }
@@ -191,6 +220,7 @@
     pendingCallback = null;
     persistCameraGranted(true);
     hideLayer();
+    postToParent('fplaces_ar_camera_started');
   }
 
   async function requestSensorsAfterCamera() {
@@ -242,24 +272,22 @@
           attempts: xrAttempts,
         });
         window.__fplacesXrSyncStart = false;
-        window.__fplacesForceCompassOnStart = true;
-        pendingCallback = () => window.FplacesFallbackNav.attachCamera();
-        showLayer('AR could not start — tap to use compass mode');
+        showLayer('AR could not start. Tap Start to retry');
         if (btn) {
           btn.disabled = false;
-          btn.textContent = 'Start compass';
+          btn.textContent = 'Start Live View';
         }
         starting = false;
         return;
       }
       if (typeof window.__fplacesRunXrEngine !== 'function') {
         if (btn) btn.textContent = 'Starting AR…';
-        window.setTimeout(runXr, 40);
+        window.setTimeout(runXr, 16);
         return;
       }
       if (!window.__fplacesXrPipelineReady) {
         if (btn) btn.textContent = 'Starting AR…';
-        window.setTimeout(runXr, 40);
+        window.setTimeout(runXr, 16);
         return;
       }
       if (btn) btn.textContent = 'Starting camera…';
@@ -276,17 +304,19 @@
 
       if (window.__fplacesDesktopSlamMode) {
         window.FplacesLiveViewHud?.setStatus?.(
-          'Desktop preview — test on iPhone for the real camera.',
+          'Desktop preview. Test on iPhone for the real camera.',
         );
       }
       try {
         const result = cb();
         if (result === 'xr-run') {
           window.__fplacesXrAwaitingOnStart = true;
-          clearStartWatchdog();
+          armStartWatchdog(XR_CAMERA_FEED_WATCHDOG_MS);
           window.FplacesArDebug?.log('Camera', 'XR8.run() invoked');
           SLOG()?.log?.('camera', 'XR8.run() invoked - waiting for XR camera feed');
           requestSensorsAfterCamera().catch(() => {});
+        } else {
+          recoverStuckXrStart();
         }
       } catch (error) {
         window.FplacesArDebug?.warn('Camera', 'XR8.run failed', {
@@ -334,7 +364,7 @@
           requestSensorsAfterCamera().catch(() => {});
           if (window.__fplacesForceCompassOnStart) {
             window.__fplacesForceCompassOnStart = false;
-            window.__fplacesStartFallback?.('SLAM engine failed to load');
+            window.__fplacesRecoverSlam?.('AR engine was not ready');
           }
         })
         .catch((error) => {
@@ -375,8 +405,10 @@
 
   function tryAutoStart(reason) {
     if (started || starting || !pendingCallback) return false;
+    // XR8.run() requires a tap inside this iframe. Never auto-start compass.
     if (window.__fplacesXrSyncStart) return false;
     showLoading('Starting Live View…');
+    armStartWatchdog(XR_START_WATCHDOG_MS);
     handleStart(reason);
     return true;
   }
@@ -418,14 +450,20 @@
     }
     SLOG()?.log?.('camera', 'Camera prompt shown', {
       syncXr: window.__fplacesXrSyncStart,
+      startNow: !!(options && options.startNow),
       message,
       autoStart: shouldAutoStartCamera(),
     });
 
+    if (options && options.startNow) {
+      showLoading('Opening the camera…');
+      handleStart('parent-gesture');
+      return;
+    }
+
     if (shouldAutoStartCamera()) {
-      // XR mode needs a real user gesture, so tryAutoStart refuses when
-      // syncXr is set. Fall through to the visible Start button instead of
-      // leaving the page stuck on "Starting AR…" with no prompt.
+      // XR mode needs a real user gesture. Fall through to the Start button
+      // instead of leaving the page stuck on "Starting camera…".
       if (tryAutoStart('auto')) return;
     }
 
@@ -475,6 +513,21 @@
       window.__fplacesAwaitingCameraStart = false;
       document.body.classList.remove('lv-awaiting-camera');
       SLOG()?.log?.('camera', 'Reset for XR retry');
+    },
+    recoverIfWaiting() {
+      recoverStuckXrStart();
+    },
+    resetForReuse() {
+      started = false;
+      starting = false;
+      pendingCallback = null;
+      clearStartWatchdog();
+      window.__fplacesXrSyncStart = false;
+      window.__fplacesXrAwaitingOnStart = false;
+      window.__fplacesAwaitingCameraStart = false;
+      hideLayer();
+      document.body.classList.remove('lv-awaiting-camera');
+      SLOG()?.log?.('camera', 'Reset for Live View reuse');
     },
     showLoading(message) {
       showLoading(message || 'Loading…');

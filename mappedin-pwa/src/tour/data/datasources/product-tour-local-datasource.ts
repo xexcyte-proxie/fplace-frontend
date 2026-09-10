@@ -1,20 +1,50 @@
-const STORAGE_KEY = 'fplaces_product_tour_completed';
+import {
+  DEFAULT_PRODUCT_TOUR_PREFERENCE,
+  type ProductTourPreference,
+} from '../../domain/entities';
+
+const PREFERENCE_KEY = 'fplaces_product_tour_preference';
+const LEGACY_COMPLETED_KEY = 'fplaces_product_tour_completed';
+
+function parsePreference(raw: string): ProductTourPreference | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<ProductTourPreference>;
+    const completed = parsed.completed === true;
+    const enabled =
+      typeof parsed.enabled === 'boolean' ? parsed.enabled : !completed;
+    return { completed, enabled };
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Local flag: this browser already finished (or skipped) the product tour.
+ * Local preference: whether this browser finished/opted out of the product tour
+ * and whether auto-start is still allowed.
  */
 export class ProductTourLocalDatasource {
-  hasCompleted(): boolean {
+  load(): ProductTourPreference {
     try {
-      return localStorage.getItem(STORAGE_KEY) === '1';
+      const raw = localStorage.getItem(PREFERENCE_KEY);
+      if (raw) {
+        return parsePreference(raw) ?? { ...DEFAULT_PRODUCT_TOUR_PREFERENCE };
+      }
+      if (localStorage.getItem(LEGACY_COMPLETED_KEY) === '1') {
+        const migrated = { completed: true, enabled: false };
+        this.save(migrated);
+        localStorage.removeItem(LEGACY_COMPLETED_KEY);
+        return migrated;
+      }
+      return { ...DEFAULT_PRODUCT_TOUR_PREFERENCE };
     } catch {
-      return false;
+      return { ...DEFAULT_PRODUCT_TOUR_PREFERENCE };
     }
   }
 
-  markCompleted(): void {
+  save(preference: ProductTourPreference): void {
     try {
-      localStorage.setItem(STORAGE_KEY, '1');
+      localStorage.setItem(PREFERENCE_KEY, JSON.stringify(preference));
+      localStorage.removeItem(LEGACY_COMPLETED_KEY);
     } catch {
       /* storage unavailable */
     }
@@ -22,7 +52,8 @@ export class ProductTourLocalDatasource {
 
   clear(): void {
     try {
-      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(PREFERENCE_KEY);
+      localStorage.removeItem(LEGACY_COMPLETED_KEY);
     } catch {
       /* storage unavailable */
     }

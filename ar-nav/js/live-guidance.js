@@ -1,6 +1,6 @@
 /**
  * Domain: Live View primary instruction from heading alignment + progress.
- * Pure; no DOM. Do not announce route turns in advance — only correct
+ * Pure; no DOM. Do not announce route turns in advance, only correct
  * misalignment, or stay on head-straight until arrival.
  */
 (function (root) {

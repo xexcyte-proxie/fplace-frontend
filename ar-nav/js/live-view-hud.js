@@ -194,7 +194,7 @@
     }
 
     if (mode === 'slam' || mode === 'compass') {
-      window.__fplacesArMode = mode;
+      window.__fplacesArMode = mode === 'compass' ? 'slam' : mode;
     }
 
     if (mode === 'slam-loading') {
@@ -205,8 +205,8 @@
     }
 
     if (mode === 'compass') {
-      label.textContent = detail || 'Compass mode';
-      badge.className = 'lv-mode-badge lv-mode-badge--compass';
+      label.textContent = 'AR active';
+      badge.className = 'lv-mode-badge';
       badge.classList.remove('hidden');
       return;
     }
@@ -312,7 +312,7 @@
       }
 
       if (turnTextEl && distBar) {
-        // Never announce an upcoming route turn early — only head-straight
+        // Never announce an upcoming route turn early; only head-straight
         // while aligned, or alignment corrections (left/right/around).
         turnTextEl.textContent = instructionLabel(primary);
         if (!aligned) {

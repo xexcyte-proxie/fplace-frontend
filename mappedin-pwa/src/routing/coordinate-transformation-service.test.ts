@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { coordinateTransformationService } from './coordinate-transformation-service';
 import type { RouteCoordinate } from '../types';
 
-/** ~12 m north then ~12 m east — the venue L that made the blue dot teleport. */
+/** ~12 m north then ~12 m east: the venue L that made the blue dot teleport. */
 function lShapedPath(): RouteCoordinate[] {
   const startLat = 6.5244;
   const startLng = 3.3792;

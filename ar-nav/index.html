@@ -14,11 +14,7 @@
     <title>Live View</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,500,1,0&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="./css/ar.css?v=20260902-pip-ui-v1" />
+    <link rel="stylesheet" href="./css/ar.css?v=20260909-fast-boot-v1" />
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <link
       rel="preload"
@@ -32,6 +28,41 @@
       as="script"
       crossorigin
     />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,500,1,0&display=swap"
+      rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
+    />
+    <script>
+      (function () {
+        if (!window.isSecureContext) return;
+        // Start THREE / 8th Wall immediately so SLAM chunks download during HTML parse.
+        window.__fplacesXrScriptsInjected = true;
+        const three = document.createElement("script");
+        three.src =
+          "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js";
+        three.crossOrigin = "anonymous";
+        three.async = true;
+        three.dataset.fplacesXr = "three";
+        document.head.appendChild(three);
+        const extras = document.createElement("script");
+        extras.src =
+          "https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js";
+        extras.crossOrigin = "anonymous";
+        extras.async = true;
+        extras.dataset.fplacesXr = "xrextras";
+        document.head.appendChild(extras);
+        const xr = document.createElement("script");
+        xr.async = true;
+        xr.src =
+          "https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js";
+        xr.crossOrigin = "anonymous";
+        xr.dataset.preloadChunks = "slam";
+        xr.dataset.fplacesXr = "xr8";
+        document.head.appendChild(xr);
+      })();
+    </script>
   </head>
   <body>
     <video id="camera" autoplay playsinline muted></video>
@@ -101,11 +132,11 @@
           Poor lighting here
         </h2>
         <p id="lv-lighting-dialog-body" class="lv-dialog-body">
-          This spot is too dark for camera tracking. Compass mode can keep
-          guiding you along the route.
+          This spot is too dark for camera tracking. Keep the camera on the
+          path and wait for AR to recover.
         </p>
-        <button type="button" id="lv-lighting-use-compass" class="lv-start-btn">
-          Switch to compass
+        <button type="button" id="lv-lighting-keep-ar" class="lv-start-btn">
+          Keep using AR
         </button>
       </div>
     </div>
@@ -227,73 +258,43 @@
       </div>
     </div>
 
-    <script src="./config.js?v=20260909-visible-trail-v1"></script>
-    <script src="./js/slam-diagnostics.js?v=20260825-compass-lighting-v1"></script>
-    <script>
-      (function () {
-        if (!window.isSecureContext) return;
-        const cfg = window.FPLACES_AR_CONFIG || {};
-        if (cfg.xrMode === "fallback") return;
-        // Mark before append - bootstrap must not inject a second THREE/XR8 copy.
-        // (#xr-bootstrap may not exist yet in DOM at this point in the document.)
-        window.__fplacesXrScriptsInjected = true;
-        const three = document.createElement("script");
-        three.src =
-          "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js";
-        three.crossOrigin = "anonymous";
-        three.dataset.fplacesXr = "three";
-        document.head.appendChild(three);
-        const extras = document.createElement("script");
-        extras.src =
-          "https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js";
-        extras.crossOrigin = "anonymous";
-        extras.dataset.fplacesXr = "xrextras";
-        document.head.appendChild(extras);
-        const xr = document.createElement("script");
-        xr.async = true;
-        xr.src =
-          "https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js";
-        xr.crossOrigin = "anonymous";
-        xr.dataset.preloadChunks = "slam";
-        xr.dataset.fplacesXr = "xr8";
-        document.head.appendChild(xr);
-      })();
-    </script>
-    <script src="./js/ar-debug.js"></script>
-    <script src="./js/geo-math.js"></script>
-    <script src="./js/ar-quaternion-alignment.js?v=20260709-heading-fix-v1"></script>
-    <script src="./js/route-services.js"></script>
-    <script src="./js/route-bridge.js"></script>
-    <script src="./js/anchorEngine.js"></script>
-    <script src="./js/route-geometry.js"></script>
-    <script src="./js/floor-transitions.js"></script>
-    <script src="./js/indoor-position.js"></script>
-    <script src="./js/world-floor-arrows.js?v=20260909-visible-trail-v1"></script>
-    <script src="./js/incremental-path-spawn.js?v=20260909-visible-trail-v1"></script>
-    <script src="./js/incremental-ar-path.js?v=20260909-visible-trail-v1"></script>
-    <script src="./js/pathGeometry.js?v=20260909-visible-trail-v1"></script>
-    <script src="./js/world-route-scene.js?v=20260908-near-field-cap-v1"></script>
-    <script src="./js/demo-sim-walk.js"></script>
-    <script src="./js/live-guidance.js?v=20260908-no-advance-turns-v1"></script>
-    <script src="./js/route-navigator.js?v=20260909-gps-offroute-cap-v1"></script>
-    <script src="./js/route-lane-heading.js?v=20260825-compass-lighting-v1"></script>
-    <script src="./js/slam-heading.js"></script>
-    <script src="./js/slam-pose-bridge.js"></script>
-    <script src="./js/turn-cue.js?v=20260831-turn-cue-v1"></script>
-    <script src="./js/live-view-hud.js?v=20260908-no-advance-turns-v1"></script>
-    <script src="./js/lv-chrome.js?v=20260902-pip-ui-v1"></script>
-    <script src="./js/camera-start.js?v=20260902-permission-once-v1"></script>
-    <script src="./js/live-view-arrows-3d.js?v=20260708-align-debug-v1"></script>
-    <script src="./js/orientation-compass.js?v=20260825-compass-lighting-v1"></script>
-    <script src="./js/visual-tracking-quality.js?v=20260825-compass-lighting-v1"></script>
-    <script src="./js/camera-luma-sampler.js?v=20260831-ar-stable-v1"></script>
-    <script src="./js/lighting-compass-prompt.js?v=20260825-compass-lighting-v1"></script>
-    <script src="./js/visual-tracking-monitor.js?v=20260831-ar-stable-v1"></script>
-    <script src="./js/live-view-minimap.js"></script>
-    <script src="./js/fallback-nav.js?v=20260825-compass-lighting-v1"></script>
-    <script src="./js/fplaces-xr-renderer-patch.js?v=20260707-camera-v18"></script>
+    <script defer src="./config.js?v=20260910-slam-resume-v1"></script>
+    <script defer src="./js/slam-diagnostics.js?v=20260825-compass-lighting-v1"></script>
+    <script defer src="./js/ar-debug.js"></script>
+    <script defer src="./js/geo-math.js"></script>
+    <script defer src="./js/ar-quaternion-alignment.js?v=20260709-heading-fix-v1"></script>
+    <script defer src="./js/route-services.js"></script>
+    <script defer src="./js/route-bridge.js?v=20260909-fast-boot-v1"></script>
+    <script defer src="./js/anchorEngine.js?v=20260909-fast-boot-v1"></script>
+    <script defer src="./js/route-geometry.js"></script>
+    <script defer src="./js/floor-transitions.js"></script>
+    <script defer src="./js/indoor-position.js"></script>
+    <script defer src="./js/world-floor-arrows.js?v=20260909-visible-trail-v1"></script>
+    <script defer src="./js/incremental-path-spawn.js?v=20260910-trail-walk-v1"></script>
+    <script defer src="./js/incremental-ar-path.js?v=20260910-trail-walk-v1"></script>
+    <script defer src="./js/pathGeometry.js?v=20260910-trail-walk-v1"></script>
+    <script defer src="./js/world-route-scene.js?v=20260908-near-field-cap-v1"></script>
+    <script defer src="./js/demo-sim-walk.js"></script>
+    <script defer src="./js/live-guidance.js?v=20260908-no-advance-turns-v1"></script>
+    <script defer src="./js/route-navigator.js?v=20260909-gps-offroute-cap-v1"></script>
+    <script defer src="./js/route-lane-heading.js?v=20260825-compass-lighting-v1"></script>
+    <script defer src="./js/slam-heading.js"></script>
+    <script defer src="./js/slam-pose-bridge.js"></script>
+    <script defer src="./js/turn-cue.js?v=20260831-turn-cue-v1"></script>
+    <script defer src="./js/live-view-hud.js?v=20260910-slam-resume-v1"></script>
+    <script defer src="./js/lv-chrome.js?v=20260902-pip-ui-v1"></script>
+    <script defer src="./js/camera-start.js?v=20260910-slam-resume-v1"></script>
+    <script defer src="./js/live-view-arrows-3d.js?v=20260708-align-debug-v1"></script>
+    <script defer src="./js/orientation-compass.js?v=20260825-compass-lighting-v1"></script>
+    <script defer src="./js/visual-tracking-quality.js?v=20260825-compass-lighting-v1"></script>
+    <script defer src="./js/camera-luma-sampler.js?v=20260831-ar-stable-v1"></script>
+    <script defer src="./js/lighting-compass-prompt.js?v=20260910-slam-resume-v1"></script>
+    <script defer src="./js/visual-tracking-monitor.js?v=20260910-slam-resume-v1"></script>
+    <script defer src="./js/live-view-minimap.js"></script>
+    <script defer src="./js/fallback-nav.js?v=20260825-compass-lighting-v1"></script>
+    <script defer src="./js/fplaces-xr-renderer-patch.js?v=20260707-camera-v18"></script>
     <script id="xr-bootstrap"></script>
-    <script src="./js/xr-nav-scene.js?v=20260829-start-card-v2"></script>
-    <script src="./js/bootstrap.js?v=20260901-live-view-boot-v1"></script>
+    <script defer src="./js/xr-nav-scene.js?v=20260910-slam-resume-v1"></script>
+    <script defer src="./js/bootstrap.js?v=20260910-slam-resume-v1"></script>
   </body>
 </html>

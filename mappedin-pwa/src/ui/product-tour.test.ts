@@ -14,9 +14,12 @@ describe('product tour overlay', () => {
     expect(html).toContain('product-tour--center');
     expect(html).toContain('id="product-tour-skip-btn"');
     expect(html).toContain('id="product-tour-next-btn"');
+    expect(html).toContain('id="product-tour-dont-show"');
+    expect(html).toContain("Don't show this again");
     expect(html).toContain('Next');
     expect(html).not.toContain('id="product-tour-back-btn"');
     expect(html).toContain(`1 of ${steps.length}`);
+    expect(html).not.toMatch(/id="product-tour-dont-show"[^>]*\schecked/);
   });
 
   it('uses Got it on the last step and shows Back', () => {
@@ -31,6 +34,17 @@ describe('product tour overlay', () => {
     expect(html).toContain('Got it');
     expect(html).toContain('id="product-tour-back-btn"');
     expect(html).toContain('data-tour-target="#profile-settings-btn"');
+  });
+
+  it('checks don’t show again from the enabled preference', () => {
+    const steps = stepsForHomeExperience('first-visit');
+    const html = renderProductTour({
+      step: steps[0]!,
+      index: 0,
+      total: steps.length,
+      dontShowAgain: true,
+    });
+    expect(html).toMatch(/id="product-tour-dont-show"[^>]*\schecked/);
   });
 
   it('builds last-step view copy', () => {

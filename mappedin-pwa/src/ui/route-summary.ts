@@ -84,7 +84,7 @@ export interface RouteSheetSummary {
   beginLabel: string;
 }
 
-/** Live GPS is armed the instant Begin is tapped — the guest may still be still. */
+/** Live GPS is armed the instant Begin is tapped; the guest may still be still. */
 export function resolveBeginButtonLabel(
   state: Pick<AppState, 'routeSimulating'>,
 ): string {

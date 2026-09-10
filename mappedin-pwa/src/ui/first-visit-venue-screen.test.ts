@@ -13,6 +13,41 @@ import {
 import { VenueVisitLocalDatasource } from '../home/data/datasources/venue-visit-local-datasource';
 import { renderFirstVisitVenueScreen } from './first-visit-venue-screen';
 
+const signedInUser = {
+  id: 1,
+  email: 'fan@email.com',
+  pseudo_name: 'RowdyGull_47',
+  is_email_verified: true,
+  created_at: '',
+  updated_at: '',
+} as const;
+
+function firstVisitScreenState(
+  overrides: Partial<Parameters<typeof renderFirstVisitVenueScreen>[0]> = {},
+): Parameters<typeof renderFirstVisitVenueScreen>[0] {
+  return {
+    authUser: signedInUser,
+    pseudoNameDraft: '',
+    guestId: null,
+    selectedVenueId: '1',
+    selectedGateId: '2',
+    forumVenues: [{ id: 1, name: 'LA Stadium', location: 'Los Angeles' }],
+    forumSections: [
+      {
+        id: 2,
+        venue: 1,
+        name: 'North Stand, Level 1',
+        code: 'N1',
+        is_active: true,
+      },
+    ],
+    venueFeedPosts: [],
+    venueFeedLoading: false,
+    arRoutePromptOpen: false,
+    ...overrides,
+  };
+}
+
 /** Minimal localStorage stub for Node/vitest (no happy-dom). */
 function installMemoryLocalStorage(): void {
   const store = new Map<string, string>();
@@ -102,34 +137,7 @@ describe('first-visit venue home', () => {
     });
     expect(view.greeting).toBe('Welcome back, RowdyGull_47');
 
-    const html = renderFirstVisitVenueScreen({
-      authUser: {
-        id: 1,
-        email: 'fan@email.com',
-        pseudo_name: 'RowdyGull_47',
-        is_email_verified: true,
-        created_at: '',
-        updated_at: '',
-      },
-      pseudoNameDraft: '',
-      guestId: null,
-      selectedVenueId: '1',
-      selectedGateId: '2',
-      forumVenues: [
-        { id: 1, name: 'LA Stadium', location: 'Los Angeles' },
-      ],
-      forumSections: [
-        {
-          id: 2,
-          venue: 1,
-          name: 'North Stand, Level 1',
-          code: 'N1',
-          is_active: true,
-        },
-      ],
-      venueFeedPosts: [],
-      arRoutePromptOpen: false,
-    });
+    const html = renderFirstVisitVenueScreen(firstVisitScreenState());
 
     expect(html).toContain('Welcome back, RowdyGull_47');
     expect(html).toContain('LA Stadium');
@@ -141,39 +149,64 @@ describe('first-visit venue home', () => {
     expect(html).toContain('id="first-visit-ar-btn"');
     expect(html).toContain('data-tour-id="home-hero"');
     expect(html).toContain('See all posts');
+    expect(html).toContain('<svg');
+    expect(html).toContain('currentColor');
+    expect(html).not.toContain('/home/location.png');
+    expect(html).not.toContain('/home/camera.png');
   });
 
   it('renders the Try AR route prompt on the same screen', () => {
-    const html = renderFirstVisitVenueScreen({
-      authUser: {
-        id: 1,
-        email: 'fan@email.com',
-        pseudo_name: 'RowdyGull_47',
-        is_email_verified: true,
-        created_at: '',
-        updated_at: '',
-      },
-      pseudoNameDraft: '',
-      guestId: null,
-      selectedVenueId: '1',
-      selectedGateId: '2',
-      forumVenues: [{ id: 1, name: 'LA Stadium', location: 'Los Angeles' }],
-      forumSections: [
-        {
-          id: 2,
-          venue: 1,
-          name: 'North Stand, Level 1',
-          code: 'N1',
-          is_active: true,
-        },
-      ],
-      venueFeedPosts: [],
-      arRoutePromptOpen: true,
-    });
+    const html = renderFirstVisitVenueScreen(
+      firstVisitScreenState({ arRoutePromptOpen: true }),
+    );
 
     expect(html).toContain('Set a route for AR');
     expect(html).toContain('id="first-visit-ar-open-map-btn"');
     expect(html).toContain('Open map');
     expect(html).toContain('id="first-visit-ar-prompt-dismiss"');
+  });
+
+  it('keeps action chrome visible and overlays the feed while posts load', () => {
+    const html = renderFirstVisitVenueScreen(
+      firstVisitScreenState({ venueFeedLoading: true, venueFeedPosts: [] }),
+    );
+
+    expect(html).toContain('id="first-visit-discover-btn"');
+    expect(html).toContain('id="first-visit-ar-btn"');
+    expect(html).toContain('Discover');
+    expect(html).toContain('Try AR');
+    expect(html).toContain('screen-loading-overlay');
+    expect(html).toContain('aria-label="Loading posts"');
+    expect(html).not.toContain('SwiftOtter_21');
+    expect(html).not.toContain('class="first-visit-post"');
+  });
+
+  it('does not overlay a feed that already has posts', () => {
+    const html = renderFirstVisitVenueScreen(
+      firstVisitScreenState({
+        venueFeedLoading: true,
+        venueFeedPosts: [
+          {
+            id: 'p1',
+            author: 'LiveFan',
+            authorId: 9,
+            initials: 'LF',
+            avatarColor: '#3b5998',
+            location: 'North Stand',
+            locationId: '2',
+            timeAgo: '1m',
+            feedType: 'crowds',
+            categoryId: '1',
+            content: 'Gate C is moving.',
+            upvotes: 4,
+            comments: 0,
+          },
+        ],
+      }),
+    );
+
+    expect(html).not.toContain('screen-loading-overlay');
+    expect(html).toContain('LiveFan');
+    expect(html).toContain('Gate C is moving.');
   });
 });

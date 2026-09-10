@@ -39,7 +39,7 @@ export function containsTokenNotValidDetail(value: unknown, depth = 0): boolean 
 /**
  * Apply create-account / login recovery as soon as any auth shell is showing.
  * Defer only while splash is still covering a destination that has not been
- * chosen yet — otherwise Welcome back can stick with the raw SimpleJWT error.
+ * chosen yet; otherwise Welcome back can stick with the raw SimpleJWT error.
  */
 export function shouldDeferSessionRecoveryUi(options: {
   startupReady: boolean;

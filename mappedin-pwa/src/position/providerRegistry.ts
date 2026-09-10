@@ -69,7 +69,7 @@ export class PositionProviderRegistry {
 
   /**
    * Live indoor positioning source.
-   * Auto-picks the best available hardware — you do not need to change env for normal use.
+   * Auto-picks the best available hardware: you do not need to change env for normal use.
    * Optional override: set VITE_POSITION_SOURCE to a live source (gps | apple_indoor |
    * indoor_atlas | ble_beacon) to force one stack.
    *
@@ -95,7 +95,7 @@ export class PositionProviderRegistry {
     return 'gps';
   }
 
-  /** Runtime source for route navigation — live IPS only. */
+  /** Runtime source for route navigation: live IPS only. */
   static resolveNavigationSource(): PositionSourceType {
     return PositionProviderRegistry.resolveLiveHardwareSource();
   }

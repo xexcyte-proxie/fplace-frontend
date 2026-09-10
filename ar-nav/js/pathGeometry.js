@@ -270,50 +270,58 @@
     return 0;
   }
 
-  function resolveStartAlongM(points, camera) {
+  function finiteAlong(value) {
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  }
+
+  function resolveNavigatorAlongM(points) {
     const nav = window.__fplacesNavigator;
-    // Prefer snapshot fields - do NOT call getDisplayAlongPathMeters (it can tick sim).
     let along =
-      (typeof nav?._displayAlongPathM === "number" &&
-        Number.isFinite(nav._displayAlongPathM) &&
-        nav._displayAlongPathM) ||
-      (typeof nav?.snappedOnPath?.distanceAlongPathMeters === "number" &&
-        nav.snappedOnPath.distanceAlongPathMeters) ||
-      null;
+      finiteAlong(nav?._displayAlongPathM) ??
+      finiteAlong(nav?.snappedOnPath?.distanceAlongPathMeters);
 
-    if (typeof along === "number" && Number.isFinite(along)) {
-      const geoPath = cachedRouteInput
-        ? resolveFloorPath(cachedRouteInput, cachedFloorId)
-        : null;
-      if (geoPath?.length >= 2 && window.FplacesRouteGeometry) {
-        const geoTotal =
-          window.FplacesRouteGeometry.totalPathLengthMeters(geoPath) || 1;
-        let localTotal = 0;
-        for (let i = 0; i < points.length - 1; i++) {
-          localTotal += Math.hypot(
-            points[i + 1].x - points[i].x,
-            points[i + 1].z - points[i].z,
-          );
-        }
-        if (localTotal > 0.01 && geoTotal > 0.01) {
-          return Math.max(
-            0,
-            Math.min(localTotal, (along / geoTotal) * localTotal),
-          );
-        }
+    if (along == null) return null;
+
+    const geoPath = cachedRouteInput
+      ? resolveFloorPath(cachedRouteInput, cachedFloorId)
+      : null;
+    if (geoPath?.length >= 2 && window.FplacesRouteGeometry) {
+      const geoTotal =
+        window.FplacesRouteGeometry.totalPathLengthMeters(geoPath) || 1;
+      let localTotal = 0;
+      for (let i = 0; i < points.length - 1; i++) {
+        localTotal += Math.hypot(
+          points[i + 1].x - points[i].x,
+          points[i + 1].z - points[i].z,
+        );
       }
-      return Math.max(0, along);
+      if (localTotal > 0.01 && geoTotal > 0.01) {
+        return Math.max(
+          0,
+          Math.min(localTotal, (along / geoTotal) * localTotal),
+        );
+      }
     }
+    return Math.max(0, along);
+  }
 
-    if (camera?.position) {
-      return (
-        window.FplacesFloorArrows?.findAlongPathM?.(
-          points,
-          camera.position.x,
-          camera.position.z,
-        ) ?? 0
-      );
-    }
+  function resolveCameraAlongM(points, camera) {
+    if (!camera?.position) return null;
+    const along = window.FplacesFloorArrows?.findAlongPathM?.(
+      points,
+      camera.position.x,
+      camera.position.z,
+    );
+    return finiteAlong(along);
+  }
+
+  function resolveStartAlongM(points, camera) {
+    const pick = window.FplacesIncrementalPathSpawn?.resolveTrailAlongM;
+    const cam = resolveCameraAlongM(points, camera);
+    const nav = resolveNavigatorAlongM(points);
+    if (typeof pick === "function") return pick(cam, nav);
+    if (cam != null) return cam;
+    if (nav != null) return nav;
     return 0;
   }
 

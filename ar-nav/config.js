@@ -6,7 +6,7 @@
 
   window.FPLACES_AR_CONFIG = {
     /** Bumped when AR camera/SLAM boot changes - check console on load. */
-    buildId: "20260909-visible-trail-v1",
+    buildId: "20260910-slam-resume-v1",
     eighthWallAppKey: "",
     xrMode: "auto",
     arrowDistanceM: 2.5,
@@ -25,17 +25,15 @@
     usePathRibbon: false,
     /** Red current-position pin - off; trail chevrons + HUD carry guidance. */
     showLeadingLocationMarker: false,
-    /** Incremental world-anchored path - append segments as user walks (default on). */
+    /** Sliding 2-slot trail — reconcile to marks; never append/fan. */
     useIncrementalPath: true,
-    /** Hard cap on how far ahead arrows may ever exist. */
     incrementalPathHorizonM: 22,
-    incrementalPathPruneBehindM: 14,
-    /** Progressive reveal: arrows spawn only this far ahead of current progress. */
-    incrementalPathRevealAheadM: 8,
-    /** One-at-a-time build-up: min delay between consecutive arrow spawns. */
-    incrementalPathSpawnIntervalMs: 260,
+    /** Drop a chevron once the user is this close along the path (meters). */
+    incrementalPathPassM: 0.8,
+    /** Refuse a second chevron closer than this in world XZ (meters). */
+    incrementalPathMinSeparationM: 2.4,
     incrementalPathSpacingM: 4,
-    incrementalPathMaxVisible: 6,
+    incrementalPathMaxVisible: 2,
     /**
      * Opening stretch: 1–2 chevrons clearly in camera (~2.5 m lead), not a pile
      * and not so far ahead that the road looks empty.
@@ -53,8 +51,6 @@
     /** Gold destination pin only when remaining walk is this close. */
     destinationRevealRemainingM: 8,
     floorArrowSpacingM: 3,
-    turnCurveBendM: 2.2,
-    turnCurveArrowSpacingM: 2.0,
     floorArrowCount: 6,
     floorArrowLeadInM: 1.1,
     /** Single leading guidance arrow - meters ahead along path floor. */

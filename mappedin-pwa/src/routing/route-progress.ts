@@ -6,7 +6,7 @@ const OFF_ROUTE_ETA_THRESHOLD_M = 4;
 /**
  * Beyond this, off-route is treated as an unusable outdoor/cached GPS fix
  * (not a walkable detour). Common indoors when WGS84 GPS is kilometers from
- * the Mappedin polyline — do not inflate ETA or block arrival.
+ * the Mappedin polyline: do not inflate ETA or block arrival.
  */
 export const OFF_ROUTE_PLAUSIBLE_MAX_M = 250;
 
@@ -50,7 +50,7 @@ const STATIONARY_ALONG_MPS = 0.28;
 /** Cap how fast remaining can fall so a noisy fix cannot sprint the odometer. */
 const MAX_WALK_MPS = 2.4;
 
-/** Instant teleports along the polyline — not a walking step. */
+/** Instant teleports along the polyline, not a walking step. */
 const GPS_JUMP_MPS = 8;
 
 /** Consecutive forward samples required before leaving the standing-still hold. */
@@ -191,7 +191,7 @@ export class LiveAlongPathStabilizer {
 
   update(options: {
     nextAlongMeters: number;
-    /** Ignored for the odometer — remaining metres add this separately. */
+    /** Ignored for the odometer: remaining metres add this separately. */
     offRouteMeters?: number | null;
     /** Reported fix accuracy; poor accuracy widens the jitter deadband. */
     accuracyMeters?: number | null;
@@ -207,7 +207,7 @@ export class LiveAlongPathStabilizer {
       this.baselineMovedAtMs = now;
       this.lastRawAlongMeters = next;
       // Keep the reset baseline (0 at Begin). The first indoor GPS snap is
-      // often the nearest point on a short path — adopting it teleports the
+      // often the nearest point on a short path; adopting it teleports the
       // odometer to the destination while the user is still standing still.
       return this.alongMeters;
     }

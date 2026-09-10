@@ -119,6 +119,40 @@ body,
   background: #000;
 }
 
+.ar-boot-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: #0b1220;
+  color: #fff;
+}
+
+.ar-boot-overlay[hidden] {
+  display: none;
+}
+
+.ar-boot-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.ar-boot-copy {
+  margin: 0;
+  font-family: var(--brand-sans);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
 .ar-pip-drag-layer {
   display: none;
   position: absolute;

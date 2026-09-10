@@ -30,7 +30,7 @@ export const HEATMAP_PATCH_KEYS = [
   'venueLiveStatus',
 ] as const satisfies readonly (keyof AppState)[];
 
-/** Backend trial flags — nothing in the map chrome reads these. */
+/** Backend trial flags: nothing in the map chrome reads these. */
 export const SILENT_PATCH_KEYS = [
   'guestHasTried2dView',
   'guestHasTriedArView',
@@ -44,7 +44,7 @@ export type UiPatchKind =
   | 'silent'
   | 'full';
 
-/** Map download / WebGL boot — must not rebuild onboarding or home. */
+/** Map download / WebGL boot: must not rebuild onboarding or home. */
 export const MAP_BOOT_PATCH_KEYS = [
   'mapStatus',
   'mapError',

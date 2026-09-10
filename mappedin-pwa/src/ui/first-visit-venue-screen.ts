@@ -3,6 +3,7 @@ import {
   buildFirstVisitVenueHomeContent,
 } from '../home/presentation/first-visit-venue-home-data';
 import { resolveDisplayName, type AppState } from '../types';
+import { renderContentLoadingOverlay } from './content-loading-overlay';
 
 function escapeHtml(value: string): string {
   return value
@@ -12,10 +13,20 @@ function escapeHtml(value: string): string {
     .replaceAll('"', '&quot;');
 }
 
-const HOME_ASSETS = {
-  location: '/home/location.png',
-  camera: '/home/camera.png',
-} as const;
+/** Inline SVGs so action chrome paints without waiting on PNG downloads. */
+const locationIcon = `
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M12 21s6.5-4.5 6.5-10.2A6.5 6.5 0 0012 4.3a6.5 6.5 0 00-6.5 6.5C5.5 16.5 12 21 12 21z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
+    <circle cx="12" cy="10.8" r="2.2" stroke="currentColor" stroke-width="1.75"></circle>
+  </svg>
+`;
+
+const cameraIcon = `
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M4.5 8.5h2.1l1.2-2.1h8.4l1.2 2.1h2.1A1.5 1.5 0 0121 10v8.5A1.5 1.5 0 0119.5 20h-15A1.5 1.5 0 013 18.5V10a1.5 1.5 0 011.5-1.5z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
+    <circle cx="12" cy="14" r="3.25" stroke="currentColor" stroke-width="1.75"></circle>
+  </svg>
+`;
 
 const upvoteIcon = `
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -34,6 +45,7 @@ export function renderFirstVisitVenueScreen(
     | 'forumVenues'
     | 'forumSections'
     | 'venueFeedPosts'
+    | 'venueFeedLoading'
     | 'arRoutePromptOpen'
   >,
 ): string {
@@ -55,10 +67,13 @@ export function renderFirstVisitVenueScreen(
     posts: state.venueFeedPosts,
   });
   const view = buildFirstVisitVenueHomeViewModel({ displayName, content });
+  const feedLoading = state.venueFeedLoading && state.venueFeedPosts.length === 0;
 
-  const postsMarkup = view.previewPosts
-    .map(
-      (post) => `
+  const postsMarkup = feedLoading
+    ? ''
+    : view.previewPosts
+        .map(
+          (post) => `
       <article class="first-visit-post">
         <div class="first-visit-post-top">
           <span class="first-visit-post-author">${escapeHtml(post.author)}</span>
@@ -71,8 +86,8 @@ export function renderFirstVisitVenueScreen(
         </div>
       </article>
     `,
-    )
-    .join('');
+        )
+        .join('');
 
   const arPrompt = state.arRoutePromptOpen
     ? `
@@ -128,14 +143,14 @@ export function renderFirstVisitVenueScreen(
         <div class="first-visit-actions" role="group" aria-label="Quick actions">
           <button type="button" class="first-visit-action first-visit-action--discover" id="first-visit-discover-btn">
             <span class="first-visit-action-icon" aria-hidden="true">
-              <img src="${HOME_ASSETS.location}" alt="" width="26" height="26" decoding="async" />
+              ${locationIcon}
             </span>
             <span class="first-visit-action-title">Discover</span>
             <span class="first-visit-action-copy">See what the crowd is saying</span>
           </button>
           <button type="button" class="first-visit-action first-visit-action--ar" id="first-visit-ar-btn">
             <span class="first-visit-action-icon" aria-hidden="true">
-              <img src="${HOME_ASSETS.camera}" alt="" width="26" height="26" decoding="async" />
+              ${cameraIcon}
             </span>
             <span class="first-visit-action-title">Try AR</span>
             <span class="first-visit-action-copy">Point your camera to navigate</span>
@@ -144,8 +159,9 @@ export function renderFirstVisitVenueScreen(
 
         <div class="first-visit-feed">
           <h2 class="first-visit-feed-title">Live from the crowd</h2>
-          <div class="first-visit-post-list">
+          <div class="first-visit-post-list screen-loading-host">
             ${postsMarkup}
+            ${feedLoading ? renderContentLoadingOverlay('Loading posts') : ''}
           </div>
           <button type="button" class="first-visit-see-all" id="first-visit-see-all-btn">
             See all posts

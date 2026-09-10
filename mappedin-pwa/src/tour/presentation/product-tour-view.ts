@@ -7,6 +7,7 @@ export interface ProductTourCardView {
   primaryLabel: string;
   showBack: boolean;
   isLast: boolean;
+  dontShowAgain: boolean;
   targetSelector: string;
   placement: ProductTourStep['placement'];
   total: number;
@@ -17,6 +18,7 @@ export function buildProductTourCardView(options: {
   step: ProductTourStep;
   index: number;
   total: number;
+  dontShowAgain?: boolean;
 }): ProductTourCardView {
   const isLast = options.total > 0 && options.index >= options.total - 1;
   return {
@@ -26,6 +28,7 @@ export function buildProductTourCardView(options: {
     primaryLabel: isLast ? 'Got it' : 'Next',
     showBack: options.index > 0,
     isLast,
+    dontShowAgain: options.dontShowAgain === true,
     targetSelector: options.step.targetSelector,
     placement: options.step.placement,
     total: options.total,

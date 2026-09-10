@@ -95,7 +95,7 @@ export class TokenLocalDatasource {
     }
   }
 
-  /** User access JWT only — guest tokens are rejected by venue/notification sockets. */
+  /** User access JWT only: guest tokens are rejected by venue/notification sockets. */
   getUserAccessToken(): string | null {
     return this.load()?.access ?? null;
   }

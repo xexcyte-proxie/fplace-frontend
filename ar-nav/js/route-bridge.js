@@ -632,6 +632,13 @@
       window.FplacesCameraStart?.applyParentPermissions?.(data);
       return;
     }
+    if (data.type === 'fplaces_activate') {
+      if (data.route) {
+        window.FplacesRouteBridge.applyRoute(data.route, 'postMessage-activate');
+      }
+      window.__fplacesActivateLiveView?.(data.launch || {});
+      return;
+    }
     if (data.type === 'fplaces_navigation_sync' && data.progress) {
       DBG()?.log('Bridge', 'Navigation sync from parent PWA', data.progress);
       applyNavigationSync(data.progress, 'postMessage-sync');

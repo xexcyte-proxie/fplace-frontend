@@ -323,7 +323,7 @@ describe('MapMarkerService live navigation', () => {
     const walked = { latitude: 6.5247, longitude: 3.3792, accuracy: 40 };
     expect(processor({}, walked)).toEqual({ ...walked, heading: 'device' });
 
-    // GPS course is travel direction, not facing — never put it on the cone.
+    // GPS course is travel direction, not facing: never put it on the cone.
     const withCourse = {
       latitude: 6.5249,
       longitude: 3.3792,

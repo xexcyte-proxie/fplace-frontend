@@ -20,6 +20,15 @@
       this.slamOriginZ = 0;
     }
 
+    reset() {
+      this.origin = null;
+      this.isCalibrated = false;
+      this.yawOffsetRad = 0;
+      this.yawOffsetDeg = 0;
+      this.slamOriginX = 0;
+      this.slamOriginZ = 0;
+    }
+
     /**
      * @param {{latitude:number, longitude:number}} baseCoordinates anchor geo point
      * @param {{yawOffsetDeg?:number, slamX?:number, slamZ?:number}} [alignment]
@@ -63,6 +72,9 @@
   window.FplacesAnchorEngine = {
     instance: shared,
     AnchorEngine,
+    reset() {
+      return shared.reset();
+    },
     calibrate(baseCoordinates, alignment) {
       return shared.calibrate(baseCoordinates, alignment);
     },

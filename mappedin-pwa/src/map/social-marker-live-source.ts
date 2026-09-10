@@ -7,7 +7,7 @@ export interface SocialMarkerLiveSource {
   useLiveFeed: boolean;
   /** True while the venue WebSocket is actually delivering live updates. */
   socketLive: boolean;
-  /** Legacy mock posts — only in pure demo mode (no venue session at all). */
+  /** Legacy mock posts: only in pure demo mode (no venue session at all). */
   useMockSocial: boolean;
 }
 
@@ -24,7 +24,7 @@ function isLiveVenueStatus(
 /**
  * Prefer venue WebSocket / REST social data over demo map markers.
  * Once a venue is selected (a real backend session), demo markers are never
- * shown again — an empty feed renders as genuinely quiet locations instead
+ * shown again: an empty feed renders as genuinely quiet locations instead
  * of fake counts.
  */
 export function resolveSocialMarkerLiveSource(

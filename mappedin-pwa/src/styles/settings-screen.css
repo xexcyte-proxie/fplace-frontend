@@ -78,10 +78,6 @@
   color: var(--settings-text-muted);
 }
 
-.settings-group-label--danger {
-  color: var(--settings-danger);
-}
-
 .settings-card {
   overflow: hidden;
   border: 1px solid var(--settings-border);

@@ -173,13 +173,17 @@
 
 .first-visit-action-icon {
   display: inline-flex;
+  color: currentColor;
 }
 
-.first-visit-action-icon img {
+.first-visit-action-icon svg {
   display: block;
   width: 26px;
   height: 26px;
-  object-fit: contain;
+}
+
+.first-visit-action--discover .first-visit-action-icon {
+  color: var(--fv-teal);
 }
 
 .first-visit-action-title {

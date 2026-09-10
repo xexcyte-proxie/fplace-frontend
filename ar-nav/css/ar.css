@@ -577,7 +577,7 @@ body.lv-active #hud::before {
   display: none !important;
 }
 
-/* Alignment cue — Google Live View style: left/right of camera, not under Level */
+/* Alignment cue, Google Live View style: left/right of camera, not under Level */
 .lv-align {
   --cue-intensity: 1;
   --cue-scale: 1;

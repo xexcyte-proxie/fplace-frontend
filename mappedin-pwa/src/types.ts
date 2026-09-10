@@ -401,7 +401,7 @@ export interface AppState {
   guestArGatePrompt: GuestArGatePrompt;
   /** True while consuming the AR trial / opening AR after acknowledge. */
   guestArGateLoading: boolean;
-  /** True while Continue as guest runs from welcome — keep Find places visible. */
+  /** True while Continue as guest runs from welcome: keep Find places visible. */
   guestContinueLoading: boolean;
   /** Dialog over Create account after SimpleJWT rejects the current token. */
   createAccountPrompt: CreateAccountPrompt;
@@ -550,8 +550,10 @@ export interface AppState {
    * Active product-tour step index, or null when the coach-mark overlay is hidden.
    */
   productTourStepIndex: number | null;
-  /** True after the user finished or skipped the product tour on this device. */
+  /** True after the user finished or opted out of the product tour on this device. */
   productTourCompleted: boolean;
+  /** Settings / “don’t show again” switch. Auto-start requires this to be on. */
+  productTourEnabled: boolean;
 }
 
 export type LocationActionPrompt = {
@@ -685,4 +687,5 @@ export const initialAppState = (): AppState => ({
   locationActionPrompt: null,
   productTourStepIndex: null,
   productTourCompleted: false,
+  productTourEnabled: true,
 });

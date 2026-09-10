@@ -1,3 +1,4 @@
+import type { ProductTourPreference } from '../domain/entities';
 import type { ProductTourRepository } from '../domain/repositories/product-tour-repository';
 import {
   productTourLocalDatasource,
@@ -9,12 +10,12 @@ export class ProductTourRepositoryImpl implements ProductTourRepository {
     private readonly datasource: ProductTourLocalDatasource = productTourLocalDatasource,
   ) {}
 
-  hasCompleted(): boolean {
-    return this.datasource.hasCompleted();
+  load(): ProductTourPreference {
+    return this.datasource.load();
   }
 
-  markCompleted(): void {
-    this.datasource.markCompleted();
+  save(preference: ProductTourPreference): void {
+    this.datasource.save(preference);
   }
 
   clear(): void {

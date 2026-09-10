@@ -35,12 +35,29 @@ describe('ProductTourLocalDatasource', () => {
     installMemoryLocalStorage();
   });
 
-  it('persists the completed flag across instances', () => {
+  it('defaults to enabled and not completed', () => {
+    const datasource = new ProductTourLocalDatasource();
+    expect(datasource.load()).toEqual({ completed: false, enabled: true });
+  });
+
+  it('persists enabled and completed across instances', () => {
     const a = new ProductTourLocalDatasource();
-    expect(a.hasCompleted()).toBe(false);
-    a.markCompleted();
-    expect(new ProductTourLocalDatasource().hasCompleted()).toBe(true);
+    a.save({ completed: true, enabled: false });
+    expect(new ProductTourLocalDatasource().load()).toEqual({
+      completed: true,
+      enabled: false,
+    });
     a.clear();
-    expect(a.hasCompleted()).toBe(false);
+    expect(a.load()).toEqual({ completed: false, enabled: true });
+  });
+
+  it('migrates the legacy completed flag into an opted-out preference', () => {
+    localStorage.setItem('fplaces_product_tour_completed', '1');
+    const datasource = new ProductTourLocalDatasource();
+    expect(datasource.load()).toEqual({ completed: true, enabled: false });
+    expect(localStorage.getItem('fplaces_product_tour_completed')).toBeNull();
+    expect(localStorage.getItem('fplaces_product_tour_preference')).toContain(
+      '"enabled":false',
+    );
   });
 });

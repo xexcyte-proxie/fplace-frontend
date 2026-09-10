@@ -63,7 +63,7 @@ import {
   layoutProductTourOverlay,
   renderProductTour,
 } from "./product-tour";
-import { stepsForHomeExperience } from "../tour/domain/entities";
+import { isProductTourDontShowAgain, stepsForHomeExperience } from "../tour/domain/entities";
 import {
   bottomNavNavigateIcon,
   bottomNavProfileIcon,
@@ -418,7 +418,7 @@ export class UiRoot {
       focusedHomeVenueSearch?.selectionEnd ?? null;
 
     // visibility:hidden keeps layout so Mappedin can boot off-screen.
-    // Hide as soon as we are not on the indoor map — do not wait for ready.
+    // Hide as soon as we are not on the indoor map: do not wait for ready.
     const hideMapCanvas = shouldHideMapCanvas({
       shell: startupShell,
       activeTab: state.activeTab,
@@ -570,6 +570,7 @@ export class UiRoot {
               step: tourStep,
               index: state.productTourStepIndex,
               total: tourSteps.length,
+              dontShowAgain: isProductTourDontShowAgain(state.productTourEnabled),
             })
           : ""
       }

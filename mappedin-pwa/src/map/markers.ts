@@ -452,7 +452,7 @@ export class MapMarkerService {
 
   /**
    * Follow position immediately. On the idle map, do not lock camera bearing
-   * to compass heading — magnetometer noise spins the 2D view while you stand
+   * to compass heading: magnetometer noise spins the 2D view while you stand
    * still. Heading-follow is reserved for active navigation.
    */
   private syncFollowMode(force = false): void {
@@ -568,7 +568,7 @@ export class MapMarkerService {
   /**
    * Mappedin hides the glow when `heading` is `undefined`/`null`.
    * GPS `coords.heading` is null while stationary, so the processor must not
-   * forward that through — use `'device'` so the compass cone stays on.
+   * forward that through: use `'device'` so the compass cone stays on.
    */
   private headingForDevicePosition(
     _incoming?: number | 'device' | null,

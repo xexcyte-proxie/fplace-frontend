@@ -14,7 +14,7 @@ export function arrivalDialogCopy(destinationName?: string | null): {
   return {
     title: "You've arrived",
     body: name
-      ? `You've gotten there — ${name}.`
+      ? `You've gotten there: ${name}.`
       : "You've gotten there.",
   };
 }

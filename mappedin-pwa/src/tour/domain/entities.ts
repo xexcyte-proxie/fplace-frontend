@@ -22,7 +22,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'welcome',
     title: 'Quick tour',
-    body: 'Here’s a 30-second look at the controls you’ll use most — skip anytime.',
+    body: 'Here’s a 30-second look at the controls you’ll use most. Skip anytime.',
     targetSelector: '',
     placement: 'center',
     surface: 'home',
@@ -31,7 +31,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'discover',
     title: 'Discover the crowd',
-    body: 'See what people here are posting right now — food, lines, and the vibe.',
+    body: 'See what people here are posting right now: food, lines, and the vibe.',
     targetSelector: '#first-visit-discover-btn',
     placement: 'bottom',
     surface: 'home',
@@ -103,7 +103,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'social-composer',
     title: 'Shout out',
-    body: 'Post a quick update to your section — keep it to 140 characters.',
+    body: 'Post a quick update to your section. Keep it to 140 characters.',
     targetSelector: '[data-tour-id="venue-composer"]',
     placement: 'top',
     surface: 'social',
@@ -121,7 +121,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'profile-settings',
     title: 'Settings',
-    body: 'Change notifications, replay this tour, or switch venues anytime.',
+    body: 'Change notifications, turn this tour on or off, or switch venues anytime.',
     targetSelector: '#profile-settings-btn',
     placement: 'bottom',
     surface: 'profile',
@@ -158,14 +158,45 @@ export function previousProductTourIndex(index: number): number {
   return Math.max(0, index - 1);
 }
 
+export interface ProductTourPreference {
+  /** True after the user finished the tour or opted out on this device. */
+  completed: boolean;
+  /** Settings / “don’t show again” switch. Auto-start requires this to be on. */
+  enabled: boolean;
+}
+
+export const DEFAULT_PRODUCT_TOUR_PREFERENCE: ProductTourPreference = {
+  completed: false,
+  enabled: true,
+};
+
 export function shouldAutoStartProductTour(options: {
   onboardingComplete: boolean;
+  tourEnabled: boolean;
   tourCompleted: boolean;
   tourActive: boolean;
+  dismissedThisSession: boolean;
 }): boolean {
   return (
     options.onboardingComplete &&
+    options.tourEnabled &&
     !options.tourCompleted &&
-    !options.tourActive
+    !options.tourActive &&
+    !options.dismissedThisSession
   );
+}
+
+/** Persist after Finish, Skip with “don’t show again”, or Settings off. */
+export function preferenceAfterProductTourOptOut(): ProductTourPreference {
+  return { completed: true, enabled: false };
+}
+
+/** Persist after Settings turns the tour back on. */
+export function preferenceAfterProductTourEnable(): ProductTourPreference {
+  return { completed: false, enabled: true };
+}
+
+/** Checkbox on the dialog is the inverse of the enabled preference. */
+export function isProductTourDontShowAgain(enabled: boolean): boolean {
+  return !enabled;
 }

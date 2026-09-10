@@ -51,6 +51,35 @@ function getFrame(): HTMLIFrameElement | null {
   return document.querySelector('#ar-frame');
 }
 
+function getBootOverlay(): HTMLElement | null {
+  return document.querySelector('#ar-boot-overlay');
+}
+
+let bootOverlayTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function showArBootOverlay(): void {
+  const overlay = getBootOverlay();
+  if (!overlay) return;
+  overlay.hidden = false;
+}
+
+export function hideArBootOverlay(): void {
+  if (bootOverlayTimer != null) {
+    window.clearTimeout(bootOverlayTimer);
+    bootOverlayTimer = null;
+  }
+  const overlay = getBootOverlay();
+  if (overlay) overlay.hidden = true;
+}
+
+export function armArBootOverlayFallback(onTimeout: () => void, timeoutMs = 6000): void {
+  if (bootOverlayTimer != null) window.clearTimeout(bootOverlayTimer);
+  bootOverlayTimer = window.setTimeout(() => {
+    bootOverlayTimer = null;
+    onTimeout();
+  }, timeoutMs);
+}
+
 function pipSize(shell: HTMLElement): { width: number; height: number } {
   const rect = shell.getBoundingClientRect();
   return {
@@ -103,7 +132,9 @@ export function applyPipShellLayout(mode: ArPresentation): void {
   shell.hidden = mode === 'closed';
 
   if (mode === 'closed') {
-    frame.src = 'about:blank';
+    // Keep the Live View document so 8th Wall / THREE stay warm for the next open.
+    // Camera + XR are parked by the parent before this layout runs.
+    hideArBootOverlay();
     clearPipPosition();
     shell.style.left = '';
     shell.style.top = '';

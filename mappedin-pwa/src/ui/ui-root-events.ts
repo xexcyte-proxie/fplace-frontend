@@ -194,6 +194,10 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     return;
   }
 
+  if (target.closest('.product-tour-dont-show')) {
+    return;
+  }
+
   const button = target.closest<HTMLElement>('[id]');
   if (!button || !host.root.contains(button)) return;
 
@@ -415,8 +419,8 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     case 'settings-about-btn':
       app.openAboutSettings();
       return;
-    case 'settings-replay-tour-btn':
-      app.startProductTour();
+    case 'settings-tour-toggle':
+      app.toggleProductTourEnabled();
       return;
     case 'settings-privacy-back-btn':
     case 'settings-about-back-btn':
@@ -559,6 +563,10 @@ function handleChange(event: Event, host: UiRootEventHost): void {
   if (!(target instanceof HTMLInputElement)) return;
   if (target.id === 'auth-terms') {
     host.setCreateTermsAcceptedDraft(target.checked);
+  }
+  if (target.id === 'product-tour-dont-show') {
+    const app = appOf(host);
+    app?.setProductTourDontShowAgain(target.checked);
   }
   if (target.id === 'login-password') {
     host.setAuthPasswordDraft(target.value);

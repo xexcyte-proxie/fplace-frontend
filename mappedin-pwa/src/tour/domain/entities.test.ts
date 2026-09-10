@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import type { HomeExperience } from '../../home/domain/entities';
 import {
+  isProductTourDontShowAgain,
   nextProductTourIndex,
+  preferenceAfterProductTourEnable,
+  preferenceAfterProductTourOptOut,
   previousProductTourIndex,
   PRODUCT_TOUR_STEPS,
   productTourStepAt,
@@ -59,34 +62,73 @@ describe('product tour steps', () => {
     expect(productTourStepAt([], 0)).toBeNull();
   });
 
-  it('auto-starts only after onboarding, once', () => {
+  it('auto-starts only after onboarding, when the tour is enabled and not dismissed', () => {
     expect(
       shouldAutoStartProductTour({
         onboardingComplete: true,
+        tourEnabled: true,
         tourCompleted: false,
         tourActive: false,
+        dismissedThisSession: false,
       }),
     ).toBe(true);
     expect(
       shouldAutoStartProductTour({
         onboardingComplete: false,
+        tourEnabled: true,
         tourCompleted: false,
         tourActive: false,
+        dismissedThisSession: false,
       }),
     ).toBe(false);
     expect(
       shouldAutoStartProductTour({
         onboardingComplete: true,
+        tourEnabled: false,
+        tourCompleted: false,
+        tourActive: false,
+        dismissedThisSession: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoStartProductTour({
+        onboardingComplete: true,
+        tourEnabled: true,
         tourCompleted: true,
         tourActive: false,
+        dismissedThisSession: false,
       }),
     ).toBe(false);
     expect(
       shouldAutoStartProductTour({
         onboardingComplete: true,
+        tourEnabled: true,
         tourCompleted: false,
         tourActive: true,
+        dismissedThisSession: false,
       }),
     ).toBe(false);
+    expect(
+      shouldAutoStartProductTour({
+        onboardingComplete: true,
+        tourEnabled: true,
+        tourCompleted: false,
+        tourActive: false,
+        dismissedThisSession: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('opts out and re-enables as inverse preferences', () => {
+    expect(preferenceAfterProductTourOptOut()).toEqual({
+      completed: true,
+      enabled: false,
+    });
+    expect(preferenceAfterProductTourEnable()).toEqual({
+      completed: false,
+      enabled: true,
+    });
+    expect(isProductTourDontShowAgain(true)).toBe(false);
+    expect(isProductTourDontShowAgain(false)).toBe(true);
   });
 });

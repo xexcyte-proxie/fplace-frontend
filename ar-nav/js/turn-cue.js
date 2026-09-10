@@ -1,5 +1,5 @@
 /**
- * Domain: Live View heading cue — left/right of screen from alignment delta.
+ * Domain: Live View heading cue, left/right of screen from alignment delta.
  * Pure; no DOM. Google Live View–style side arrow.
  */
 (function (root) {

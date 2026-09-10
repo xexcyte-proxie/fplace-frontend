@@ -23,7 +23,7 @@ export interface ReconnectingWebSocketSubscription {
 
 /**
  * Receive-only socket with handshake timeout and backoff.
- * iOS Safari often leaves self-signed `wss:` in CONNECTING forever — we abort.
+ * iOS Safari often leaves self-signed `wss:` in CONNECTING forever, so we abort.
  */
 export function connectReconnectingWebSocket(options: {
   logTag: string;
@@ -119,7 +119,7 @@ export function connectReconnectingWebSocket(options: {
       attemptSettled = true;
       clearOpenTimer();
       if (socket === current) socket = null;
-      // Stay on connecting/reconnecting while we will retry — do not flash
+      // Stay on connecting/reconnecting while we will retry: do not flash
       // "offline" between attempts.
       emitStatus(hasConnectedOnce ? 'reconnecting' : 'connecting');
       scheduleReconnect();

@@ -105,10 +105,13 @@ import {
 } from './app-preferences-service';
 import {
   clearProductTourProgress,
-  hasCompletedProductTour,
-  markProductTourCompleted,
+  isProductTourDontShowAgain,
+  loadProductTourPreference,
   nextProductTourIndex,
+  preferenceAfterProductTourEnable,
+  preferenceAfterProductTourOptOut,
   previousProductTourIndex,
+  saveProductTourPreference,
   shouldAutoStartProductTour,
   stepsForHomeExperience,
   type ProductTourSurface,
@@ -229,6 +232,12 @@ import { defaultSectionId } from '../ui/venue-select-data';
 import { legInstructions } from '../utils/route-helpers';
 import { appLog, appWarn } from '../utils/logger';
 import { serializeCoordinate } from '../utils/route-helpers';
+import {
+  clampVenueZoom,
+  isWorldScaleZoom,
+  SHOW_VENUE_MAP_OPTIONS,
+  VENUE_MAP_MIN_ZOOM,
+} from '../map/domain/venue-map-view';
 
 export class MapApp {
   private mapView: MapView | null = null;
@@ -271,6 +280,8 @@ export class MapApp {
   private interestOptionsLoaded = false;
   /** One-shot: focus map search after the next UI paint (Try AR flow). */
   private pendingMapSearchFocus = false;
+  /** Skip without “don’t show again” hides the tour until the next app launch. */
+  private productTourDismissedThisSession = false;
   /** In-memory only - used to obtain JWTs after email verification. */
   private pendingAuthPassword: string | null = null;
   private socialMapMarkers: SocialMapMarkerService | null = null;
@@ -293,14 +304,17 @@ export class MapApp {
     count: number;
   } | null = null;
   private venueFeedScopeGeneration = 0;
+  private restoringVenueView = false;
 
   constructor(private readonly store: AppStore) {
     const preferences = loadAppPreferences();
     const storedLocation = permissionChoiceLocalDatasource.loadLocation();
+    const tourPreference = loadProductTourPreference();
     this.store.patch({
       notificationsEnabled: preferences.notificationsEnabled,
       simulationEnabled: preferences.simulationEnabled,
-      productTourCompleted: hasCompletedProductTour(),
+      productTourCompleted: tourPreference.completed,
+      productTourEnabled: tourPreference.enabled,
       locationPermission: storedLocation,
     });
     if (storedLocation === 'granted') {
@@ -309,6 +323,13 @@ export class MapApp {
     onAuthSessionCleared((reason) => {
       this.handleAuthSessionExpired(reason);
     });
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          this.restoreVenueMapView();
+        }
+      });
+    }
   }
 
   async start(mapContainer: HTMLElement): Promise<void> {
@@ -454,7 +475,12 @@ export class MapApp {
         loadingProgress: 55,
       });
 
-      this.mapView = await show3dMap(mapContainer, this.mapData);
+      this.mapView = await show3dMap(
+        mapContainer,
+        this.mapData,
+        SHOW_VENUE_MAP_OPTIONS,
+      );
+      this.disableOutdoorWorldView();
       this.suppressNativeMapBlueDot();
       this.routePlanner = new RoutePlanner(
         this.mapView,
@@ -1012,6 +1038,28 @@ export class MapApp {
     }
   }
 
+  toggleProductTourEnabled(): void {
+    const enabled = !this.store.get().productTourEnabled;
+    if (enabled) {
+      this.productTourDismissedThisSession = false;
+      saveProductTourPreference(preferenceAfterProductTourEnable());
+      this.store.patch({
+        productTourEnabled: true,
+        productTourCompleted: false,
+      });
+      this.beginProductTour({ replay: true });
+      return;
+    }
+    this.optOutProductTour();
+  }
+
+  setProductTourDontShowAgain(dontShow: boolean): void {
+    const enabled = !dontShow;
+    const current = loadProductTourPreference();
+    saveProductTourPreference({ ...current, enabled });
+    this.store.patch({ productTourEnabled: enabled });
+  }
+
   openNotifications(): void {
     this.store.patch({
       activeTab: 'social',
@@ -1247,11 +1295,6 @@ export class MapApp {
     this.maybeStartProductTour();
   }
 
-  /** Replay the coach-mark tour from Settings. */
-  startProductTour(): void {
-    this.beginProductTour({ replay: true });
-  }
-
   advanceProductTour(): void {
     const state = this.store.get();
     if (state.productTourStepIndex == null) return;
@@ -1273,7 +1316,12 @@ export class MapApp {
   }
 
   skipProductTour(): void {
-    this.finishProductTour();
+    if (isProductTourDontShowAgain(this.store.get().productTourEnabled)) {
+      this.finishProductTour();
+      return;
+    }
+    this.productTourDismissedThisSession = true;
+    this.dismissProductTourOverlay();
   }
 
   private maybeStartProductTour(): void {
@@ -1281,8 +1329,10 @@ export class MapApp {
     if (
       !shouldAutoStartProductTour({
         onboardingComplete: state.onboardingComplete,
+        tourEnabled: state.productTourEnabled,
         tourCompleted: state.productTourCompleted,
         tourActive: state.productTourStepIndex != null,
+        dismissedThisSession: this.productTourDismissedThisSession,
       })
     ) {
       return;
@@ -1293,17 +1343,45 @@ export class MapApp {
   private beginProductTour(options: { replay: boolean }): void {
     const state = this.store.get();
     if (!state.onboardingComplete) return;
-    if (!options.replay && state.productTourCompleted) return;
+    if (!options.replay && (state.productTourCompleted || !state.productTourEnabled)) {
+      return;
+    }
     const steps = stepsForHomeExperience(state.homeExperience);
     if (!steps.length) return;
     this.applyProductTourIndex(0);
   }
 
   private finishProductTour(): void {
-    markProductTourCompleted();
+    this.optOutProductTour();
+  }
+
+  private optOutProductTour(): void {
+    this.productTourDismissedThisSession = true;
+    saveProductTourPreference(preferenceAfterProductTourOptOut());
+    const tourWasActive = this.store.get().productTourStepIndex != null;
+    if (!tourWasActive) {
+      this.store.patch({
+        productTourEnabled: false,
+        productTourCompleted: true,
+      });
+      return;
+    }
+    this.store.patch({
+      productTourEnabled: false,
+      productTourCompleted: true,
+      productTourStepIndex: null,
+      activeTab: 'map',
+      navigateView: 'home',
+      profileView: 'main',
+      settingsConfirm: null,
+      notificationsOpen: false,
+      postCommentsOpen: false,
+    });
+  }
+
+  private dismissProductTourOverlay(): void {
     this.store.patch({
       productTourStepIndex: null,
-      productTourCompleted: true,
       activeTab: 'map',
       navigateView: 'home',
       profileView: 'main',
@@ -1522,7 +1600,7 @@ export class MapApp {
       );
     const remainingFallback = total > 0 ? total : (route.distanceMeters ?? null);
     // Indoor GPS nearest-snap often lands on the destination of a short venue
-    // path. A new route always starts at the origin — never pretends the user
+    // path. A new route always starts at the origin: never pretends the user
     // has already walked it.
     return { traveled: 0, remaining: remainingFallback };
   }
@@ -2902,7 +2980,7 @@ export class MapApp {
     });
   }
 
-  /** Resend from the check-email screen — verify OTP or password-reset link. */
+  /** Resend from the check-email screen: verify OTP or password-reset link. */
   async resendCheckEmail(): Promise<boolean> {
     const state = this.store.get();
     if (state.checkEmailPurpose === 'password-reset') {
@@ -3255,8 +3333,12 @@ export class MapApp {
       productTourCompleted: options?.preserveAsNewDevice
         ? false
         : this.store.get().productTourCompleted,
+      productTourEnabled: options?.preserveAsNewDevice
+        ? true
+        : this.store.get().productTourEnabled,
     });
     if (options?.preserveAsNewDevice) {
+      this.productTourDismissedThisSession = false;
       clearProductTourProgress();
     }
     if (options?.showLogin) {
@@ -4646,22 +4728,69 @@ export class MapApp {
   zoomIn(): void {
     if (!this.mapView) return;
     const camera = this.mapView.Camera;
-    const zoomLevel = Math.min(camera.zoomLevel + 1, camera.maxZoomLevel);
+    const zoomLevel = clampVenueZoom(
+      camera.zoomLevel + 1,
+      camera.minZoomLevel,
+      camera.maxZoomLevel,
+    );
     void camera.animateTo({ zoomLevel }, { duration: 200 });
   }
 
   zoomOut(): void {
     if (!this.mapView) return;
     const camera = this.mapView.Camera;
-    const zoomLevel = Math.max(camera.zoomLevel - 1, camera.minZoomLevel);
+    const zoomLevel = clampVenueZoom(
+      camera.zoomLevel - 1,
+      camera.minZoomLevel,
+      camera.maxZoomLevel,
+    );
     void camera.animateTo({ zoomLevel }, { duration: 200 });
   }
 
   private zoomToOverview(): void {
     if (!this.mapView) return;
     const camera = this.mapView.Camera;
-    const overviewZoom = Math.max(camera.minZoomLevel, camera.zoomLevel - 1);
+    const overviewZoom = clampVenueZoom(
+      camera.zoomLevel - 1,
+      camera.minZoomLevel,
+      camera.maxZoomLevel,
+    );
     void camera.animateTo({ zoomLevel: overviewZoom }, { duration: 350 });
+  }
+
+  private disableOutdoorWorldView(): void {
+    try {
+      this.mapView?.Outdoor?.hide?.();
+    } catch {
+      /* outdoor module may be absent when disabled at init */
+    }
+  }
+
+  private restoreVenueMapView(): void {
+    if (!this.mapView || this.restoringVenueView) return;
+    this.disableOutdoorWorldView();
+    const zoom = this.mapView.Camera?.zoomLevel;
+    if (!isWorldScaleZoom(zoom)) return;
+    const floor = this.mapView.currentFloor;
+    if (!floor) return;
+    this.restoringVenueView = true;
+    const done = () => {
+      this.restoringVenueView = false;
+    };
+    try {
+      const result = this.mapView.Camera.focusOn(floor, {
+        minZoomLevel: VENUE_MAP_MIN_ZOOM,
+        maxZoomLevel: 20,
+        duration: 0,
+      }) as { finally?: (fn: () => void) => unknown } | undefined;
+      if (result && typeof result.finally === 'function') {
+        void result.finally(done);
+      } else {
+        window.setTimeout(done, 400);
+      }
+    } catch {
+      done();
+    }
   }
 
   getActivePositionSource(): PositionSourceType {
@@ -4917,9 +5046,10 @@ export class MapApp {
       return;
     }
 
-    const permissions = await consumeArMediaPermissionPrime();
-    const cameraReady = shouldReuseGrantedArCamera(
-      permissions.camera,
+    const cameraReadyHint = shouldReuseGrantedArCamera(
+      permissionChoiceLocalDatasource.loadCamera() === 'granted'
+        ? 'granted'
+        : 'prompt',
       isArSameOrigin(),
     );
 
@@ -4950,16 +5080,9 @@ export class MapApp {
       userPosition,
       this.store.get().floors,
       progress,
-      { cameraReady },
+      { cameraReady: cameraReadyHint },
     );
-    openArFullscreen(url, routePayload);
-    notifyArIframePermissions(
-      cameraReady
-        ? 'granted'
-        : isArSameOrigin()
-          ? permissions.camera
-          : 'prompt',
-    );
+    openArFullscreen(url, routePayload, { cameraReady: cameraReadyHint });
     this.store.patch({
       arPresentation: 'fullscreen',
       guestArGatePrompt: null,
@@ -4968,6 +5091,19 @@ export class MapApp {
     this.resumeRouteNavigation(progress);
     appLog('AR', 'Opened', { url, alongPathMeters: progress.alongPathMeters });
 
+    void consumeArMediaPermissionPrime().then((permissions) => {
+      const cameraReady = shouldReuseGrantedArCamera(
+        permissions.camera,
+        isArSameOrigin(),
+      );
+      notifyArIframePermissions(
+        cameraReady
+          ? 'granted'
+          : isArSameOrigin()
+            ? permissions.camera
+            : 'prompt',
+      );
+    });
     void this.warmArSensors();
   }
 
@@ -5181,7 +5317,7 @@ export class MapApp {
     }
 
     if (state.routeSimulating || this.liveRouteTracking) {
-      // Snapped map progress is venue authority for AR — not raw outdoor GPS.
+      // Snapped map progress is venue authority for AR, not raw outdoor GPS.
       source = 'pwa';
     }
 
@@ -5384,6 +5520,13 @@ export class MapApp {
         (event as { floor?: { id?: string } }).floor?.id ??
         this.mapView?.currentFloor?.id;
       if (floorId) this.store.patch({ currentFloorId: floorId });
+    });
+
+    this.mapView.on('camera-change', () => {
+      if (this.restoringVenueView) return;
+      if (isWorldScaleZoom(this.mapView?.Camera?.zoomLevel)) {
+        this.restoreVenueMapView();
+      }
     });
 
     this.mapData?.on('language-change', ({ code, name }) => {
@@ -5749,7 +5892,7 @@ export class MapApp {
         const now = performance.now();
         if (now - this.lastArProviderStreamAt >= 90) {
           this.lastArProviderStreamAt = now;
-          // Never push a raw GPS lat/lng on heading-only ticks — indoors that
+          // Never push a raw GPS lat/lng on heading-only ticks: indoors that
           // can be kilometers off the Mappedin path and poisons AR off-route.
           if (this.liveRouteTracking || this.store.get().routeSimulating) {
             syncNavigationToAr(this.getNavigationProgressSnapshot());

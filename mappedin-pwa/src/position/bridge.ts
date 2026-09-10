@@ -1,3 +1,10 @@
+import {
+  preloadSrcNeedsRefresh,
+  shouldReuseWarmedArIframe,
+  shouldWaitForInFlightPreload,
+  type LiveViewLaunchOptions,
+  type WarmedArChildSnapshot,
+} from "../ar/domain/warm-iframe";
 import { appConfig } from "../config";
 import {
   ROUTE_ACK_TIMEOUT_MS,
@@ -6,9 +13,11 @@ import {
 import { routeLifecycleManager } from "../routing/route-lifecycle-manager";
 import type { FloorInfo, RouteCoordinate, RoutePayload } from "../types";
 import { buildArRoutePayload, encodeRouteForAr } from "../utils/route-helpers";
-import { applyPipShellLayout, isArShellVisible } from "./ar-pip-shell";
+import { applyPipShellLayout, hideArBootOverlay, isArShellVisible, showArBootOverlay, armArBootOverlayFallback } from "./ar-pip-shell";
 import type { FplacesPositionFrame, NavigationProgressSnapshot } from "./types";
 import { appLog, appWarn } from "../utils/logger";
+
+const PRELOAD_ACTIVATE_WAIT_MS = 8_000;
 
 export type RouteDeliveryResult = {
   accepted: boolean;
@@ -64,6 +73,7 @@ function syncArPresentationToFrame(): void {
 export function setArPresentation(mode: ArPresentation): void {
   currentArPresentation = mode;
   if (mode === "closed") {
+    parkArIframe();
     notifyArPresentation(mode);
     clearRouteHandoff();
     applyPipShellLayout(mode);
@@ -607,42 +617,151 @@ export function handleRouteAck(
   }
 }
 
-export function warmArIframe(): void {
-  if (typeof window === "undefined" || !window.isSecureContext) return;
-  const frame = document.querySelector("#ar-frame") as HTMLIFrameElement | null;
-  if (!frame) return;
-  const src = frame.getAttribute("src") || "";
-  if (src && src !== "about:blank") return;
+type ArLiveViewChild = Window & {
+  __fplacesActivateLiveView?: (options: LiveViewLaunchOptions) => boolean;
+  __fplacesParkLiveView?: () => void;
+  FplacesRouteBridge?: {
+    applyRoute: (payload: Record<string, unknown>, source: string) => unknown;
+  };
+  FplacesCameraStart?: {
+    applyParentPermissions?: (data: { camera: string }) => void;
+    recoverIfWaiting?: () => void;
+  };
+  FPLACES_AR_CONFIG?: { buildId?: string };
+  __fplacesXrPipelineReady?: boolean;
+  XR8?: unknown;
+  THREE?: unknown;
+};
+
+type PendingLiveViewActivate = {
+  url: string;
+  routePayload?: Record<string, unknown>;
+  launch: LiveViewLaunchOptions;
+};
+
+let pendingLiveViewActivate: PendingLiveViewActivate | null = null;
+let pendingLiveViewActivateTimer: ReturnType<typeof setTimeout> | null = null;
+
+function buildPreloadArSrc(): string {
   const base = resolveArBaseUrl();
-  frame.setAttribute("allow", AR_IFRAME_ALLOW);
-  frame.src = `${base}?arDebug=0&preload=1&build=${encodeURIComponent(appConfig.arBuildId)}`;
+  return `${base}?arDebug=0&preload=1&build=${encodeURIComponent(appConfig.arBuildId)}`;
 }
 
-export function openArFullscreen(
+function readArLiveViewChild(frame: HTMLIFrameElement): ArLiveViewChild | null {
+  try {
+    return frame.contentWindow as ArLiveViewChild;
+  } catch {
+    return null;
+  }
+}
+
+function snapshotArChild(child: ArLiveViewChild | null): WarmedArChildSnapshot | null {
+  if (!child) return null;
+  return {
+    hasActivate: typeof child.__fplacesActivateLiveView === "function",
+    hasRouteBridge: typeof child.FplacesRouteBridge?.applyRoute === "function",
+    buildId: child.FPLACES_AR_CONFIG?.buildId ?? null,
+    pipelineReady: Boolean(child.__fplacesXrPipelineReady),
+    hasXrEngine: Boolean(child.THREE && child.XR8),
+  };
+}
+
+function liveViewLaunchOptions(
+  cameraReady: boolean,
+  startXrNow = true,
+): LiveViewLaunchOptions {
+  return {
+    autoCalibrate: true,
+    preferVenuePositioning: true,
+    useWorldRoute: true,
+    cameraReady,
+    pwaOrigin: typeof window !== "undefined" ? window.location.origin : "",
+    startXrNow,
+  };
+}
+
+function revealArStartFallback(): void {
+  hideArBootOverlay();
+  const frame = document.querySelector("#ar-frame") as HTMLIFrameElement | null;
+  if (!frame) return;
+  try {
+    readArLiveViewChild(frame)?.FplacesCameraStart?.recoverIfWaiting?.();
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearPendingLiveViewActivate(): void {
+  pendingLiveViewActivate = null;
+  if (pendingLiveViewActivateTimer != null) {
+    window.clearTimeout(pendingLiveViewActivateTimer);
+    pendingLiveViewActivateTimer = null;
+  }
+}
+
+function parkArIframe(): void {
+  const frame = document.querySelector("#ar-frame") as HTMLIFrameElement | null;
+  if (!frame) return;
+  const child = readArLiveViewChild(frame);
+  try {
+    child?.__fplacesParkLiveView?.();
+  } catch (error) {
+    appWarn("AR", "Park Live View failed", error);
+  }
+}
+
+function tryActivateWarmedArIframe(
+  frame: HTMLIFrameElement,
+  routePayload: Record<string, unknown> | undefined,
+  launch: LiveViewLaunchOptions,
+): boolean {
+  if (
+    !shouldReuseWarmedArIframe({
+      src: frame.getAttribute("src") || frame.src,
+      sameOrigin: isArSameOrigin(),
+      expectedBuildId: appConfig.arBuildId,
+      child: snapshotArChild(readArLiveViewChild(frame)),
+    })
+  ) {
+    return false;
+  }
+
+  const child = readArLiveViewChild(frame);
+  if (!child?.__fplacesActivateLiveView) return false;
+
+  try {
+    if (routePayload) {
+      if (!deliverRouteDirect(frame, routePayload)) {
+        deliverRoutePostMessage(frame, routePayload);
+        stashRouteHandoff(routePayload);
+      }
+    }
+    const activated = child.__fplacesActivateLiveView(launch);
+    if (activated === false) return false;
+    syncArPresentationToFrame();
+    appLog("AR", "Reused warmed Live View iframe", {
+      pipelineReady: Boolean(child.__fplacesXrPipelineReady),
+      hasXrEngine: Boolean(child.THREE && child.XR8),
+      startXrNow: launch.startXrNow,
+    });
+    return true;
+  } catch (error) {
+    appWarn("AR", "Warm iframe activate failed", error);
+    return false;
+  }
+}
+
+function loadLiveViewUrl(
+  frame: HTMLIFrameElement,
   url: string,
   routePayload?: Record<string, unknown>,
-): HTMLIFrameElement {
-  const frame = document.querySelector("#ar-frame") as HTMLIFrameElement;
-  frame.setAttribute("allow", AR_IFRAME_ALLOW);
-
-  const pathPointCount = Array.isArray(routePayload?.pathCoordinates)
-    ? routePayload.pathCoordinates.length
-    : 0;
-
-  appWarn("AR", "Opening AR iframe", {
-    url,
-    urlLength: url.length,
-    hasRoutePayload: Boolean(routePayload),
-    pathPointCount,
-    arBase: appConfig.arUrl,
-  });
-
-  // Show shell before delivery so deliverRouteWithRetry is not blocked by frame.hidden.
-  setArPresentation("fullscreen");
-
+): void {
   const onLiveViewLoaded = () => {
     syncArPresentationToFrame();
     if (!routePayload || !frame.contentWindow) return;
+    if (tryActivateWarmedArIframe(frame, routePayload, liveViewLaunchOptions(false, true))) {
+      return;
+    }
     void deliverRouteWithRetry(routePayload).then((result) => {
       appLog("AR", "Route delivery result", result);
     });
@@ -655,10 +774,121 @@ export function openArFullscreen(
     window.setTimeout(onLiveViewLoaded, 1200);
     window.setTimeout(onLiveViewLoaded, 2500);
   }
-
-  // Always load the Live View URL. A warmed preload document must not stay on
-  // screen — it never starts the camera or HUD.
   frame.src = url;
+}
+
+function flushPendingLiveViewActivate(): boolean {
+  const pending = pendingLiveViewActivate;
+  if (!pending) return false;
+  const frame = document.querySelector("#ar-frame") as HTMLIFrameElement | null;
+  if (!frame) return false;
+  if (tryActivateWarmedArIframe(frame, pending.routePayload, pending.launch)) {
+    clearPendingLiveViewActivate();
+    return true;
+  }
+  return false;
+}
+
+function queuePreloadActivate(
+  frame: HTMLIFrameElement,
+  url: string,
+  routePayload: Record<string, unknown> | undefined,
+  launch: LiveViewLaunchOptions,
+): void {
+  pendingLiveViewActivate = { url, routePayload, launch };
+  if (routePayload) stashRouteHandoff(routePayload);
+  if (pendingLiveViewActivateTimer != null) {
+    window.clearTimeout(pendingLiveViewActivateTimer);
+  }
+  pendingLiveViewActivateTimer = window.setTimeout(() => {
+    const pending = pendingLiveViewActivate;
+    pendingLiveViewActivateTimer = null;
+    if (!pending) return;
+    pendingLiveViewActivate = null;
+    appWarn("AR", "Preload activate timed out - loading Live View URL");
+    loadLiveViewUrl(frame, pending.url, pending.routePayload);
+  }, PRELOAD_ACTIVATE_WAIT_MS);
+
+  const onLoad = () => {
+    flushPendingLiveViewActivate();
+  };
+  frame.addEventListener("load", onLoad, { once: true });
+  window.setTimeout(onLoad, 0);
+  window.setTimeout(onLoad, 300);
+}
+
+export function warmArIframe(): void {
+  if (typeof window === "undefined" || !window.isSecureContext) return;
+  const frame = document.querySelector("#ar-frame") as HTMLIFrameElement | null;
+  if (!frame) return;
+  if (currentArPresentation !== "closed") return;
+
+  frame.setAttribute("allow", AR_IFRAME_ALLOW);
+  const src = frame.getAttribute("src") || "";
+  const preloadSrc = buildPreloadArSrc();
+  if (
+    !src ||
+    src === "about:blank" ||
+    preloadSrcNeedsRefresh({
+      src,
+      expectedBuildId: appConfig.arBuildId,
+      baseHref: window.location.href,
+    })
+  ) {
+    frame.src = preloadSrc;
+  }
+}
+
+export function openArFullscreen(
+  url: string,
+  routePayload?: Record<string, unknown>,
+  options?: { cameraReady?: boolean },
+): HTMLIFrameElement {
+  const frame = document.querySelector("#ar-frame") as HTMLIFrameElement;
+  frame.setAttribute("allow", AR_IFRAME_ALLOW);
+
+  const pathPointCount = Array.isArray(routePayload?.pathCoordinates)
+    ? routePayload.pathCoordinates.length
+    : 0;
+  const launch = liveViewLaunchOptions(Boolean(options?.cameraReady), true);
+
+  appWarn("AR", "Opening AR iframe", {
+    url,
+    urlLength: url.length,
+    hasRoutePayload: Boolean(routePayload),
+    pathPointCount,
+    arBase: appConfig.arUrl,
+    reuse: shouldReuseWarmedArIframe({
+      src: frame.getAttribute("src") || frame.src,
+      sameOrigin: isArSameOrigin(),
+      expectedBuildId: appConfig.arBuildId,
+      child: snapshotArChild(readArLiveViewChild(frame)),
+    }),
+  });
+
+  // Show shell before delivery so deliverRouteWithRetry is not blocked by frame.hidden.
+  setArPresentation("fullscreen");
+  showArBootOverlay();
+  armArBootOverlayFallback(revealArStartFallback);
+
+  if (tryActivateWarmedArIframe(frame, routePayload, launch)) {
+    clearPendingLiveViewActivate();
+    return frame;
+  }
+
+  if (
+    shouldWaitForInFlightPreload({
+      src: frame.getAttribute("src") || frame.src,
+      sameOrigin: isArSameOrigin(),
+      child: snapshotArChild(readArLiveViewChild(frame)),
+    })
+  ) {
+    appLog("AR", "Waiting for in-flight Live View preload");
+    queuePreloadActivate(frame, url, routePayload, launch);
+    return frame;
+  }
+
+  loadLiveViewUrl(frame, url, routePayload);
   return frame;
 }
 
@@ -678,6 +908,15 @@ export function notifyArIframePermissions(camera: ArIframeCameraPermission): voi
   const deliver = () => {
     const frame = document.querySelector("#ar-frame") as HTMLIFrameElement | null;
     if (!frame?.contentWindow) return;
+    const child = readArLiveViewChild(frame);
+    try {
+      if (typeof child?.FplacesCameraStart?.applyParentPermissions === "function") {
+        child.FplacesCameraStart.applyParentPermissions({ camera });
+        return;
+      }
+    } catch {
+      /* fall through to postMessage */
+    }
     frame.contentWindow.postMessage(
       { type: "fplaces_permissions", camera },
       resolvePostMessageTargetOrigin(frame),
@@ -909,7 +1148,15 @@ export function installArMessageBridge(host: ArMessageBridgeHost): void {
         host.maximizeAr();
         break;
       case "fplaces_ar_ready":
+      case "fplaces_ar_engine_ready":
         syncArPresentationToFrame();
+        flushPendingLiveViewActivate();
+        break;
+      case "fplaces_ar_camera_started":
+        hideArBootOverlay();
+        break;
+      case "fplaces_ar_needs_tap":
+        hideArBootOverlay();
         break;
       case "fplaces_floor_change": {
         const floorId =

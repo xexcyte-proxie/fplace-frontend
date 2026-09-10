@@ -126,6 +126,23 @@ export default defineConfig({
               expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 * 7 },
             },
           },
+          {
+            urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/npm\/(three@|@8thwall\/).*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'ar-engine-cdn',
+              expiration: { maxEntries: 24, maxAgeSeconds: 60 * 60 * 24 * 14 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: /\/ar\/.*/i,
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'ar-nav-assets',
+              expiration: { maxEntries: 64, maxAgeSeconds: 60 * 60 * 24 * 7 },
+            },
+          },
         ],
       },
     }),

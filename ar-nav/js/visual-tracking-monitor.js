@@ -49,9 +49,6 @@
     const result = tracker.ingest(sample, now);
     if (result.shouldSwitch) {
       window.FplacesLightingCompassPrompt?.hide?.();
-      window.__fplacesStartFallback?.(
-        'Too dark for camera AR — compass guidance',
-      );
     }
   }
 

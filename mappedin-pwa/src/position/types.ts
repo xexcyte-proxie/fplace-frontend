@@ -8,7 +8,7 @@ export type PositionSourceType =
 export interface FplacesPositionFrame {
   latitude: number;
   longitude: number;
-  /** Omitted until compass or GPS course is known — 0 is a real north heading. */
+  /** Omitted until compass or GPS course is known: 0 is a real north heading. */
   heading?: number;
   accuracy: number;
   source: PositionSourceType;

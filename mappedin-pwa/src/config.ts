@@ -33,7 +33,7 @@ export const appConfig = {
   googleClientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '').trim(),
   arUrl: import.meta.env.VITE_AR_URL ?? '/ar/',
   /** Must match ar-nav/config.js buildId - busts iframe cache after AR deploys. */
-  arBuildId: import.meta.env.VITE_AR_BUILD_ID ?? '20260904-restore-trail-v1',
+  arBuildId: import.meta.env.VITE_AR_BUILD_ID ?? '20260910-slam-resume-v1',
   mapInitTimeoutMs: 45_000,
   positioning: {
     bleRssiThresholdDbm: -70,

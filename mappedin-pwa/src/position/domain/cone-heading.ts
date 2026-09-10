@@ -10,7 +10,7 @@ export function normalizeHeadingDegrees(heading: number): number {
 
 /**
  * Browser Geolocation `coords.heading` is -1 / null while stationary.
- * Do not substitute 0° (north) — that yanks the 2D follow camera on the
+ * Do not substitute 0° (north): that yanks the 2D follow camera on the
  * first live fix before the compass has a sample.
  */
 export function headingFromGeolocationCourse(
@@ -127,7 +127,7 @@ function circularSpreadDeg(samples: number[]): number {
 
 /**
  * Drop the first noisy compass samples and ignore relative `alpha` while a
- * true/`webkit` heading is flowing — those two formulas disagree on iOS.
+ * true/`webkit` heading is flowing: those two formulas disagree on iOS.
  */
 export function createCompassHeadingFilter(options?: {
   settleSamples?: number;
