@@ -1,12 +1,5 @@
 import type { LocationActionPrompt } from '../types';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
+import { escapeHtml } from './escape-html';
 
 export function renderLocationActionSheet(
   prompt: LocationActionPrompt,
@@ -28,11 +21,11 @@ export function renderLocationActionSheet(
         <h2 class="location-action-title" id="location-action-title">${escapeHtml(prompt.name)}</h2>
         <p class="location-action-subtitle">What would you like to do?</p>
         <div class="location-action-actions">
-          <button type="button" id="location-action-conversation" class="location-action-btn location-action-btn--primary">
-            Open conversation
-          </button>
-          <button type="button" id="location-action-navigate" class="location-action-btn">
+          <button type="button" id="location-action-navigate" class="location-action-btn location-action-btn--primary">
             ${navigateLabel}
+          </button>
+          <button type="button" id="location-action-conversation" class="location-action-btn">
+            Open conversation
           </button>
         </div>
         <button type="button" id="location-action-cancel" class="location-action-cancel">Cancel</button>

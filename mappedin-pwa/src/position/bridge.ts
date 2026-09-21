@@ -207,6 +207,7 @@ export interface ArPositionUpdate {
   timestamp?: number;
   animated?: boolean;
   source?: FplacesPositionFrame["source"] | "pwa";
+  alongPathMeters?: number;
 }
 
 export function normalizePositionFrame(
@@ -308,7 +309,9 @@ export function isArFrameVisible(): boolean {
   return isArShellVisible();
 }
 
-export function dispatchPositionToAr(frame: FplacesPositionFrame): void {
+export function dispatchPositionToAr(
+  frame: FplacesPositionFrame | ArPositionUpdate,
+): void {
   const normalized = normalizePositionFrame(frame);
   const shell = document.querySelector("#ar-pip-shell") as HTMLElement | null;
   const frameEl = document.querySelector(

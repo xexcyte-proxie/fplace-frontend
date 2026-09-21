@@ -38,7 +38,8 @@ export interface NavigationProgressSnapshot {
   longitude?: number;
   heading?: number;
   floorId?: string;
-  source?: FplacesPositionFrame['source'];
+  /** Position provider, or `pwa` when the snapped 2D map is AR’s authority. */
+  source?: FplacesPositionFrame['source'] | 'pwa';
   /** When `parent-simulator`, AR must not advance maneuvers autonomously. */
   navigationAuthority?: NavigationAuthority;
 }

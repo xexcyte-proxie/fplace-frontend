@@ -1,5 +1,9 @@
-import type { ForumPost } from '../forum/domain/entities';
-import { sectionIdForLocation } from '../forum/domain/section-locations';
+import type { ForumPost, LocationMessage } from '../forum/domain/entities';
+import {
+  conversationLocationIdForSection,
+  sectionIdForLocation,
+  sectionMatchesConversationLocation,
+} from '../forum/domain/section-locations';
 import type {
   ForumCategorySummary,
   ForumSectionSummary,
@@ -48,11 +52,8 @@ export interface VenueFeedLocationScope {
 }
 
 /**
- * Scope the feed to a tapped map location. Location ids arrive as name slugs
- * (`church`) while posts carry numeric section ids, so the slug is resolved
- * against the venue's sections. A tapped area is always its own conversation:
- * matching section posts only, or an empty thread when the area has no
- * section yet. The venue-wide feed is never shown in that state.
+ * Scope the feed to a tapped map location. Location chat is keyed by the
+ * Mappedin location id stored on conversation items (`locationId`).
  */
 export function scopeVenueFeedPostsToLocation(
   posts: VenueFeedPost[],
@@ -63,33 +64,29 @@ export function scopeVenueFeedPostsToLocation(
     return { posts, scoped: false, sectionId: null, sectionName: null };
   }
   const sectionId = sectionIdForLocation(sections, locationId);
-  if (sectionId == null) {
-    return { posts: [], scoped: true, sectionId: null, sectionName: null };
-  }
-  const sectionKey = String(sectionId);
   return {
-    posts: posts.filter(
-      (post) => post.locationId === sectionKey || post.locationId === locationId,
-    ),
+    posts: posts.filter((post) => post.locationId === locationId),
     scoped: true,
     sectionId,
     sectionName:
-      sections.find((section) => section.id === sectionId)?.name ?? null,
+      sectionId != null
+        ? sections.find((section) => section.id === sectionId)?.name ?? null
+        : null,
   };
 }
 
 /**
- * Display name for a map-tapped conversation area. Prefers the forum section
- * name when the location resolved, then the name captured from the map card.
+ * Display name for a map-tapped conversation. Prefers the map card name
+ * (also sent as `location_name` on create), then a matching forum section.
  */
 export function resolveVenueFeedAreaName(
   scope: VenueFeedLocationScope,
   socialLocationName?: string | null,
 ): string | null {
-  const sectionName = scope.sectionName?.trim();
-  if (sectionName) return sectionName;
   const mapName = socialLocationName?.trim();
-  return mapName || null;
+  if (mapName) return mapName;
+  const sectionName = scope.sectionName?.trim();
+  return sectionName || null;
 }
 
 export function categoryFiltersFromApi(
@@ -101,6 +98,32 @@ export function categoryFiltersFromApi(
       id: String(category.id),
       label: category.name,
       helpIcon: category.slug === 'help',
+    })),
+  ];
+}
+
+export interface VenueFeedSectionChip {
+  /** Null is the venue-wide post feed. */
+  locationId: string | null;
+  label: string;
+  active: boolean;
+}
+
+/**
+ * Section switcher for the social tab. `All` lists every section conversation;
+ * every other chip opens that section's location thread.
+ */
+export function venueFeedSectionChips(
+  sections: ForumSectionSummary[],
+  socialLocation: string | null,
+): VenueFeedSectionChip[] {
+  const activeSections = sections.filter((section) => section.is_active !== false);
+  return [
+    { locationId: null, label: 'All', active: !socialLocation },
+    ...activeSections.map((section) => ({
+      locationId: conversationLocationIdForSection(section),
+      label: section.name,
+      active: sectionMatchesConversationLocation(section, socialLocation),
     })),
   ];
 }
@@ -145,6 +168,7 @@ export function mapForumPostToVenueFeed(
 
   return {
     id: String(post.id),
+    kind: 'post',
     author,
     authorId: post.user.id,
     initials: initialsFromName(author),
@@ -163,6 +187,43 @@ export function mapForumPostToVenueFeed(
   };
 }
 
+export function mapLocationMessagesToVenueFeed(
+  messages: LocationMessage[],
+): VenueFeedPost[] {
+  return messages.map((message) => mapLocationMessageToVenueFeed(message));
+}
+
+export function mapLocationMessageToVenueFeed(
+  message: LocationMessage,
+): VenueFeedPost {
+  const author = message.user.display_name?.trim() || 'Guest';
+  const location = message.location_name.trim() || 'Location';
+
+  return {
+    id: String(message.id),
+    kind: 'conversation',
+    author,
+    authorId: message.user.id,
+    initials: initialsFromName(author),
+    avatarColor: avatarColorForId(message.user.id),
+    location,
+    locationId: message.location_id,
+    timeAgo: formatTimeAgo(message.created_at),
+    createdAt: message.created_at,
+    feedType: 'conversation',
+    categoryId: '',
+    content: message.content,
+    upvotes: 0,
+    comments: 0,
+    helpCard: false,
+    hasUpvoted: false,
+  };
+}
+
+export function isConversationFeedItem(post: VenueFeedPost): boolean {
+  return post.kind === 'conversation';
+}
+
 /**
  * Overlay authoritative comment counts (keyed by post id) onto feed posts.
  * Posts without a fetched count keep their current value.
@@ -179,12 +240,15 @@ export function applyCommentCounts(
   });
 }
 
+/** Sentinel `next` URL while the All conversations view still has older pages. */
+export const VENUE_ALL_CONVERSATIONS_NEXT = 'fplaces:all-conversations';
+
 /**
  * Reads the DRF page number out of a paginated `next` URL.
  * Returns null when there is no next page (or the URL is malformed).
  */
 export function nextFeedPageFromUrl(nextUrl: string | null): number | null {
-  if (!nextUrl) return null;
+  if (!nextUrl || nextUrl === VENUE_ALL_CONVERSATIONS_NEXT) return null;
   const match = /[?&]page=(\d+)/.exec(nextUrl);
   if (!match) return null;
   const page = Number(match[1]);

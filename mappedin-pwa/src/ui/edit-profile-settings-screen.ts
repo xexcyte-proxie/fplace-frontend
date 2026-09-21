@@ -1,14 +1,10 @@
 import type { AppState } from '../types';
 import { interestOptionsForPicker } from '../auth/domain/interest-options';
 import { PSEUDO_NAME_PLACEHOLDER } from './pseudo-name-data';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
+import { AUTH_AUTOCOMPLETE } from './auth-autofill';
+import { authFieldError } from './auth-field-error';
+import { renderBusyLabel } from './content-loading-overlay';
+import { escapeHtml } from './escape-html';
 
 export function renderEditProfileSettingsScreen(
   state: Pick<
@@ -17,12 +13,13 @@ export function renderEditProfileSettingsScreen(
     | 'pseudoNameHint'
     | 'selectedInterests'
     | 'interestOptions'
-    | 'authLoading'
+    | 'profileEditSaving'
     | 'authFieldErrors'
   >,
 ): string {
-  const nameError = state.authFieldErrors.pseudo_name ?? '';
-  const generalError = state.authFieldErrors._form ?? '';
+  const saving = state.profileEditSaving;
+  const nameError = authFieldError(state.authFieldErrors, 'pseudo_name');
+  const generalError = authFieldError(state.authFieldErrors, '_form');
   const selected = new Set(state.selectedInterests);
   const nameHint = state.pseudoNameHint || PSEUDO_NAME_PLACEHOLDER;
 
@@ -37,7 +34,7 @@ export function renderEditProfileSettingsScreen(
         class="interest-chip${isSelected ? ' interest-chip--selected' : ''}"
         data-interest="${escapeHtml(interest)}"
         aria-pressed="${isSelected ? 'true' : 'false'}"
-        ${state.authLoading ? 'disabled' : ''}
+        ${saving ? 'disabled' : ''}
       >
         ${escapeHtml(interest)}
       </button>
@@ -47,7 +44,7 @@ export function renderEditProfileSettingsScreen(
   return `
     <div class="settings-screen">
       <header class="settings-header">
-        <button type="button" id="edit-profile-back-btn" class="settings-back-btn" aria-label="Back" ${state.authLoading ? 'disabled' : ''}>
+        <button type="button" id="edit-profile-back-btn" class="settings-back-btn" aria-label="Back" ${saving ? 'disabled' : ''}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M15 6L9 12L15 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
           </svg>
@@ -73,10 +70,10 @@ export function renderEditProfileSettingsScreen(
                   type="text"
                   class="auth-input pseudo-name-input${nameError ? ' auth-input--error' : ''}"
                   maxlength="50"
-                  autocomplete="username"
+                  autocomplete="${AUTH_AUTOCOMPLETE.displayName}"
                   placeholder="${escapeHtml(nameHint)}"
                   value="${escapeHtml(state.pseudoNameDraft)}"
-                  ${state.authLoading ? 'disabled' : ''}
+                  ${saving ? 'disabled' : ''}
                   required
                 />
                 <button
@@ -84,7 +81,7 @@ export function renderEditProfileSettingsScreen(
                   id="pseudo-name-shuffle-btn"
                   class="pseudo-name-shuffle-btn"
                   aria-label="Generate a new pseudo-name"
-                  ${state.authLoading ? 'disabled' : ''}
+                  ${saving ? 'disabled' : ''}
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="M21 12a9 9 0 1 1-2.64-6.36" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -114,10 +111,11 @@ export function renderEditProfileSettingsScreen(
             <button
               type="submit"
               id="edit-profile-save-btn"
-              class="onboarding-primary-btn auth-submit-btn"
-              ${state.authLoading ? 'disabled' : ''}
+              class="onboarding-primary-btn auth-submit-btn${saving ? ' is-loading' : ''}"
+              ${saving ? 'disabled' : ''}
+              aria-busy="${saving ? 'true' : 'false'}"
             >
-              ${state.authLoading ? 'Saving…' : 'Save changes'}
+              ${saving ? renderBusyLabel('Saving…') : 'Save changes'}
             </button>
           </div>
         </form>

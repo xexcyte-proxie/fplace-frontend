@@ -1,13 +1,13 @@
+import { formatCountNoun } from '../auth/domain/user-stats';
+import {
+  canCreateVenuePost,
+  postingNotAtVenueComposerHint,
+  postingNotAtVenueCopy,
+} from '../forum/domain/venue-posting';
+import { userVenuePresence } from '../location/domain/venue-presence';
 import type { AppState, VenueFeedPost } from '../types';
-import { renderContentLoadingOverlay } from './content-loading-overlay';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
+import { renderBusyIndicator, renderBusyLabel, renderContentLoadingOverlay } from './content-loading-overlay';
+import { escapeHtml } from './escape-html';
 
 export function renderPostCommentsScreen(
   state: AppState,
@@ -15,6 +15,8 @@ export function renderPostCommentsScreen(
 ): string {
   const loading = state.postCommentsLoading;
   const submitting = state.postCommentsSubmitting;
+  const saving = submitting && state.postCommentsEditing;
+  const sending = submitting && !state.postCommentsEditing;
   const draft = state.postCommentsDraft;
   const error = state.postCommentsError ?? '';
   const isOwner =
@@ -22,6 +24,17 @@ export function renderPostCommentsScreen(
     state.authUser != null &&
     post.authorId === state.authUser.id;
 
+  const selectedVenue = state.forumVenues.find(
+    (venue) => String(venue.id) === state.selectedVenueId,
+  );
+  const canPostHere = canCreateVenuePost(
+    userVenuePresence(
+      state.locationPermission,
+      state.userLocation,
+      selectedVenue,
+    ),
+  );
+  const commentsLocked = !canPostHere;
   const comments = state.postComments;
   const list = comments.length
     ? comments
@@ -76,8 +89,8 @@ export function renderPostCommentsScreen(
           >${escapeHtml(post.content)}</textarea>
           <div class="post-comments-edit-actions">
             <button type="button" id="post-comments-edit-cancel-btn" class="post-comments-secondary-btn" ${submitting ? 'disabled' : ''}>Cancel</button>
-            <button type="button" id="post-comments-edit-save-btn" class="post-comments-primary-btn" ${submitting ? 'disabled' : ''}>
-              ${submitting ? 'Saving…' : 'Save'}
+            <button type="button" id="post-comments-edit-save-btn" class="post-comments-primary-btn${saving ? ' is-loading' : ''}" ${submitting ? 'disabled' : ''} aria-busy="${saving ? 'true' : 'false'}">
+              ${saving ? renderBusyLabel('Saving…') : 'Save'}
             </button>
           </div>
         `
@@ -107,7 +120,7 @@ export function renderPostCommentsScreen(
         </button>
         <div class="post-comments-header-copy">
           <h1 class="post-comments-title">Comments</h1>
-          <p class="post-comments-subtitle">${comments.length} reply${comments.length === 1 ? '' : 'ies'}</p>
+          <p class="post-comments-subtitle">${formatCountNoun(comments.length, 'comment')}</p>
         </div>
       </header>
 
@@ -117,34 +130,54 @@ export function renderPostCommentsScreen(
         <div class="post-comments-list screen-loading-host">
           ${list}
           ${
-            loading && comments.length === 0
+            loading && comments.length === 0 && !submitting
               ? renderContentLoadingOverlay('Loading comments')
               : ''
           }
         </div>
       </div>
 
+      ${
+        commentsLocked
+          ? `<p class="post-comments-composer-note" role="status">${escapeHtml(
+              postingNotAtVenueCopy(selectedVenue?.name).body,
+            )}</p>`
+          : ''
+      }
       <form id="post-comments-form" class="post-comments-composer">
         <input
           id="post-comments-input"
           class="post-comments-input"
           type="text"
           maxlength="280"
-          placeholder="Add a comment"
+          placeholder="${escapeHtml(
+            commentsLocked
+              ? postingNotAtVenueComposerHint()
+              : 'Add a comment',
+          )}"
           value="${escapeHtml(draft)}"
-          ${submitting || !post ? 'disabled' : ''}
+          ${submitting || !post || commentsLocked ? 'disabled' : ''}
         />
         <button
           type="submit"
           id="post-comments-send-btn"
-          class="post-comments-send-btn"
-          aria-label="Send comment"
-          ${submitting || !draft.trim() || !post ? 'disabled' : ''}
+          class="post-comments-send-btn${sending ? ' is-loading' : ''}"
+          aria-label="${sending ? 'Sending comment' : 'Send comment'}"
+          aria-busy="${sending ? 'true' : 'false'}"
+          ${
+            submitting || !draft.trim() || !post || commentsLocked
+              ? 'disabled'
+              : ''
+          }
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          ${
+            sending
+              ? renderBusyIndicator()
+              : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M22 2L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
             <path d="M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
-          </svg>
+          </svg>`
+          }
         </button>
       </form>
     </div>

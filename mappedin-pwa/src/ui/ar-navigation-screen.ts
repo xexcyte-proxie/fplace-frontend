@@ -1,13 +1,6 @@
 import type { AppState } from '../types';
 import { buildArNavigationViewModel } from './ar-navigation-data';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
+import { escapeHtml } from './escape-html';
 
 export function renderArNavigationScreen(
   state: Pick<

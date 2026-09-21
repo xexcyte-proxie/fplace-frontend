@@ -1,5 +1,8 @@
 import type { AppState } from '../types';
+import { userVenuePresence } from '../location/domain/venue-presence';
 import { buildArNavigationViewModel } from './ar-navigation-data';
+import { escapeHtml } from './escape-html';
+import { formatUnreadBadge } from './notifications-data';
 import { buildRouteSheetSummary } from './route-summary';
 
 /**
@@ -11,6 +14,8 @@ export const LIVE_NAVIGATION_TELEMETRY_KEYS = [
   'routeRemainingMeters',
   'blueDotStatus',
   'blueDotFollowing',
+  'routeInstructions',
+  'currentLegIndex',
 ] as const satisfies readonly (keyof AppState)[];
 
 export const TOAST_PATCH_KEYS = ['toast'] as const satisfies readonly (keyof AppState)[];
@@ -24,10 +29,40 @@ export const SEARCH_PATCH_KEYS = [
   'locationPermission',
 ] as const satisfies readonly (keyof AppState)[];
 
+export const HOME_SEARCH_PATCH_KEYS = [
+  'homeVenueSearchQuery',
+] as const satisfies readonly (keyof AppState)[];
+
 export const HEATMAP_PATCH_KEYS = [
   'sectionHeatmap',
   'sectionHeatmapActive',
   'venueLiveStatus',
+  'locationLiveStatus',
+] as const satisfies readonly (keyof AppState)[];
+
+/** Live forum / conversation payloads that social markers also read. */
+export const SOCIAL_LIVE_KEYS = [
+  'venueFeedPosts',
+  'upvotedPostIds',
+  'flaggedPostIds',
+  'venueLiveStatus',
+  'locationLiveStatus',
+  'authUser',
+  'forumFeedNext',
+  'forumFeedCount',
+  'venueFeedLoading',
+  'venueFeedLoadingMore',
+] as const satisfies readonly (keyof AppState)[];
+
+export const NOTIFICATION_LIVE_KEYS = [
+  'notifications',
+  'notificationsUnreadCount',
+  'notificationsNext',
+  'notificationsLoading',
+  'notificationsMarkingAll',
+  'notificationDetail',
+  'notificationDetailLoading',
+  'notificationDetailError',
 ] as const satisfies readonly (keyof AppState)[];
 
 /** Backend trial flags: nothing in the map chrome reads these. */
@@ -40,9 +75,19 @@ export type UiPatchKind =
   | 'live'
   | 'toast'
   | 'search'
+  | 'home-search'
+  | 'venue-select-gate'
+  | 'social-feed'
+  | 'notify-badge'
   | 'heatmap-map'
   | 'silent'
   | 'full';
+
+/** Gate selection on venue-select: update cards/CTA without rebuilding chrome. */
+export const VENUE_SELECT_GATE_PATCH_KEYS = [
+  'selectedGateId',
+  'authFieldErrors',
+] as const satisfies readonly (keyof AppState)[];
 
 /** Map download / WebGL boot: must not rebuild onboarding or home. */
 export const MAP_BOOT_PATCH_KEYS = [
@@ -63,9 +108,19 @@ const LIVE_NAVIGATION_TELEMETRY_KEY_SET = new Set<string>(
 );
 const TOAST_PATCH_KEY_SET = new Set<string>(TOAST_PATCH_KEYS);
 const SEARCH_PATCH_KEY_SET = new Set<string>(SEARCH_PATCH_KEYS);
+const HOME_SEARCH_PATCH_KEY_SET = new Set<string>(HOME_SEARCH_PATCH_KEYS);
+const VENUE_SELECT_GATE_PATCH_KEY_SET = new Set<string>(
+  VENUE_SELECT_GATE_PATCH_KEYS,
+);
 const HEATMAP_PATCH_KEY_SET = new Set<string>(HEATMAP_PATCH_KEYS);
+const SOCIAL_LIVE_KEY_SET = new Set<string>(SOCIAL_LIVE_KEYS);
+const NOTIFICATION_LIVE_KEY_SET = new Set<string>(NOTIFICATION_LIVE_KEYS);
 const SILENT_PATCH_KEY_SET = new Set<string>(SILENT_PATCH_KEYS);
 const MAP_BOOT_PATCH_KEY_SET = new Set<string>(MAP_BOOT_PATCH_KEYS);
+const SOCIAL_OR_HEATMAP_KEY_SET = new Set<string>([
+  ...HEATMAP_PATCH_KEYS,
+  ...SOCIAL_LIVE_KEYS,
+]);
 
 function changedKeys(previous: AppState, next: AppState): string[] {
   const keys = new Set([...Object.keys(previous), ...Object.keys(next)]);
@@ -85,6 +140,18 @@ function isSubset(changed: string[], allowed: Set<string>): boolean {
   return changed.length > 0 && changed.every((key) => allowed.has(key));
 }
 
+function isShowingSocialFeed(state: AppState): boolean {
+  return (
+    state.activeTab === 'social' &&
+    !state.notificationsOpen &&
+    !state.postCommentsOpen
+  );
+}
+
+function isShowingReturningHome(state: AppState): boolean {
+  return state.activeTab === 'map' && state.navigateView === 'home';
+}
+
 export function classifyUiStateChange(
   previous: AppState,
   next: AppState,
@@ -94,11 +161,52 @@ export function classifyUiStateChange(
   if (changed.length === 0) return 'full';
   if (isSubset(changed, LIVE_NAVIGATION_TELEMETRY_KEY_SET)) return 'live';
   if (isSubset(changed, TOAST_PATCH_KEY_SET)) return 'toast';
+  if (
+    next.authStep === 'venue-select' &&
+    changed.includes('selectedGateId') &&
+    isSubset(changed, VENUE_SELECT_GATE_PATCH_KEY_SET)
+  ) {
+    return 'venue-select-gate';
+  }
   if (isSubset(changed, SEARCH_PATCH_KEY_SET)) {
     return next.authStep === 'venue-select' ? 'full' : 'search';
   }
+  if (isSubset(changed, HOME_SEARCH_PATCH_KEY_SET)) {
+    return isShowingReturningHome(next) ? 'home-search' : 'silent';
+  }
+  if (isSubset(changed, NOTIFICATION_LIVE_KEY_SET)) {
+    if (next.notificationsOpen) return 'full';
+    if (
+      isShowingSocialFeed(next) &&
+      (changed.includes('notificationsUnreadCount') ||
+        changed.includes('notifications'))
+    ) {
+      return 'notify-badge';
+    }
+    return 'silent';
+  }
   if (isSubset(changed, HEATMAP_PATCH_KEY_SET)) {
-    return next.activeTab === 'map' ? 'heatmap-map' : 'full';
+    if (next.activeTab === 'map') return 'heatmap-map';
+    if (isShowingSocialFeed(next)) return 'social-feed';
+    if (next.activeTab === 'social') return 'full';
+    return 'silent';
+  }
+  if (isSubset(changed, SOCIAL_LIVE_KEY_SET)) {
+    if (isShowingSocialFeed(next)) return 'social-feed';
+    if (next.activeTab === 'social') return 'full';
+    if (next.activeTab === 'profile' && changed.includes('authUser')) {
+      return 'full';
+    }
+    return 'silent';
+  }
+  if (isSubset(changed, SOCIAL_OR_HEATMAP_KEY_SET)) {
+    if (isShowingSocialFeed(next)) return 'social-feed';
+    if (next.activeTab === 'social') return 'full';
+    if (next.activeTab === 'profile' && changed.includes('authUser')) {
+      return 'full';
+    }
+    if (next.activeTab === 'map') return 'heatmap-map';
+    return 'silent';
   }
   if (isSubset(changed, SILENT_PATCH_KEY_SET)) return 'silent';
   if (isSubset(changed, MAP_BOOT_PATCH_KEY_SET)) {
@@ -120,24 +228,60 @@ export function classifyUiStateChange(
 }
 
 export function myLocationFabPresentation(
-  state: Pick<AppState, 'blueDotStatus' | 'blueDotFollowing'>,
+  state: Pick<
+    AppState,
+    | 'blueDotStatus'
+    | 'blueDotFollowing'
+    | 'locationPermission'
+    | 'userLocation'
+    | 'selectedVenueId'
+    | 'forumVenues'
+  >,
 ): {
   trackingActive: boolean;
   following: boolean;
+  enabled: boolean;
   label: string;
 } {
+  const venue = state.forumVenues.find(
+    (item) => String(item.id) === state.selectedVenueId,
+  );
+  const atVenue =
+    userVenuePresence(
+      state.locationPermission,
+      state.userLocation,
+      venue,
+    ) !== 'away';
   const trackingActive =
-    state.blueDotStatus === 'active' || state.blueDotStatus === 'inactive';
-  const following = state.blueDotFollowing;
+    atVenue &&
+    (state.blueDotStatus === 'active' || state.blueDotStatus === 'inactive');
+  const following = atVenue && state.blueDotFollowing;
   return {
     trackingActive,
     following,
-    label: following
-      ? 'Following your location'
-      : trackingActive
-        ? 'Live location active'
-        : 'My location',
+    enabled: atVenue,
+    label: !atVenue
+      ? "You're not at this venue"
+      : following
+        ? 'Following your location'
+        : trackingActive
+          ? 'Live location active'
+          : 'My location',
   };
+}
+
+export function applyMyLocationFabPatch(
+  root: ParentNode,
+  state: Parameters<typeof myLocationFabPresentation>[0],
+): void {
+  const locationBtn = root.querySelector('#my-location-btn');
+  if (!(locationBtn instanceof HTMLButtonElement)) return;
+  const fab = myLocationFabPresentation(state);
+  locationBtn.disabled = !fab.enabled;
+  locationBtn.classList.toggle('fab--tracking', fab.trackingActive);
+  locationBtn.classList.toggle('fab--following', fab.following);
+  locationBtn.setAttribute('aria-label', fab.label);
+  locationBtn.setAttribute('title', fab.label);
 }
 
 export function isLiveNavigationTelemetryOnlyChange(
@@ -168,6 +312,10 @@ export function applyLiveNavigationUiPatch(
   if (arScreen) {
     const view = buildArNavigationViewModel(state);
     setTextContent(
+      arScreen.querySelector('.ar-nav-guidance-primary'),
+      view.guidancePrimary,
+    );
+    setTextContent(
       arScreen.querySelector('.ar-nav-guidance-secondary'),
       view.guidanceSecondary,
     );
@@ -185,22 +333,37 @@ export function applyLiveNavigationUiPatch(
     );
   }
 
-  const locationBtn = root.querySelector('#my-location-btn');
-  if (locationBtn instanceof Element) {
-    const fab = myLocationFabPresentation(state);
-    locationBtn.classList.toggle('fab--tracking', fab.trackingActive);
-    locationBtn.classList.toggle('fab--following', fab.following);
-    locationBtn.setAttribute('aria-label', fab.label);
-    locationBtn.setAttribute('title', fab.label);
-  }
+  applyMyLocationFabPatch(root, state);
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
+/** Updates the social-tab notifications badge without rebuilding chrome. */
+export function applyNotifyBadgeUiPatch(
+  root: ParentNode,
+  state: Pick<AppState, 'notificationsEnabled' | 'notificationsUnreadCount'>,
+): void {
+  const button = root.querySelector('#venue-feed-notify-btn');
+  if (!(button instanceof HTMLElement)) return;
+
+  const unread = state.notificationsUnreadCount;
+  const label =
+    unread > 0 ? `Notifications (${unread} unread)` : 'Notifications';
+  button.setAttribute('aria-label', label);
+
+  const existing = button.querySelector('.venue-feed-notify-badge');
+  if (!state.notificationsEnabled || unread <= 0) {
+    existing?.remove();
+    return;
+  }
+
+  const badgeText = formatUnreadBadge(unread);
+  if (existing) {
+    setTextContent(existing, badgeText);
+    return;
+  }
+  button.insertAdjacentHTML(
+    'beforeend',
+    `<span class="venue-feed-notify-badge">${escapeHtml(badgeText)}</span>`,
+  );
 }
 
 export function renderToastHtml(message: string): string {

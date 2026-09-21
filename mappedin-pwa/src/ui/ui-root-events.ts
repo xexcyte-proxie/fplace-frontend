@@ -1,6 +1,7 @@
 import type { MapApp } from '../services/map-app';
 import type { AppState } from '../types';
 import { evaluatePasswordStrength } from '../auth/domain/password-strength';
+import { AUTH_AUTOFILL_ANIMATION_NAME } from './auth-autofill';
 
 export interface UiRootEventHost {
   readonly root: HTMLElement;
@@ -10,6 +11,7 @@ export interface UiRootEventHost {
   setCreatePasswordDraft(value: string): void;
   setCreatePasswordConfirmDraft(value: string): void;
   setCreateTermsAcceptedDraft(value: boolean): void;
+  setResetPasswordDraft(value: string): void;
   setChangePasswordOldDraft(value: string): void;
   setChangePasswordNewDraft(value: string): void;
   setChangePasswordOldVisible(value: boolean): void;
@@ -166,6 +168,18 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     return;
   }
 
+  const venueSection = target.closest<HTMLButtonElement>('[data-venue-section]');
+  if (venueSection && venueSection.hasAttribute('data-venue-section')) {
+    const locationId = venueSection.dataset.venueSection?.trim() || null;
+    const locationName = venueSection.dataset.venueSectionName ?? null;
+    if (locationId) {
+      app.setSocialLocation(locationId, locationName);
+    } else {
+      app.clearSocialLocation();
+    }
+    return;
+  }
+
   const venueFilter = target.closest<HTMLButtonElement>('[data-venue-filter]');
   if (venueFilter?.dataset.venueFilter) {
     app.setVenueFeedFilter(
@@ -180,7 +194,7 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     return;
   }
 
-  const upvote = target.closest<HTMLButtonElement>('[data-upvote-id]');
+  const upvote = target.closest<HTMLElement>('[data-upvote-id]');
   if (upvote?.dataset.upvoteId) {
     event.preventDefault();
     event.stopPropagation();
@@ -227,6 +241,9 @@ function handleClick(event: Event, host: UiRootEventHost): void {
       return;
     case 'first-visit-ar-prompt-dismiss':
       app.dismissArRoutePrompt();
+      return;
+    case 'first-visit-ar-away-dismiss-btn':
+      app.dismissArNotAtVenuePrompt();
       return;
     case 'zoom-in-btn':
       app.zoomIn();
@@ -505,20 +522,11 @@ function handleClick(event: Event, host: UiRootEventHost): void {
   }
 }
 
-function handleInput(event: Event, host: UiRootEventHost): void {
-  const app = appOf(host);
-  const target = event.target;
-  if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) {
-    return;
-  }
-
+function captureAuthAutofillField(
+  target: HTMLInputElement | HTMLTextAreaElement,
+  host: UiRootEventHost,
+): void {
   switch (target.id) {
-    case 'search-input':
-      app?.onSearchInput(target.value);
-      return;
-    case 'home-venue-search-input':
-      app?.setHomeVenueSearchQuery(target.value);
-      return;
     case 'forgot-password-email':
     case 'login-email':
     case 'auth-email':
@@ -534,18 +542,40 @@ function handleInput(event: Event, host: UiRootEventHost): void {
     case 'auth-password-confirm':
       host.setCreatePasswordConfirmDraft(target.value);
       return;
-    case 'pseudo-name-input':
-      host.setPseudoNameDraft(target.value);
-      return;
-    case 'venue-select-search-input':
-      host.setVenueSearchDraft(target.value);
-      app?.setVenueSearchQuery(target.value);
+    case 'reset-password-new':
+      host.setResetPasswordDraft(target.value);
       return;
     case 'change-password-old':
       host.setChangePasswordOldDraft(target.value);
       return;
     case 'change-password-new':
       host.setChangePasswordNewDraft(target.value);
+      return;
+    default:
+      return;
+  }
+}
+
+function handleInput(event: Event, host: UiRootEventHost): void {
+  const app = appOf(host);
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) {
+    return;
+  }
+
+  switch (target.id) {
+    case 'search-input':
+      app?.onSearchInput(target.value);
+      return;
+    case 'home-venue-search-input':
+      app?.setHomeVenueSearchQuery(target.value);
+      return;
+    case 'pseudo-name-input':
+      host.setPseudoNameDraft(target.value);
+      return;
+    case 'venue-select-search-input':
+      host.setVenueSearchDraft(target.value);
+      app?.setVenueSearchQuery(target.value);
       return;
     case 'post-comments-input':
       app?.setPostCommentsDraft(target.value);
@@ -554,6 +584,7 @@ function handleInput(event: Event, host: UiRootEventHost): void {
       app?.setVenueFeedDraft(target.value);
       return;
     default:
+      captureAuthAutofillField(target, host);
       return;
   }
 }
@@ -568,9 +599,15 @@ function handleChange(event: Event, host: UiRootEventHost): void {
     const app = appOf(host);
     app?.setProductTourDontShowAgain(target.checked);
   }
-  if (target.id === 'login-password') {
-    host.setAuthPasswordDraft(target.value);
-  }
+  captureAuthAutofillField(target, host);
+}
+
+function handleAnimationStart(event: Event, host: UiRootEventHost): void {
+  if (!(event instanceof AnimationEvent)) return;
+  if (event.animationName !== AUTH_AUTOFILL_ANIMATION_NAME) return;
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  captureAuthAutofillField(target, host);
 }
 
 function handleSubmit(event: Event, host: UiRootEventHost): void {
@@ -593,6 +630,7 @@ function handleSubmit(event: Event, host: UiRootEventHost): void {
       const password =
         host.root.querySelector<HTMLInputElement>('#reset-password-new')
           ?.value ?? '';
+      host.setResetPasswordDraft(password);
       void app.submitResetPasswordConfirm(password);
       return;
     }
@@ -704,6 +742,9 @@ export function installUiRootEventDelegation(
   root.addEventListener('click', (event) => handleClick(event, host));
   root.addEventListener('input', (event) => handleInput(event, host));
   root.addEventListener('change', (event) => handleChange(event, host));
+  root.addEventListener('animationstart', (event) =>
+    handleAnimationStart(event, host),
+  );
   root.addEventListener('submit', (event) => handleSubmit(event, host));
   root.addEventListener('keydown', (event) => handleKeydown(event, host));
 }

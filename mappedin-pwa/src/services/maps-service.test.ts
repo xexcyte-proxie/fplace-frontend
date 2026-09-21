@@ -7,47 +7,32 @@ import {
 } from '../auth/data/datasources/api-client';
 import {
   extractMappedinAccessToken,
-  localMappedinCredentialsFromConfig,
+  mapIdFromMapsToken,
   toGetMapDataAuth,
 } from './maps-service';
 
-describe('localMappedinCredentialsFromConfig', () => {
-  it('returns key/secret when all three values are present', () => {
-    expect(
-      localMappedinCredentialsFromConfig({
-        key: ' mik_test ',
-        secret: ' mis_test ',
-        mapId: ' map-1 ',
-      }),
-    ).toEqual({ key: 'mik_test', secret: 'mis_test', mapId: 'map-1' });
-  });
-
-  it('returns null when the local override is incomplete', () => {
-    expect(
-      localMappedinCredentialsFromConfig({
-        key: 'mik_test',
-        secret: '',
-        mapId: 'map-1',
-      }),
-    ).toBeNull();
-  });
-});
-
 describe('toGetMapDataAuth', () => {
-  it('prefers local key/secret', () => {
-    expect(
-      toGetMapDataAuth({
-        key: 'mik_test',
-        secret: 'mis_test',
-        mapId: 'map-1',
-      }),
-    ).toEqual({ key: 'mik_test', secret: 'mis_test' });
-  });
-
-  it('uses a backend access token when no key/secret is set', () => {
+  it('uses the backend access token', () => {
     expect(
       toGetMapDataAuth({ accessToken: 'token-1', mapId: 'map-1' }),
     ).toEqual({ accessToken: 'token-1' });
+  });
+});
+
+describe('mapIdFromMapsToken', () => {
+  it('prefers the requested venue map id over the token payload', () => {
+    expect(
+      mapIdFromMapsToken({ token: 't', mapId: 'token-map' }, ' venue-map '),
+    ).toBe('venue-map');
+  });
+
+  it('falls back to the token map id, then Demo Mall', () => {
+    expect(mapIdFromMapsToken({ token: 't', mapId: 'token-map' }, null)).toBe(
+      'token-map',
+    );
+    expect(mapIdFromMapsToken({ token: 't' }, '  ')).toBe(
+      '65c0ff7430b94e3fabd5bb8c',
+    );
   });
 });
 

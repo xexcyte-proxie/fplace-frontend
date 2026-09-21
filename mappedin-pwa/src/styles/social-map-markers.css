@@ -54,19 +54,14 @@
 
 /* ── Marker shell ─────────────────────────────────────────────────────────── */
 
-/* Pass map taps through marker chrome; only the white pill is interactive */
-#mappedin-map div:has(> .social-map-marker) {
-  pointer-events: none !important;
-}
-
+/*
+ * Markers never take browser pointer events — that is what freezes Mappedin
+ * pans. Pill taps are resolved with a screen hit-test on map click instead.
+ */
+#mappedin-map div:has(> .social-map-marker),
 .social-map-marker,
-.social-map-marker *:not(.social-map-marker__card):not(.social-map-marker__card *) {
+.social-map-marker * {
   pointer-events: none !important;
-}
-
-.social-map-marker__card,
-.social-map-marker__card * {
-  pointer-events: auto !important;
 }
 
 .social-map-marker {
@@ -78,6 +73,7 @@
   width: max-content;
   max-width: 220px;
   overflow: visible;
+  -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   transform-origin: 50% 100%;
@@ -342,6 +338,7 @@
   padding: 2px 8px;
   border-radius: var(--sm-pill-radius);
   background: var(--sm-surface-glass);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   font-size: 10px;
   font-weight: 600;

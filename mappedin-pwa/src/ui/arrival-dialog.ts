@@ -1,10 +1,4 @@
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
+import { escapeHtml } from './escape-html';
 
 export function arrivalDialogCopy(destinationName?: string | null): {
   title: string;

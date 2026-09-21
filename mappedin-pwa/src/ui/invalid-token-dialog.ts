@@ -1,12 +1,5 @@
 import { invalidTokenCreateAccountCopy } from '../auth/domain/invalid-access-token';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
+import { escapeHtml } from './escape-html';
 
 /** One-shot dialog over Create account after SimpleJWT rejects the session. */
 export function renderInvalidTokenDialog(): string {

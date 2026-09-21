@@ -20,8 +20,10 @@ import {
   userNeedsPseudoName,
 } from '../auth/domain/entities';
 import { authRepository } from '../auth/data/auth-repository-impl';
+import { passwordCredentialDatasource } from '../auth/data/datasources/password-credential-datasource';
 import { tokenLocalDatasource } from '../auth/data/datasources/token-local-datasource';
 import { venuePreferenceLocalDatasource } from '../auth/data/datasources/venue-preference-local-datasource';
+import type { SavedPasswordCredential } from '../auth/domain/saved-password-credential';
 import {
   AuthApiError,
   onAuthSessionCleared,
@@ -40,6 +42,7 @@ export type {
   VenueSelection,
 };
 export type { AuthTokens, OnboardingStep } from '../auth/domain/entities';
+export type { SavedPasswordCredential } from '../auth/domain/saved-password-credential';
 export {
   AuthApiError,
   DEFAULT_DISPLAY_NAME,
@@ -144,11 +147,6 @@ export async function fetchCurrentUser(): Promise<AuthUser> {
   return authRepository.getProfile();
 }
 
-/** Catalog of interest chips from GET /api/users/interests/. */
-export async function fetchInterestOptions(): Promise<string[]> {
-  return authRepository.listInterestOptions();
-}
-
 export async function logoutUser(): Promise<void> {
   const refresh = tokenLocalDatasource.getRefreshToken();
   if (!refresh) {
@@ -175,4 +173,16 @@ export function saveVenueSelection(
 
 export function clearVenueSelection(userId: number): void {
   venuePreferenceLocalDatasource.clear(userId);
+}
+
+/** Persist email + password in the browser password manager when supported. */
+export async function savePasswordCredential(
+  credential: SavedPasswordCredential,
+): Promise<void> {
+  await passwordCredentialDatasource.save(credential);
+}
+
+/** Silently read a previously stored login pair (Chrome / Android). */
+export async function loadSavedPasswordCredential(): Promise<SavedPasswordCredential | null> {
+  return passwordCredentialDatasource.load();
 }

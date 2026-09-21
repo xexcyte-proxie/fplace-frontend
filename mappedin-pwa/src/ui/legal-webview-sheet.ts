@@ -1,12 +1,5 @@
 import { TERMS_OF_USE, TERMS_OF_USE_URL } from './settings-data';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
+import { escapeHtml } from './escape-html';
 
 /** Bottom-sheet in-app WebView for Terms - stays in the PWA (no external browser). */
 export function renderTermsWebViewSheet(): string {

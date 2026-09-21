@@ -1,13 +1,7 @@
 import { resolveDisplayName, type AppState } from '../types';
 import { APP_VERSION, SETTINGS_SUPPORT } from './settings-data';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
+import { renderBusyLabel } from './content-loading-overlay';
+import { escapeHtml } from './escape-html';
 
 const chevronRight = `
   <svg class="settings-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -93,10 +87,11 @@ function renderSettingsConfirm(state: AppState): string {
           <button
             type="button"
             id="${confirmId}"
-            class="settings-confirm-btn settings-confirm-btn--danger"
+            class="settings-confirm-btn settings-confirm-btn--danger${state.authLoading ? ' is-loading' : ''}"
             ${state.authLoading ? 'disabled' : ''}
+            aria-busy="${state.authLoading ? 'true' : 'false'}"
           >
-            ${state.authLoading ? 'Working…' : escapeHtml(confirmLabel)}
+            ${state.authLoading ? renderBusyLabel('Working…') : escapeHtml(confirmLabel)}
           </button>
         </div>
       </div>

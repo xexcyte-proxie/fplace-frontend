@@ -1,10 +1,10 @@
-import { show3dMap } from '@mappedin/mappedin-js';
-import type { MapData, MapView } from '@mappedin/mappedin-js';
+import { show3dMap } from "@mappedin/mappedin-js";
+import type { MapData, MapView } from "@mappedin/mappedin-js";
 
-import { appConfig } from '../config';
-import { isHeadingOnlyPositionFix } from '../position/domain/heading-only-frame';
-import { FloorOrchestrator } from '../position/debug/floorOrchestrator';
-import { positionTelemetry } from '../position/debug/telemetryLogger';
+import { appConfig } from "../config";
+import { isHeadingOnlyPositionFix } from "../position/domain/heading-only-frame";
+import { FloorOrchestrator } from "../position/debug/floorOrchestrator";
+import { positionTelemetry } from "../position/debug/telemetryLogger";
 import {
   closeArFullscreen,
   buildArUrl,
@@ -19,27 +19,32 @@ import {
   syncNavigationToAr,
   warmArIframe,
   type NavigationProgressSnapshot,
-} from './ar-service';
-import { coordinateTransformationService } from '../routing/coordinate-transformation-service';
-import { navigationStateSynchronizer } from '../routing/navigation-state-synchronizer';
-import { routeLifecycleManager } from '../routing/route-lifecycle-manager';
+} from "./ar-service";
+import { coordinateTransformationService } from "../routing/coordinate-transformation-service";
+import { navigationStateSynchronizer } from "../routing/navigation-state-synchronizer";
+import { routeLifecycleManager } from "../routing/route-lifecycle-manager";
 import {
   computeLiveRemainingMeters,
   hasArrivedAtDestination,
   LiveAlongPathStabilizer,
-} from '../routing/route-progress';
+} from "../routing/route-progress";
 import {
   parseCoordinateNumber,
   shouldPublishUserLocation,
-} from '../location/domain/user-relative-distance';
-import type { PermissionChoice } from '../permissions/domain/permission-choice';
+} from "../location/domain/user-relative-distance";
+import {
+  myLocationNotAtVenueCopy,
+  userVenuePresence,
+  venuePresenceAnchor,
+} from "../location/domain/venue-presence";
+import { postingNotAtVenueCopy } from "../forum/domain/venue-posting";
+import type { PermissionChoice } from "../permissions/domain/permission-choice";
 import {
   AuthApiError,
   clearStoredAuthTokens,
   clearVenueSelection,
   deleteCurrentAccount,
   fetchCurrentUser,
-  fetchInterestOptions,
   hasStoredAuthTokens,
   loadVenueSelection,
   loginUser,
@@ -52,23 +57,31 @@ import {
   requestPasswordReset,
   resolveOnboardingStep,
   saveVenueSelection,
+  savePasswordCredential,
+  loadSavedPasswordCredential,
   signInWithGoogle,
   updateCurrentUser,
   userNeedsPseudoName,
   verifyEmail,
   type VenueSelection,
-} from './auth-service';
+  type SavedPasswordCredential,
+} from "./auth-service";
 import {
   containsTokenNotValidDetail,
   shouldDeferSessionRecoveryUi,
-} from '../auth/domain/invalid-access-token';
+} from "../auth/domain/invalid-access-token";
 import {
   isAuthCredentialFailure,
   isInvalidAccessTokenFailure,
   type AuthSessionClearedReason,
-} from '../auth/data/datasources/api-client';
-import { consumePasswordResetLink } from '../auth/domain/password-reset-link';
-import { evaluatePasswordStrength } from '../auth/domain/password-strength';
+} from "../auth/data/datasources/api-client";
+import { resolveMapBootErrorMessage } from "../map/domain/map-boot-error";
+import { resolveUserFacingApiErrorMessage } from "../auth/domain/user-facing-api-error";
+import { consumePasswordResetLink } from "../auth/domain/password-reset-link";
+import { evaluatePasswordStrength } from "../auth/domain/password-strength";
+import { withRecentPostUpvotes } from "../auth/domain/profile-recent-posts";
+import type { AuthUser } from "../auth/domain/entities";
+import { interestOptionsAfterFetch } from "../auth/domain/interest-options";
 import {
   guestDenialUserMessage,
   initializeFingerprint,
@@ -78,11 +91,11 @@ import {
   registerCurrentGuestFingerprint,
   resolveGuestArEligibility,
   validateCurrentGuestAccess,
-} from './guest-access-service';
+} from "./guest-access-service";
 import {
   resolveMappedinMapCredentials,
   toGetMapDataAuth,
-} from './maps-service';
+} from "./maps-service";
 import {
   clearDeviceHasUsedApp,
   clearReturningSession,
@@ -94,15 +107,20 @@ import {
   resolveStartupDestination,
   saveReturningSession,
   type ReturningSessionSnapshot,
-} from './session-service';
-import { homeRepository } from '../home/data/home-repository-impl';
-import { venueVisitRepository } from '../home/data/venue-visit-repository-impl';
-import { resolveHomeExperience, type HomeExperience } from '../home/domain/entities';
-import { isCompleteOtpCode } from '../auth/domain/otp-code';
+} from "./session-service";
+import { homeRepository } from "../home/data/home-repository-impl";
+import { venueVisitRepository } from "../home/data/venue-visit-repository-impl";
+import { partitionHomeVenues } from "../home/domain/home-venues";
+import { homeVenueRowFromCatalog } from "../home/presentation/returning-home-data";
+import {
+  resolveHomeExperience,
+  type HomeExperience,
+} from "../home/domain/entities";
+import { isCompleteOtpCode } from "../auth/domain/otp-code";
 import {
   loadAppPreferences,
   patchAppPreferences,
-} from './app-preferences-service';
+} from "./app-preferences-service";
 import {
   clearProductTourProgress,
   isProductTourDontShowAgain,
@@ -115,32 +133,40 @@ import {
   shouldAutoStartProductTour,
   stepsForHomeExperience,
   type ProductTourSurface,
-} from './product-tour-service';
+} from "./product-tour-service";
 import {
+  conversationLocationIdsForSections,
   createForumComment,
-  createForumPost,
+  createLocationMessage,
   deleteForumComment,
   deleteForumPost,
   flagForumPost,
   listAllVenues,
   getForumVenue,
   listForumComments,
+  listLocationMessages,
   listVenuePosts,
-  forumPostMatchesLocation,
+  loadAllVenueConversations,
   loadForumCommentCounts,
   loadInitialVenueFeed,
+  loadLocationConversation,
   loadVenueCatalog,
-  loadVenueSectionFeed,
+  listActiveInterestNames,
   sectionIdForLocation,
+  subscribeLocationLiveFeed,
   subscribeVenueLiveFeed,
   toggleForumPostUpvote,
   updateForumPost,
+  LOCATION_MESSAGE_CONTENT_MAX_LENGTH,
   type ForumComment,
   type ForumPost,
+  type LocationLiveEvent,
+  type LocationLiveSubscription,
+  type LocationMessage,
   type VenueLiveEvent,
   type VenueLiveSubscription,
-} from './forum-service';
-import { flaggedPostsLocalDatasource } from '../forum/data/datasources/flagged-posts-local-datasource';
+} from "./forum-service";
+import { flaggedPostsLocalDatasource } from "../forum/data/datasources/flagged-posts-local-datasource";
 import {
   applyPersonalNotificationEvent,
   countUnread,
@@ -154,52 +180,65 @@ import {
   type AppNotification,
   type PersonalNotificationEvent,
   type PersonalNotificationSubscription,
-} from './notifications-service';
+} from "./notifications-service";
 import {
   appendCommentOnce,
   mapForumCommentsToItems,
   mapForumCommentToItem,
-} from '../ui/post-comments-data';
+} from "../ui/post-comments-data";
 import {
   getCurrentMapLanguage,
   getSupportedMapLanguages,
   loadPreferredMapLanguage,
   savePreferredMapLanguage,
-} from './map-language-service';
-import { resolveMapData } from './map-offline-service';
-import { BlueDotService } from './blue-dot-service';
-import type { PositionProvider } from '../position/positionProvider';
-import { PositionProviderRegistry } from '../position/providerRegistry';
-import { requestDeviceOrientationPermission } from '../position/providers/gpsProvider';
+} from "./map-language-service";
+import { resolveMapData } from "./map-offline-service";
+import { BlueDotService } from "./blue-dot-service";
+import type { PositionProvider } from "../position/positionProvider";
+import { PositionProviderRegistry } from "../position/providerRegistry";
+import { requestDeviceOrientationPermission } from "../position/providers/gpsProvider";
 import {
   beginArMediaPermissionPrime,
   consumeArMediaPermissionPrime,
   shouldRequestArMotionPermission,
   shouldReuseGrantedArCamera,
-} from './media-permission-service';
-import type { FplacesPositionFrame, PositionSourceType } from '../position/types';
-import { scheduleSocialMapMarkers, type LocationCardSelection, type SocialMapMarkerService } from '../map/social-map-markers';
-import { LocationService } from './location-service';
+} from "./media-permission-service";
+import type {
+  FplacesPositionFrame,
+  PositionSourceType,
+} from "../position/types";
+import {
+  scheduleSocialMapMarkers,
+  type LocationCardSelection,
+  type SocialMapMarkerService,
+} from "../map/social-map-markers";
+import { LocationService } from "./location-service";
 import {
   isLocationGateAuthStep,
   resolveLocationGateEntry,
   resolveLocationGateFailure,
   resolveLocationGatePreflight,
-} from '../location/domain/location-gate';
-import { permissionChoiceLocalDatasource } from '../permissions/data/datasources/permission-choice-local-datasource';
+} from "../location/domain/location-gate";
+import { permissionChoiceLocalDatasource } from "../permissions/data/datasources/permission-choice-local-datasource";
 import {
   LOCATION_NOT_ROUTABLE_MESSAGE,
   toUserFacingRouteError,
-} from '../routing/constants';
-import { RoutePlanner } from './route-planner';
-import { resolveMapTarget, getLocationChips, searchVenue } from './search-service';
-import { AppStore } from '../state/app-store';
+} from "../routing/constants";
+import { RoutePlanner } from "./route-planner";
+import {
+  resolveMapTarget,
+  getLocationChips,
+  searchVenue,
+} from "./search-service";
+import { AppStore } from "../state/app-store";
 import type {
   AppState,
   AppTab,
   BlueDotStatus,
   FloorInfo,
+  ForumSectionSummary,
   ForumVenueSummary,
+  NavigateView,
   NotificationItem,
   RegisteredUser,
   RouteCoordinate,
@@ -208,36 +247,68 @@ import type {
   UserLocationCoords,
   VenueFeedFilter,
   VenueFeedPost,
-} from '../types';
+} from "../types";
 import {
   clearStoredAuthUser,
   isArSessionActive,
   loadStoredUser,
   storeAuthUser,
-} from '../types';
-import { installCameraFollowRelease } from '../map/camera-follow-release';
-import { inferAreaHint } from '../ui/route-summary';
-import { INITIAL_SOCIAL_POSTS, SOCIAL_CATEGORY_LABELS, SOCIAL_LOCATIONS_BY_ID, SOCIAL_QUICK_TAG_LABELS } from '../ui/social-data';
+} from "../types";
+import { installCameraFollowRelease } from "../map/camera-follow-release";
+import {
+  clientPointToCanvasPoint,
+  resolveMapCanvasRect,
+} from "../map/map-tap-screen";
+import { inferAreaHint } from "../ui/route-summary";
+import {
+  SOCIAL_CATEGORY_LABELS,
+  SOCIAL_LOCATIONS_BY_ID,
+  SOCIAL_QUICK_TAG_LABELS,
+} from "../ui/social-data";
 import {
   appendOlderVenueFeedPosts,
   applyCommentCounts,
+  isConversationFeedItem,
   mapForumPostToVenueFeed,
   mapForumPostsToVenueFeed,
+  mapLocationMessageToVenueFeed,
+  mapLocationMessagesToVenueFeed,
   nextFeedPageFromUrl,
-} from '../ui/venue-feed-data';
+  VENUE_ALL_CONVERSATIONS_NEXT,
+} from "../ui/venue-feed-data";
+import { generatePseudoName } from "../ui/pseudo-name-data";
+import { defaultSectionId } from "../ui/venue-select-data";
 import {
-  generatePseudoName,
-} from '../ui/pseudo-name-data';
-import { defaultSectionId } from '../ui/venue-select-data';
-import { legInstructions } from '../utils/route-helpers';
-import { appLog, appWarn } from '../utils/logger';
-import { serializeCoordinate } from '../utils/route-helpers';
+  venueMapLoadKey,
+  venueMapLoadRequest,
+  type VenueMapLoadRequest,
+} from "../forum/domain/venue-map-source";
+import {
+  isPartialForumPostPayload,
+  resolveToggledUpvoteCount,
+} from "../forum/domain/post-upvote";
+import { legInstructions } from "../utils/route-helpers";
+import { appLog, appWarn } from "../utils/logger";
+import { serializeCoordinate } from "../utils/route-helpers";
 import {
   clampVenueZoom,
   isWorldScaleZoom,
   SHOW_VENUE_MAP_OPTIONS,
+  VENUE_CAMERA_INTERACTIONS,
   VENUE_MAP_MIN_ZOOM,
-} from '../map/domain/venue-map-view';
+} from "../map/domain/venue-map-view";
+
+type EnterVenueOptions = {
+  welcomeToast?: boolean;
+  /** Location was already granted after create / sign-in / guest. */
+  skipLocationGate?: boolean;
+  /** Signed-in session restore lands on Recently visited, not first-visit. */
+  homeExperience?: HomeExperience;
+  /** Home venue tap lands on the indoor map instead of bouncing through home. */
+  landOn?: NavigateView;
+  /** Caller already holds `venueEnterInFlight`. */
+  holdEnterLock?: boolean;
+};
 
 export class MapApp {
   private mapView: MapView | null = null;
@@ -267,8 +338,13 @@ export class MapApp {
   private stopUserLocationWatch: (() => void) | null = null;
   private lastPublishedUserLocation: UserLocationCoords | null = null;
   private lastUserLocationPublishAt = 0;
-  private lastProviderFix: { latitude: number; longitude: number } | null = null;
-  private cameraFollowReleaseUnsub: (() => void) | null = null;
+  private lastProviderFix: { latitude: number; longitude: number } | null =
+    null;
+  private mapGestureGuard: {
+    dispose: () => void;
+    shouldIgnoreMapClick: () => boolean;
+    getLastPointerClient: () => { x: number; y: number } | null;
+  } | null = null;
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private searchGeneration = 0;
   private authFlowBootstrapped = false;
@@ -287,6 +363,11 @@ export class MapApp {
   private socialMapMarkers: SocialMapMarkerService | null = null;
   /** Receive-only venue room socket; opened right after the initial feed fetch. */
   private venueLiveSubscription: VenueLiveSubscription | null = null;
+  private locationLiveSubscription: LocationLiveSubscription | null = null;
+  private connectedLocationLive: {
+    venueId: number;
+    locationId: string;
+  } | null = null;
   /** Receive-only personal notifications socket (cross-venue, account-level). */
   private personalNotificationsSubscription: PersonalNotificationSubscription | null =
     null;
@@ -297,14 +378,28 @@ export class MapApp {
   /** Dedupes REST comment creates against venue-room `new_comment` echoes. */
   private readonly seenForumCommentIds = new Set<number>();
   private venueFeedCommentCountsInFlight = false;
-  /** Venue-wide feed parked while a map-area conversation is open. */
-  private venueWideFeedSnapshot: {
+  /** Home shout-out posts parked while the social conversation tab is open. */
+  private homeFeedSnapshot: {
     posts: VenueFeedPost[];
     next: string | null;
     count: number;
   } | null = null;
+  /** All-conversations feed parked while a single section thread is open. */
+  private venueWideFeedSnapshot: {
+    posts: VenueFeedPost[];
+    next: string | null;
+    count: number;
+    conversationNextPages?: Map<string, number>;
+  } | null = null;
+  private allConversationNextPages = new Map<string, number>();
   private venueFeedScopeGeneration = 0;
   private restoringVenueView = false;
+  private mapContainer: HTMLElement | null = null;
+  private loadedMapKey: string | null = null;
+  private mapLoadGeneration = 0;
+  private mapLoadInFlight: Promise<void> | null = null;
+  private mapLoadInFlightKey: string | null = null;
+  private socialMarkerSyncUnsub: (() => void) | null = null;
 
   constructor(private readonly store: AppStore) {
     const preferences = loadAppPreferences();
@@ -317,15 +412,15 @@ export class MapApp {
       productTourEnabled: tourPreference.enabled,
       locationPermission: storedLocation,
     });
-    if (storedLocation === 'granted') {
+    if (storedLocation === "granted") {
       this.startLiveUserLocationWatch();
     }
     onAuthSessionCleared((reason) => {
       this.handleAuthSessionExpired(reason);
     });
-    if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
           this.restoreVenueMapView();
         }
       });
@@ -333,21 +428,35 @@ export class MapApp {
   }
 
   async start(mapContainer: HTMLElement): Promise<void> {
+    this.mapContainer = mapContainer;
     this.splashShownAt = Date.now();
     this.store.patch({
-      mapStatus: 'loading',
-      loadingMessage: 'Loading map…',
+      mapStatus: "loading",
+      loadingMessage: "Loading map…",
       loadingProgress: 28,
     });
 
     // Warm FingerprintJS in parallel with map load (no backend call yet).
     void initializeFingerprint().catch((error) => {
-      appWarn('Guest', 'Fingerprint agent failed to initialize', error);
+      appWarn("Guest", "Fingerprint agent failed to initialize", error);
+    });
+
+    this.socialMarkerSyncUnsub?.();
+    this.socialMarkerSyncUnsub = this.store.subscribe((state) => {
+      if (state.mapStatus !== "ready") return;
+      this.socialMapMarkers?.syncState(state);
     });
 
     this.revealStartupShell();
     void this.bootstrapAuthFlow();
-    void this.loadMappedinScene(mapContainer);
+    if (this.shouldDeferInitialMapLoad()) {
+      // Session restore loads the venue's mappedin_map_id in enterSelectedVenue.
+      return;
+    }
+    void this.loadMappedinScene(
+      mapContainer,
+      this.selectedVenueMapLoadRequest(),
+    );
   }
 
   /**
@@ -370,25 +479,25 @@ export class MapApp {
       deviceHasUsedApp: hasDeviceUsedApp() || Boolean(loadStoredUser()),
     });
 
-    if (destination === 'app' && isReturningSession(returning)) {
+    if (destination === "app" && isReturningSession(returning)) {
       this.shellDestinationApplied = true;
       this.store.patch({
         onboardingComplete: true,
         selectedVenueId: returning.selectedVenueId,
         selectedGateId: returning.selectedGateId,
         guestId: returning.guestId ?? this.store.get().guestId,
-        authStep: 'none',
+        authStep: "none",
         authStepBeforeLocation: null,
         authLoading: true,
         authFieldErrors: {},
-        navigateView: 'home',
-        homeExperience: 'returning',
+        navigateView: "home",
+        homeExperience: "returning",
       });
       this.ensureStartupReady();
       return;
     }
 
-    if (destination === 'sign-in') {
+    if (destination === "sign-in") {
       this.shellDestinationApplied = true;
       markDeviceHasUsedApp();
       this.store.patch({
@@ -402,10 +511,10 @@ export class MapApp {
       return;
     }
 
-    if (destination === 'marketing') {
+    if (destination === "marketing") {
       this.shellDestinationApplied = true;
       this.store.patch({
-        authStep: 'none',
+        authStep: "none",
         authLoading: false,
         authFieldErrors: {},
       });
@@ -433,54 +542,146 @@ export class MapApp {
     this.applyPendingSessionRecovery();
   }
 
-  private async loadMappedinScene(mapContainer: HTMLElement): Promise<void> {
+  private shouldDeferInitialMapLoad(): boolean {
+    return Boolean(this.store.get().selectedVenueId);
+  }
+
+  private selectedVenueMapLoadRequest(): VenueMapLoadRequest {
+    const state = this.store.get();
+    const venue = state.forumVenues.find(
+      (item) => String(item.id) === state.selectedVenueId,
+    );
+    return venueMapLoadRequest({
+      mappedinMapId: venue?.mappedinMapId,
+    });
+  }
+
+  private async ensureMapForSelectedVenue(): Promise<void> {
+    if (!this.mapContainer) return;
+    const request = this.selectedVenueMapLoadRequest();
+    const key = venueMapLoadKey(request);
+    if (this.loadedMapKey === key && this.mapView) return;
+    if (this.mapLoadInFlight && this.mapLoadInFlightKey === key) {
+      await this.mapLoadInFlight;
+      return;
+    }
+    if (this.routePlanner) {
+      try {
+        await this.clearRoutePoints();
+      } catch {
+        /* previous map may already be tearing down */
+      }
+    }
+    const load = this.loadMappedinScene(this.mapContainer, request);
+    this.mapLoadInFlight = load;
+    this.mapLoadInFlightKey = key;
+    try {
+      await load;
+    } finally {
+      if (this.mapLoadInFlight === load) {
+        this.mapLoadInFlight = null;
+        this.mapLoadInFlightKey = null;
+      }
+    }
+  }
+
+  private teardownMappedinScene(options?: { cancelInFlight?: boolean }): void {
+    if (options?.cancelInFlight) {
+      this.mapLoadGeneration += 1;
+      this.mapLoadInFlight = null;
+      this.mapLoadInFlightKey = null;
+    }
+    this.stopPositionProvider();
+    this.mapGestureGuard?.dispose();
+    this.mapGestureGuard = null;
+    this.socialMapMarkers?.destroy();
+    this.socialMapMarkers = null;
+    this.blueDotService?.destroy();
+    this.blueDotService = null;
+    this.routePlanner = null;
+    try {
+      this.mapView?.destroy();
+    } catch {
+      /* already torn down */
+    }
+    this.mapView = null;
+    this.mapData = null;
+    this.loadedMapKey = null;
+  }
+
+  private async loadMappedinScene(
+    mapContainer: HTMLElement,
+    request: VenueMapLoadRequest,
+  ): Promise<void> {
+    const generation = ++this.mapLoadGeneration;
+    this.teardownMappedinScene();
+    if (this.initTimeout) clearTimeout(this.initTimeout);
     this.initTimeout = setTimeout(() => {
       const state = this.store.get();
-      if (state.mapStatus !== 'ready') {
+      if (
+        state.mapStatus !== "ready" &&
+        generation === this.mapLoadGeneration
+      ) {
         this.showToast(
-          'Map is taking longer than expected. Check your network connection.',
+          "Map is taking longer than expected. Check your network connection.",
         );
       }
     }, appConfig.mapInitTimeoutMs);
 
+    this.store.patch({
+      mapStatus: "loading",
+      loadingMessage: "Getting map credentials…",
+      loadingProgress: 32,
+    });
+
     try {
       const preferredLanguage = loadPreferredMapLanguage();
       const offline =
-        typeof navigator !== 'undefined' && navigator.onLine === false;
+        typeof navigator !== "undefined" && navigator.onLine === false;
       if (offline) {
         this.store.patch({
-          loadingMessage: 'Loading cached map…',
+          loadingMessage: "Loading cached map…",
           loadingProgress: 35,
-        });
-      } else {
-        this.store.patch({
-          loadingMessage: 'Getting map credentials…',
-          loadingProgress: 32,
         });
       }
 
-      const mapCredentials = await resolveMappedinMapCredentials();
+      const mapCredentials = await resolveMappedinMapCredentials(request);
+      if (generation !== this.mapLoadGeneration) return;
       const resolved = await resolveMapData({
         ...toGetMapDataAuth(mapCredentials),
         mapId: mapCredentials.mapId,
         ...(preferredLanguage ? { language: preferredLanguage } : {}),
         fallbackToNavigatorLanguage: true,
       });
+      if (generation !== this.mapLoadGeneration) return;
       this.mapData = resolved.mapData;
 
       this.store.patch({
         loadingMessage: resolved.fromCache
-          ? 'Starting 3D map from cache…'
-          : 'Starting 3D map…',
+          ? "Starting 3D map from cache…"
+          : "Starting 3D map…",
         loadingProgress: 55,
       });
 
-      this.mapView = await show3dMap(
+      const mapView = await show3dMap(
         mapContainer,
         this.mapData,
         SHOW_VENUE_MAP_OPTIONS,
       );
+      if (generation !== this.mapLoadGeneration) {
+        try {
+          mapView.destroy();
+        } catch {
+          /* superseded load */
+        }
+        return;
+      }
+      this.mapView = mapView;
+      this.loadedMapKey = venueMapLoadKey({
+        mapId: mapCredentials.mapId,
+      });
       this.disableOutdoorWorldView();
+      this.mapView.Camera?.interactions?.set?.(VENUE_CAMERA_INTERACTIONS);
       this.suppressNativeMapBlueDot();
       this.routePlanner = new RoutePlanner(
         this.mapView,
@@ -490,7 +691,8 @@ export class MapApp {
       this.blueDotService = new BlueDotService(this.mapView);
       this.blueDotService.attachHandlers({
         onPosition: (position) => this.handleBlueDotSensorPosition(position),
-        onAnimatedPosition: (position) => this.handleBlueDotAnimatedPosition(position),
+        onAnimatedPosition: (position) =>
+          this.handleBlueDotAnimatedPosition(position),
         onStatus: (status) => this.handleBlueDotStatus(status),
       });
       this.blueDotService.prepare({ simulatorBoot: false });
@@ -508,36 +710,38 @@ export class MapApp {
         },
       );
 
-      this.store.subscribe((state) => {
-        if (state.mapStatus !== 'ready') return;
-        this.socialMapMarkers?.syncState(state);
-      });
-
       if (this.initTimeout) clearTimeout(this.initTimeout);
       this.store.patch({
-        mapStatus: 'ready',
-        loadingMessage: 'Ready',
+        mapStatus: "ready",
+        loadingMessage: "Ready",
         loadingProgress: 100,
         currentFloorId: this.mapView.currentFloor?.id,
         searchChips: getLocationChips(this.mapData),
+        markers: {},
+        route: null,
+        showRouteSheet: false,
+        searchResults: [],
       });
 
       warmArIframe();
-      this.cameraFollowReleaseUnsub?.();
-      this.cameraFollowReleaseUnsub = installCameraFollowRelease(
+      this.mapGestureGuard?.dispose();
+      this.mapGestureGuard = installCameraFollowRelease(
         mapContainer,
         () => this.releaseCameraFollowFromUserPan(),
       );
 
       this.maybePromptLocation();
       void this.maybeAutoStartBlueDot();
-      positionTelemetry.setActiveSource(PositionProviderRegistry.resolveActiveSource());
-      appLog('Map', 'Ready');
+      positionTelemetry.setActiveSource(
+        PositionProviderRegistry.resolveActiveSource(),
+      );
+      appLog("Map", "Ready", this.loadedMapKey);
     } catch (error) {
+      if (generation !== this.mapLoadGeneration) return;
       if (this.initTimeout) clearTimeout(this.initTimeout);
       const message =
-        error instanceof Error ? error.message : 'Map failed to load';
-      appWarn('Map', 'Init failed', error);
+        error instanceof Error ? error.message : "Map failed to load";
+      appWarn("Map", "Init failed", error);
 
       if (isAuthCredentialFailure(error)) {
         clearStoredAuthTokens();
@@ -547,18 +751,19 @@ export class MapApp {
         const recovery: AuthSessionClearedReason = isInvalidAccessTokenFailure(
           error,
         )
-          ? 'invalid-token'
-          : 'expired';
+          ? "invalid-token"
+          : "expired";
         this.pendingSessionRecovery = recovery;
+        const recoveryMessage =
+          recovery === "invalid-token"
+            ? "Create an account to continue."
+            : "Your session expired. Please log in again.";
         this.store.patch({
           authUser: null,
           onboardingComplete: false,
-          mapStatus: 'error',
-          mapError: message,
-          loadingMessage:
-            recovery === 'invalid-token'
-              ? 'Create an account to continue.'
-              : 'Your session expired. Please log in again.',
+          mapStatus: "error",
+          mapError: recoveryMessage,
+          loadingMessage: recoveryMessage,
           loadingProgress: 0,
         });
         if (
@@ -573,14 +778,15 @@ export class MapApp {
         return;
       }
 
+      const friendly = resolveMapBootErrorMessage(message);
       this.store.patch({
-        mapStatus: 'error',
-        mapError: message,
-        loadingMessage: message,
+        mapStatus: "error",
+        mapError: friendly,
+        loadingMessage: friendly,
         loadingProgress: 0,
       });
       if (this.store.get().startupReady) {
-        this.showToast(message);
+        this.showToast(friendly);
       }
     }
   }
@@ -589,9 +795,12 @@ export class MapApp {
     if (!this.mapData || !this.routePlanner) return;
 
     const state = this.store.get();
-    const activeChip = state.searchChips.find((chip) => chip.id === state.categoryFilter);
+    const activeChip = state.searchChips.find(
+      (chip) => chip.id === state.categoryFilter,
+    );
     const categoryFilter =
-      activeChip && activeChip.label.toLowerCase() === query.trim().toLowerCase()
+      activeChip &&
+      activeChip.label.toLowerCase() === query.trim().toLowerCase()
         ? state.categoryFilter
         : null;
 
@@ -600,7 +809,7 @@ export class MapApp {
     if (this.searchDebounceTimer) clearTimeout(this.searchDebounceTimer);
 
     if (!query.trim()) {
-      void this.submitSearch('');
+      void this.submitSearch("");
       return;
     }
 
@@ -612,7 +821,7 @@ export class MapApp {
   async clearSearch(): Promise<void> {
     if (this.searchDebounceTimer) clearTimeout(this.searchDebounceTimer);
     this.store.patch({ categoryFilter: null });
-    await this.submitSearch('');
+    await this.submitSearch("");
   }
 
   async submitSearch(query: string): Promise<void> {
@@ -646,7 +855,7 @@ export class MapApp {
     const next = state.categoryFilter === category ? null : category;
     this.store.patch({
       categoryFilter: next,
-      searchQuery: next && chip ? chip.label : '',
+      searchQuery: next && chip ? chip.label : "",
     });
 
     if (this.searchDebounceTimer) clearTimeout(this.searchDebounceTimer);
@@ -654,7 +863,7 @@ export class MapApp {
     if (next && chip) {
       await this.submitSearch(chip.label);
     } else {
-      await this.submitSearch('');
+      await this.submitSearch("");
     }
   }
 
@@ -662,42 +871,56 @@ export class MapApp {
     const state = this.store.get();
     // Tapping Navigate again from the indoor map returns to venue home.
     if (
-      tab === 'map' &&
-      state.activeTab === 'map' &&
-      state.navigateView === 'map'
+      tab === "map" &&
+      state.activeTab === "map" &&
+      state.navigateView === "map"
     ) {
       this.store.patch({
-        navigateView: 'home',
+        navigateView: "home",
         homeExperience: this.resolveHomeExperience(state.selectedVenueId),
-        homeVenueSearchQuery: '',
-        profileView: 'main',
+        homeVenueSearchQuery: "",
+        profileView: "main",
         settingsConfirm: null,
         notificationsOpen: false,
       });
+      void this.refreshSignedInProfile();
       return;
     }
 
-    const openingSocialTab = tab === 'social';
-    const leavingSocial = state.activeTab === 'social' && tab !== 'social';
+    const openingSocialTab = tab === "social";
+    const leavingSocial = state.activeTab === "social" && tab !== "social";
+
+    if (openingSocialTab) {
+      this.captureHomeFeedSnapshot(state);
+    }
 
     this.store.patch({
       activeTab: tab,
-      profileView: 'main',
+      profileView: "main",
       settingsConfirm: null,
       notificationsOpen: false,
       socialLocation: openingSocialTab ? null : state.socialLocation,
       socialLocationName: openingSocialTab ? null : state.socialLocationName,
       socialDraft: this.captureSocialDraft(),
       venueFeedDraft: this.captureVenueFeedDraft(),
+      ...(openingSocialTab
+        ? {
+            venueFeedPosts: [],
+            forumFeedNext: null,
+            forumFeedCount: 0,
+            venueFeedLoading: true,
+          }
+        : {}),
     });
 
-    if (openingSocialTab || leavingSocial) {
-      this.restoreVenueWideFeed();
+    if (openingSocialTab) {
+      void this.loadAllConversationFeed();
+    } else if (leavingSocial) {
+      this.restoreHomeFeedSnapshot();
     }
 
-    if (tab === 'social') {
-      // Refresh comment counts so the feed reflects threads updated elsewhere.
-      void this.hydrateVenueFeedCommentCounts();
+    if (tab === "profile") {
+      void this.refreshSignedInProfile();
     }
   }
 
@@ -706,80 +929,260 @@ export class MapApp {
   }
 
   openNavigateMap(): void {
+    const state = this.store.get();
+    if (state.mapStatus === "error") {
+      this.showToast(
+        resolveMapBootErrorMessage(state.loadingMessage || state.mapError),
+      );
+      void this.retryMapLoadThenEnterNavigate();
+      return;
+    }
+    if (state.mapStatus === "loading" || state.mapStatus === "initial") {
+      this.showToast("Still loading the map…");
+      void this.waitForMapReadyThenEnterNavigate();
+      return;
+    }
     this.store.patch({
-      activeTab: 'map',
-      navigateView: 'map',
-      homeVenueSearchQuery: '',
+      activeTab: "map",
+      navigateView: "map",
+      homeVenueSearchQuery: "",
     });
     void this.consumeGuest2dMapTrial();
   }
 
+  private async waitForMapReadyThenEnterNavigate(): Promise<void> {
+    await this.ensureMapForSelectedVenue();
+    if (this.store.get().mapStatus !== "ready") {
+      this.showToast(
+        resolveMapBootErrorMessage(
+          this.store.get().loadingMessage || this.store.get().mapError,
+        ),
+      );
+      return;
+    }
+    this.store.patch({
+      activeTab: "map",
+      navigateView: "map",
+      homeVenueSearchQuery: "",
+    });
+    void this.consumeGuest2dMapTrial();
+  }
+
+  private async retryMapLoadThenEnterNavigate(): Promise<void> {
+    this.loadedMapKey = null;
+    await this.waitForMapReadyThenEnterNavigate();
+  }
+
   selectHomeRecentVenue(venueId: string): void {
+    void this.openHomeVenue(venueId);
+  }
+
+  private async openHomeVenue(venueId: string): Promise<void> {
     const state = this.store.get();
-    const recent = state.homeContent?.recentlyVisited.find(
-      (item) => item.id === venueId,
-    );
+    const fromLists = [
+      ...(state.homeContent?.recentlyVisited ?? []),
+      ...(state.homeContent?.otherVenues ?? []),
+    ].find((item) => item.id === venueId);
     const matchedForumVenue = state.forumVenues.find(
       (venue) =>
         String(venue.id) === venueId ||
-        venue.name.toLowerCase() === recent?.name.toLowerCase(),
+        venue.name.toLowerCase() === fromLists?.name.toLowerCase(),
     );
 
-    if (matchedForumVenue) {
-      this.store.patch({
-        selectedVenueId: String(matchedForumVenue.id),
-        homeVenueSearchQuery: '',
-        navigateView: 'map',
-        activeTab: 'map',
-      });
-      void this.consumeGuest2dMapTrial();
-      this.showToast(`Opening ${matchedForumVenue.name}`);
+    this.store.patch({ homeVenueSearchQuery: "" });
+
+    if (!matchedForumVenue) {
+      this.showToast(
+        fromLists
+          ? `Could not open ${fromLists.name}. Please try again.`
+          : "Could not open that venue. Please try again.",
+      );
       return;
     }
 
-    // Demo recent venues may not match the live forum catalog yet.
+    const venueName = matchedForumVenue.name;
+    this.showToast(`Opening ${venueName}`);
+
+    if (
+      String(matchedForumVenue.id) === state.selectedVenueId &&
+      state.mapStatus === "ready" &&
+      this.mapView
+    ) {
+      this.openNavigateMap();
+      return;
+    }
+
+    if (this.venueEnterInFlight) {
+      this.showToast("Still opening a venue…");
+      return;
+    }
+
+    this.venueEnterInFlight = true;
+    try {
+      // Stay on home until sections + map credentials succeed — never land on
+      // the orange map boot / error chrome mid-fetch.
+      const mapLoad = this.beginBackgroundVenueMapSwitch(matchedForumVenue);
+      await this.loadOnboardingSections(String(matchedForumVenue.id));
+      if (
+        String(this.store.get().selectedVenueId) !==
+        String(matchedForumVenue.id)
+      ) {
+        return;
+      }
+      if (!this.store.get().selectedGateId) {
+        this.showToast("This venue has no sections yet.");
+        return;
+      }
+      await this.enterSelectedVenue({
+        skipLocationGate: true,
+        welcomeToast: false,
+        homeExperience: "returning",
+        landOn: "home",
+        holdEnterLock: true,
+      });
+      await mapLoad;
+
+      if (this.store.get().mapStatus !== "ready") {
+        const message = resolveMapBootErrorMessage(
+          this.store.get().loadingMessage || this.store.get().mapError,
+        );
+        this.showToast(message);
+        this.store.patch({
+          activeTab: "map",
+          navigateView: "home",
+        });
+        return;
+      }
+
+      this.store.patch({
+        activeTab: "map",
+        navigateView: "map",
+        homeVenueSearchQuery: "",
+      });
+      this.showToast(`Welcome to ${venueName}. You're in.`);
+      void this.consumeGuest2dMapTrial();
+    } catch (error) {
+      appWarn("Home", "Could not open venue", error);
+      const message = resolveUserFacingApiErrorMessage(
+        error instanceof Error ? error.message : null,
+        "Could not open that venue. Please try again.",
+      );
+      this.showToast(message);
+      this.store.patch({
+        activeTab: "map",
+        navigateView: "home",
+      });
+    } finally {
+      this.venueEnterInFlight = false;
+    }
+  }
+
+  /**
+   * Switch venue map data in the background while the user stays on home.
+   * Only openNavigateMap / a successful openHomeVenue should flip navigateView.
+   */
+  private beginBackgroundVenueMapSwitch(
+    venue: ForumVenueSummary,
+  ): Promise<void> {
+    this.disconnectVenueLiveFeed();
+    this.disconnectLocationLiveFeed();
+    this.homeFeedSnapshot = null;
+    this.venueWideFeedSnapshot = null;
+    this.allConversationNextPages = new Map();
+    this.venueFeedScopeGeneration += 1;
     this.store.patch({
-      homeVenueSearchQuery: '',
-      navigateView: 'map',
-      activeTab: 'map',
+      selectedVenueId: String(venue.id),
+      selectedGateId: null,
+      forumSections: [],
+      forumCategories: [],
+      activeTab: "map",
+      navigateView: "home",
+      mapStatus: "loading",
+      mapError: undefined,
+      loadingMessage: "Loading map…",
+      loadingProgress: 12,
+      venueFeedPosts: [],
+      forumFeedNext: null,
+      forumFeedCount: 0,
+      sectionHeatmap: [],
+      sectionHeatmapActive: false,
+      venueLiveStatus: "idle",
+      locationLiveStatus: "idle",
+      socialLocation: null,
+      socialLocationName: null,
+      homeVenueSearchQuery: "",
     });
-    void this.consumeGuest2dMapTrial();
-    if (recent) {
-      this.showToast(`Opening ${recent.name}`);
+    this.teardownMappedinScene({ cancelInFlight: true });
+    return this.ensureMapForSelectedVenue();
+  }
+
+  private async ensureForumVenuesForHome(): Promise<void> {
+    try {
+      const venues = await listAllVenues();
+      this.store.patch({
+        forumVenues: venues.map((venue) => this.toVenueSummary(venue)),
+      });
+    } catch (error) {
+      if (this.store.get().forumVenues.length > 0) return;
+      appWarn("Home", "Could not load venues for home", error);
     }
   }
 
   private async loadReturningHomeContent(): Promise<void> {
+    void this.refreshSignedInProfile();
     try {
-      const homeContent = await homeRepository.getReturningHomeContent();
-      this.store.patch({ homeContent });
+      const fallback = await homeRepository.getReturningHomeContent();
+      await this.ensureForumVenuesForHome();
+      const catalog = this.store.get().forumVenues;
+      if (catalog.length === 0) {
+        this.store.patch({ homeContent: fallback });
+        return;
+      }
+      const split = partitionHomeVenues(
+        catalog,
+        venueVisitRepository.listVisited(),
+      );
+      this.store.patch({
+        homeContent: {
+          recentlyVisited: split.recentlyVisited.map(homeVenueRowFromCatalog),
+          otherVenues: split.otherVenues.map(homeVenueRowFromCatalog),
+          stats: fallback.stats,
+        },
+      });
     } catch (error) {
-      appWarn('Home', 'Could not load returning-home content', error);
+      appWarn("Home", "Could not load returning-home content", error);
     }
+  }
+
+  private async refreshSignedInProfile(): Promise<void> {
+    const current = this.store.get().authUser;
+    if (!current || !hasStoredAuthTokens()) return;
+    const user = await this.refreshProfileQuietly(current);
+    this.store.patch({ authUser: user });
   }
 
   openProfileSettings(): void {
     this.store.patch({
-      activeTab: 'profile',
-      profileView: 'settings',
+      activeTab: "profile",
+      profileView: "settings",
       settingsConfirm: null,
     });
   }
 
   closeProfileSettings(): void {
-    this.store.patch({ profileView: 'main', settingsConfirm: null });
+    this.store.patch({ profileView: "main", settingsConfirm: null });
   }
 
   openMapLanguageSettings(): void {
     this.store.patch({
-      activeTab: 'profile',
-      profileView: 'language',
+      activeTab: "profile",
+      profileView: "language",
       settingsConfirm: null,
     });
   }
 
   closeMapLanguageSettings(): void {
-    this.store.patch({ profileView: 'settings' });
+    this.store.patch({ profileView: "settings" });
   }
 
   openEditProfileFromSettings(): void {
@@ -790,13 +1193,14 @@ export class MapApp {
       return;
     }
     const existingName =
-      user.pseudo_name?.trim() || state.pseudoNameDraft.trim() || '';
+      user.pseudo_name?.trim() || state.pseudoNameDraft.trim() || "";
     const interests = user.interests?.length ? [...user.interests] : [];
     this.store.patch({
-      activeTab: 'profile',
-      profileView: 'edit-profile',
+      activeTab: "profile",
+      profileView: "edit-profile",
       settingsConfirm: null,
       authFieldErrors: {},
+      profileEditSaving: false,
       pseudoNameDraft: existingName,
       pseudoNameHint: state.pseudoNameHint || generatePseudoName(),
       selectedInterests: interests,
@@ -806,9 +1210,9 @@ export class MapApp {
 
   closeEditProfileSettings(): void {
     this.store.patch({
-      profileView: 'settings',
+      profileView: "settings",
       authFieldErrors: {},
-      authLoading: false,
+      profileEditSaving: false,
     });
   }
 
@@ -819,8 +1223,8 @@ export class MapApp {
       return;
     }
     this.store.patch({
-      activeTab: 'profile',
-      profileView: 'change-password',
+      activeTab: "profile",
+      profileView: "change-password",
       settingsConfirm: null,
       authFieldErrors: {},
       authLoading: false,
@@ -829,7 +1233,7 @@ export class MapApp {
 
   closeChangePasswordSettings(): void {
     this.store.patch({
-      profileView: 'settings',
+      profileView: "settings",
       authFieldErrors: {},
       authLoading: false,
     });
@@ -841,15 +1245,16 @@ export class MapApp {
   ): Promise<void> {
     const fieldErrors: Record<string, string> = {};
     if (!oldPassword) {
-      fieldErrors.old_password = 'Current password is required.';
+      fieldErrors.old_password = "Current password is required.";
     }
     if (!newPassword) {
-      fieldErrors.new_password = 'New password is required.';
-    } else if (evaluatePasswordStrength(newPassword) !== 'strong') {
+      fieldErrors.new_password = "New password is required.";
+    } else if (evaluatePasswordStrength(newPassword) !== "strong") {
       fieldErrors.new_password =
-        'Use at least 8 characters with a letter and a number.';
+        "Use at least 8 characters with a letter and a number.";
     } else if (oldPassword && newPassword === oldPassword) {
-      fieldErrors.new_password = 'Choose a password different from the current one.';
+      fieldErrors.new_password =
+        "Choose a password different from the current one.";
     }
 
     if (Object.keys(fieldErrors).length > 0) {
@@ -860,7 +1265,7 @@ export class MapApp {
     if (!hasStoredAuthTokens()) {
       this.store.patch({
         authFieldErrors: {
-          _form: 'Your session expired. Please log in to continue.',
+          _form: "Your session expired. Please log in to continue.",
         },
       });
       this.showLogin();
@@ -873,16 +1278,20 @@ export class MapApp {
         old_password: oldPassword,
         new_password: newPassword,
       });
+      this.rememberPasswordCredential(
+        this.store.get().authUser?.email ?? this.store.get().authEmail,
+        newPassword,
+      );
       this.store.patch({
         authLoading: false,
         authFieldErrors: {},
-        profileView: 'settings',
+        profileView: "settings",
       });
-      this.showToast(message || 'Password updated.');
+      this.showToast(message || "Password updated.");
     } catch (error) {
       this.handleAuthFailure(
         error,
-        'Could not change your password. Please try again.',
+        "Could not change your password. Please try again.",
       );
     }
   }
@@ -891,7 +1300,7 @@ export class MapApp {
     const trimmed = pseudoName.trim();
     if (!trimmed) {
       this.store.patch({
-        authFieldErrors: { pseudo_name: 'Pick a pseudo-name to continue.' },
+        authFieldErrors: { pseudo_name: "Pick a pseudo-name to continue." },
         pseudoNameDraft: trimmed,
       });
       return;
@@ -899,7 +1308,7 @@ export class MapApp {
     if (trimmed.length < 3) {
       this.store.patch({
         authFieldErrors: {
-          pseudo_name: 'Pseudo-name must be at least 3 characters.',
+          pseudo_name: "Pseudo-name must be at least 3 characters.",
         },
         pseudoNameDraft: trimmed,
       });
@@ -908,7 +1317,7 @@ export class MapApp {
     if (trimmed.length > 50) {
       this.store.patch({
         authFieldErrors: {
-          pseudo_name: 'Pseudo-name must be 50 characters or fewer.',
+          pseudo_name: "Pseudo-name must be 50 characters or fewer.",
         },
         pseudoNameDraft: trimmed,
       });
@@ -917,7 +1326,7 @@ export class MapApp {
     if (!hasStoredAuthTokens()) {
       this.store.patch({
         authFieldErrors: {
-          _form: 'Your session expired. Please log in to continue.',
+          _form: "Your session expired. Please log in to continue.",
         },
       });
       this.showLogin();
@@ -926,7 +1335,7 @@ export class MapApp {
 
     const interests = this.store.get().selectedInterests;
     this.store.patch({
-      authLoading: true,
+      profileEditSaving: true,
       authFieldErrors: {},
       pseudoNameDraft: trimmed,
     });
@@ -938,49 +1347,53 @@ export class MapApp {
       });
       const refreshed = await this.refreshProfileQuietly(user);
       this.store.patch({
-        authLoading: false,
+        profileEditSaving: false,
         authUser: refreshed,
         pseudoNameDraft: refreshed.pseudo_name?.trim() || trimmed,
         selectedInterests: refreshed.interests?.length
           ? [...refreshed.interests]
           : interests,
         authFieldErrors: {},
-        profileView: 'settings',
+        profileView: "settings",
       });
-      this.showToast('Profile updated.');
+      this.showToast("Profile updated.");
     } catch (error) {
-      this.handleAuthFailure(error, 'Could not update your profile. Please try again.');
+      this.store.patch({ profileEditSaving: false });
+      this.handleAuthFailure(
+        error,
+        "Could not update your profile. Please try again.",
+      );
     }
   }
 
   openAboutSettings(): void {
     this.store.patch({
-      activeTab: 'profile',
-      profileView: 'about',
+      activeTab: "profile",
+      profileView: "about",
       settingsConfirm: null,
     });
   }
 
   openPrivacySettings(): void {
     this.store.patch({
-      activeTab: 'profile',
-      profileView: 'privacy',
+      activeTab: "profile",
+      profileView: "privacy",
       settingsConfirm: null,
     });
   }
 
   openTermsSettings(): void {
     this.store.patch({
-      activeTab: 'profile',
-      profileView: 'settings',
+      activeTab: "profile",
+      profileView: "settings",
       settingsConfirm: null,
-      legalWebView: 'terms',
+      legalWebView: "terms",
     });
   }
 
   closeSecondarySettings(): void {
     this.store.patch({
-      profileView: 'settings',
+      profileView: "settings",
       settingsConfirm: null,
       legalWebView: null,
     });
@@ -991,11 +1404,11 @@ export class MapApp {
   }
 
   requestLogoutConfirm(): void {
-    this.store.patch({ settingsConfirm: 'logout' });
+    this.store.patch({ settingsConfirm: "logout" });
   }
 
   requestDeleteAccountConfirm(): void {
-    this.store.patch({ settingsConfirm: 'delete-account' });
+    this.store.patch({ settingsConfirm: "delete-account" });
   }
 
   dismissSettingsConfirm(): void {
@@ -1008,7 +1421,7 @@ export class MapApp {
     const trimmed = code.trim();
     if (!trimmed) return;
     if (this.store.get().mapLanguageCode === trimmed) {
-      this.store.patch({ profileView: 'settings' });
+      this.store.patch({ profileView: "settings" });
       return;
     }
 
@@ -1016,12 +1429,14 @@ export class MapApp {
     try {
       await this.mapData.changeLanguage(trimmed);
       savePreferredMapLanguage(trimmed);
-      this.store.patch({ profileView: 'settings' });
+      this.store.patch({ profileView: "settings" });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : 'Could not change map language.';
+        error instanceof Error
+          ? error.message
+          : "Could not change map language.";
       this.showToast(message);
-      appWarn('Map', 'Language change failed', error);
+      appWarn("Map", "Language change failed", error);
     } finally {
       this.store.patch({ mapLanguageChanging: false });
     }
@@ -1062,7 +1477,7 @@ export class MapApp {
 
   openNotifications(): void {
     this.store.patch({
-      activeTab: 'social',
+      activeTab: "social",
       notificationsOpen: true,
       notificationDetail: null,
       notificationDetailError: null,
@@ -1095,7 +1510,7 @@ export class MapApp {
     const cached =
       this.store.get().notifications.find((item) => item.id === id) ?? null;
     this.store.patch({
-      activeTab: 'social',
+      activeTab: "social",
       notificationsOpen: true,
       notificationDetail: cached,
       notificationDetailLoading: true,
@@ -1127,9 +1542,9 @@ export class MapApp {
         notificationDetailError:
           error instanceof Error
             ? error.message
-            : 'Could not load this notification.',
+            : "Could not load this notification.",
       });
-      appWarn('Notifications', 'Could not load notification detail', error);
+      appWarn("Notifications", "Could not load notification detail", error);
     }
   }
 
@@ -1145,7 +1560,11 @@ export class MapApp {
       try {
         unread = await fetchUnreadNotificationCount();
       } catch (error) {
-        appWarn('Notifications', 'unread_count failed; using list count', error);
+        appWarn(
+          "Notifications",
+          "unread_count failed; using list count",
+          error,
+        );
       }
       this.store.patch({
         notifications,
@@ -1155,8 +1574,8 @@ export class MapApp {
       });
     } catch (error) {
       this.store.patch({ notificationsLoading: false });
-      appWarn('Notifications', 'Could not load notification inbox', error);
-      this.showToast('Could not load notifications.');
+      appWarn("Notifications", "Could not load notification inbox", error);
+      this.showToast("Could not load notifications.");
     }
   }
 
@@ -1189,8 +1608,8 @@ export class MapApp {
       });
     } catch (error) {
       this.store.patch({ notificationsLoading: false });
-      appWarn('Notifications', 'Could not load more notifications', error);
-      this.showToast('Could not load more notifications.');
+      appWarn("Notifications", "Could not load more notifications", error);
+      this.showToast("Could not load more notifications.");
     }
   }
 
@@ -1228,8 +1647,8 @@ export class MapApp {
         ),
         notificationsUnreadCount: latest.notificationsUnreadCount + 1,
       });
-      appWarn('Notifications', 'Mark read failed', error);
-      this.showToast('Could not mark notification as read.');
+      appWarn("Notifications", "Mark read failed", error);
+      this.showToast("Could not mark notification as read.");
     }
   }
 
@@ -1257,12 +1676,15 @@ export class MapApp {
         notifications: previous,
         notificationsUnreadCount: previousUnread,
       });
-      appWarn('Notifications', 'Mark all read failed', error);
-      this.showToast('Could not mark all notifications as read.');
+      appWarn("Notifications", "Mark all read failed", error);
+      this.showToast("Could not mark all notifications as read.");
     }
   }
 
-  completeOnboarding(options?: { homeExperience?: HomeExperience }): void {
+  completeOnboarding(options?: {
+    homeExperience?: HomeExperience;
+    landOn?: NavigateView;
+  }): void {
     const state = this.store.get();
     const homeExperience =
       options?.homeExperience ??
@@ -1273,23 +1695,23 @@ export class MapApp {
     markDeviceHasUsedApp();
     saveReturningSession({
       onboardingComplete: true,
-      mode: state.authUser ? 'auth' : 'guest',
+      mode: state.authUser ? "auth" : "guest",
       selectedVenueId: state.selectedVenueId,
       selectedGateId: state.selectedGateId,
       guestId: state.guestId,
     });
     this.store.patch({
       onboardingComplete: true,
-      authStep: 'none',
+      authStep: "none",
       authStepBeforeLocation: null,
       authLoading: false,
       guestContinueLoading: false,
       locationGateLoading: false,
       locationGateError: null,
-      activeTab: 'map',
-      navigateView: 'home',
+      activeTab: "map",
+      navigateView: options?.landOn ?? "home",
       homeExperience,
-      homeVenueSearchQuery: '',
+      homeVenueSearchQuery: "",
     });
     void this.loadReturningHomeContent();
     this.maybeStartProductTour();
@@ -1300,7 +1722,7 @@ export class MapApp {
     if (state.productTourStepIndex == null) return;
     const steps = stepsForHomeExperience(state.homeExperience);
     const next = nextProductTourIndex(state.productTourStepIndex, steps.length);
-    if (next === 'complete') {
+    if (next === "complete") {
       this.finishProductTour();
       return;
     }
@@ -1343,7 +1765,10 @@ export class MapApp {
   private beginProductTour(options: { replay: boolean }): void {
     const state = this.store.get();
     if (!state.onboardingComplete) return;
-    if (!options.replay && (state.productTourCompleted || !state.productTourEnabled)) {
+    if (
+      !options.replay &&
+      (state.productTourCompleted || !state.productTourEnabled)
+    ) {
       return;
     }
     const steps = stepsForHomeExperience(state.homeExperience);
@@ -1370,9 +1795,9 @@ export class MapApp {
       productTourEnabled: false,
       productTourCompleted: true,
       productTourStepIndex: null,
-      activeTab: 'map',
-      navigateView: 'home',
-      profileView: 'main',
+      activeTab: "map",
+      navigateView: "home",
+      profileView: "main",
       settingsConfirm: null,
       notificationsOpen: false,
       postCommentsOpen: false,
@@ -1382,9 +1807,9 @@ export class MapApp {
   private dismissProductTourOverlay(): void {
     this.store.patch({
       productTourStepIndex: null,
-      activeTab: 'map',
-      navigateView: 'home',
-      profileView: 'main',
+      activeTab: "map",
+      navigateView: "home",
+      profileView: "main",
       settingsConfirm: null,
       notificationsOpen: false,
       postCommentsOpen: false,
@@ -1409,7 +1834,7 @@ export class MapApp {
     surface: ProductTourSurface,
   ): Partial<AppState> {
     const common: Partial<AppState> = {
-      profileView: 'main',
+      profileView: "main",
       settingsConfirm: null,
       notificationsOpen: false,
       postCommentsOpen: false,
@@ -1417,21 +1842,22 @@ export class MapApp {
       arrivalDialogOpen: false,
       guestArGatePrompt: null,
       arRoutePromptOpen: false,
+      arNotAtVenuePromptOpen: false,
     };
     switch (surface) {
-      case 'home':
-        return { ...common, activeTab: 'map', navigateView: 'home' };
-      case 'map':
+      case "home":
+        return { ...common, activeTab: "map", navigateView: "home" };
+      case "map":
         return {
           ...common,
-          activeTab: 'map',
-          navigateView: 'map',
+          activeTab: "map",
+          navigateView: "map",
           showRouteSheet: false,
         };
-      case 'social':
-        return { ...common, activeTab: 'social' };
-      case 'profile':
-        return { ...common, activeTab: 'profile' };
+      case "social":
+        return { ...common, activeTab: "social" };
+      case "profile":
+        return { ...common, activeTab: "profile" };
     }
   }
 
@@ -1448,15 +1874,24 @@ export class MapApp {
   /** Discover / See all posts from the first-visit venue home. */
   openVenueDiscover(): void {
     this.store.patch({
-      activeTab: 'social',
+      activeTab: "social",
       notificationsOpen: false,
-      profileView: 'main',
+      profileView: "main",
       settingsConfirm: null,
     });
   }
 
   /** Try AR from the first-visit venue home. */
   async openVenueArFromHome(): Promise<void> {
+    await this.ensureUserLocationForVenuePresence();
+    if (this.isAwayFromSelectedVenue()) {
+      this.store.patch({
+        arRoutePromptOpen: false,
+        arNotAtVenuePromptOpen: true,
+      });
+      return;
+    }
+
     if (isGuestMode()) {
       this.store.patch({ guestArGateLoading: true });
       try {
@@ -1467,28 +1902,104 @@ export class MapApp {
           guestArGateLoading: false,
         });
         if (!eligibility.allowed) {
-          this.store.patch({ guestArGatePrompt: 'already-used' });
+          this.store.patch({ guestArGatePrompt: "already-used" });
           return;
         }
       } catch (error) {
         this.store.patch({ guestArGateLoading: false });
-        appWarn('Guest', 'Could not resolve AR eligibility from home', error);
+        appWarn("Guest", "Could not resolve AR eligibility from home", error);
       }
     }
 
     if (this.store.get().route) {
-      this.store.patch({ arRoutePromptOpen: false });
+      this.store.patch({
+        arRoutePromptOpen: false,
+        arNotAtVenuePromptOpen: false,
+      });
       this.openNavigateMap();
       await this.openAr();
       return;
     }
 
     // Stay on venue home - dialog explains start/end, then user opens the map.
-    this.store.patch({ arRoutePromptOpen: true });
+    this.store.patch({
+      arNotAtVenuePromptOpen: false,
+      arRoutePromptOpen: true,
+    });
   }
 
   dismissArRoutePrompt(): void {
     this.store.patch({ arRoutePromptOpen: false });
+  }
+
+  dismissArNotAtVenuePrompt(): void {
+    this.store.patch({ arNotAtVenuePromptOpen: false });
+  }
+
+  private async blockPostingWhenAwayFromVenue(): Promise<boolean> {
+    await this.ensureUserLocationForVenuePresence();
+    if (!this.isAwayFromSelectedVenue()) return false;
+    const state = this.store.get();
+    const venue = state.forumVenues.find(
+      (item) => String(item.id) === state.selectedVenueId,
+    );
+    this.showToast(postingNotAtVenueCopy(venue?.name).body);
+    return true;
+  }
+
+  private isAwayFromSelectedVenue(): boolean {
+    const state = this.store.get();
+    const venue = state.forumVenues.find(
+      (item) => String(item.id) === state.selectedVenueId,
+    );
+    return (
+      userVenuePresence(
+        state.locationPermission,
+        state.userLocation,
+        venuePresenceAnchor(venue, this.mapPresenceCoordinate()),
+      ) === "away"
+    );
+  }
+
+  private mapPresenceCoordinate(): {
+    latitude: number;
+    longitude: number;
+  } | null {
+    if (!this.mapData) return null;
+    const types = ["space", "location-profile", "enterprise-location"] as const;
+    for (const type of types) {
+      for (const item of this.mapData.getByType(type)) {
+        const serialized = serializeCoordinate(item);
+        if (
+          serialized &&
+          Number.isFinite(serialized.latitude) &&
+          Number.isFinite(serialized.longitude)
+        ) {
+          return {
+            latitude: serialized.latitude,
+            longitude: serialized.longitude,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  private async ensureUserLocationForVenuePresence(): Promise<void> {
+    const state = this.store.get();
+    if (state.locationPermission !== "granted") return;
+    if (state.userLocation) return;
+    try {
+      const coords = await this.locationService.requestLocation({
+        timeoutMs: 8_000,
+      });
+      this.lastPublishedUserLocation = coords;
+      this.lastUserLocationPublishAt =
+        typeof performance !== "undefined" ? performance.now() : Date.now();
+      this.store.patch({ userLocation: coords });
+    } catch {
+      // Presence stays unknown if GPS is unavailable.
+    }
   }
 
   /** Confirm Try AR dialog → map with search ready for start/end. */
@@ -1496,16 +2007,16 @@ export class MapApp {
     this.pendingMapSearchFocus = true;
     this.store.patch({
       arRoutePromptOpen: false,
-      activeTab: 'map',
-      navigateView: 'map',
-      homeVenueSearchQuery: '',
-      searchQuery: '',
+      arNotAtVenuePromptOpen: false,
+      homeVenueSearchQuery: "",
+      searchQuery: "",
       searchResults: [],
       categoryFilter: null,
       isSearching: false,
       arRouteSetupActive: true,
     });
-    void this.consumeGuest2dMapTrial();
+    // Stay on home until the map is ready — same gate as openNavigateMap.
+    this.openNavigateMap();
   }
 
   /** Whether the map search field should be focused after render. */
@@ -1525,7 +2036,7 @@ export class MapApp {
 
   private persistLocationChoice(choice: PermissionChoice): void {
     permissionChoiceLocalDatasource.saveLocation(choice);
-    if (choice === 'granted') {
+    if (choice === "granted") {
       this.store.patch({ locationPermission: choice });
       this.startLiveUserLocationWatch();
       return;
@@ -1539,11 +2050,11 @@ export class MapApp {
 
   private startLiveUserLocationWatch(): void {
     if (this.stopUserLocationWatch) return;
-    if (this.store.get().locationPermission !== 'granted') return;
+    if (this.store.get().locationPermission !== "granted") return;
     this.stopUserLocationWatch = this.locationService.watchLocation(
       (coords) => this.publishUserLocation(coords),
       (error) => {
-        appWarn('Location', 'Live user location watch failed', error);
+        appWarn("Location", "Live user location watch failed", error);
       },
     );
   }
@@ -1556,11 +2067,11 @@ export class MapApp {
   }
 
   private publishUserLocation(coords: UserLocationCoords): void {
-    if (this.store.get().locationPermission !== 'granted') return;
+    if (this.store.get().locationPermission !== "granted") return;
     if (this.liveRouteTracking || this.store.get().routeSimulating) return;
 
     const now =
-      typeof performance !== 'undefined' ? performance.now() : Date.now();
+      typeof performance !== "undefined" ? performance.now() : Date.now();
     const previous =
       this.lastPublishedUserLocation ?? this.store.get().userLocation;
     const elapsed = this.lastUserLocationPublishAt
@@ -1579,6 +2090,7 @@ export class MapApp {
     location: string;
     latitude?: string | number | null;
     longitude?: string | number | null;
+    mappedin_map_id?: string | null;
   }): ForumVenueSummary {
     return {
       id: venue.id,
@@ -1586,6 +2098,29 @@ export class MapApp {
       location: venue.location,
       latitude: parseCoordinateNumber(venue.latitude),
       longitude: parseCoordinateNumber(venue.longitude),
+      mappedinMapId: venue.mappedin_map_id?.trim() || null,
+    };
+  }
+
+  private toSectionSummary(section: {
+    id: number;
+    venue: number;
+    name: string;
+    code: string;
+    is_active: boolean;
+    mappedin_location_id?: string | null;
+    mappedinLocationId?: string | null;
+  }): ForumSectionSummary {
+    return {
+      id: section.id,
+      venue: section.venue,
+      name: section.name,
+      code: section.code,
+      is_active: section.is_active,
+      mappedinLocationId:
+        section.mappedin_location_id?.trim() ||
+        section.mappedinLocationId?.trim() ||
+        null,
     };
   }
 
@@ -1598,7 +2133,8 @@ export class MapApp {
       coordinateTransformationService.totalPathLengthMeters(
         route.pathCoordinates,
       );
-    const remainingFallback = total > 0 ? total : (route.distanceMeters ?? null);
+    const remainingFallback =
+      total > 0 ? total : (route.distanceMeters ?? null);
     // Indoor GPS nearest-snap often lands on the destination of a short venue
     // path. A new route always starts at the origin: never pretends the user
     // has already walked it.
@@ -1612,22 +2148,22 @@ export class MapApp {
   private async openLocationPermissionGate(): Promise<void> {
     const state = this.store.get();
     const underlyingStep = isLocationGateAuthStep(state.authStep)
-      ? state.authStepBeforeLocation ?? 'none'
+      ? (state.authStepBeforeLocation ?? "none")
       : state.authStep;
 
     const browser = await this.locationService.queryPermission();
     const stored = permissionChoiceLocalDatasource.loadLocation();
     const entry = resolveLocationGateEntry(browser, stored);
 
-    if (entry.action === 'error-unsupported' || entry.action === 'skip') {
-      if (entry.action === 'skip') {
-        this.persistLocationChoice('denied');
+    if (entry.action === "error-unsupported" || entry.action === "skip") {
+      if (entry.action === "skip") {
+        this.persistLocationChoice("denied");
       }
       await this.continueAfterLocationGranted();
       return;
     }
 
-    if (entry.action === 'silent-request') {
+    if (entry.action === "silent-request") {
       await this.runLocationGateRequest({
         fromPermissionRequired: false,
         silent: true,
@@ -1637,7 +2173,7 @@ export class MapApp {
 
     this.store.patch({
       onboardingComplete: false,
-      authStep: 'location-permission',
+      authStep: "location-permission",
       authStepBeforeLocation: underlyingStep,
       authLoading: false,
       guestContinueLoading: false,
@@ -1649,7 +2185,7 @@ export class MapApp {
 
   showArTeaser(): void {
     this.store.patch({
-      authStep: 'ar-teaser',
+      authStep: "ar-teaser",
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
@@ -1658,7 +2194,7 @@ export class MapApp {
 
   showIntroduction(): void {
     this.store.patch({
-      authStep: 'introduction',
+      authStep: "introduction",
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
@@ -1667,7 +2203,7 @@ export class MapApp {
 
   showFeatures(): void {
     this.store.patch({
-      authStep: 'features',
+      authStep: "features",
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
@@ -1678,14 +2214,12 @@ export class MapApp {
     const state = this.store.get();
     if (state.onboardingComplete) return;
     const existingName =
-      state.authUser?.pseudo_name?.trim() ||
-      state.pseudoNameDraft.trim() ||
-      '';
+      state.authUser?.pseudo_name?.trim() || state.pseudoNameDraft.trim() || "";
     const existingInterests = state.authUser?.interests?.length
       ? [...state.authUser.interests]
       : state.selectedInterests;
     this.store.patch({
-      authStep: 'pseudo-name',
+      authStep: "pseudo-name",
       authStepBeforeLocation: null,
       locationGateLoading: false,
       authLoading: false,
@@ -1702,12 +2236,17 @@ export class MapApp {
   private async loadInterestOptions(): Promise<void> {
     if (this.interestOptionsLoaded) return;
     try {
-      const options = await fetchInterestOptions();
-      if (!options.length) return;
+      const options = await listActiveInterestNames();
       this.interestOptionsLoaded = true;
-      this.store.patch({ interestOptions: options });
+      this.store.patch({
+        interestOptions: interestOptionsAfterFetch(options),
+      });
     } catch (error) {
-      appWarn('Auth', 'Could not load interest catalog', error);
+      this.interestOptionsLoaded = true;
+      this.store.patch({
+        interestOptions: interestOptionsAfterFetch(null),
+      });
+      appWarn("Auth", "Could not load interest catalog", error);
     }
   }
 
@@ -1716,7 +2255,7 @@ export class MapApp {
     if (hasStoredAuthTokens()) {
       return;
     }
-    this.store.patch({ authStep: 'login', authFieldErrors: {} });
+    this.store.patch({ authStep: "login", authFieldErrors: {} });
   }
 
   shufflePseudoName(): void {
@@ -1729,7 +2268,7 @@ export class MapApp {
       pseudoNameHint: next,
       authFieldErrors: {
         ...state.authFieldErrors,
-        pseudo_name: '',
+        pseudo_name: "",
       },
     });
   }
@@ -1746,7 +2285,7 @@ export class MapApp {
     const trimmed = pseudoName.trim();
     if (!trimmed) {
       this.store.patch({
-        authFieldErrors: { pseudo_name: 'Pick a pseudo-name to continue.' },
+        authFieldErrors: { pseudo_name: "Pick a pseudo-name to continue." },
         pseudoNameDraft: trimmed,
       });
       return;
@@ -1755,7 +2294,7 @@ export class MapApp {
     if (trimmed.length < 3) {
       this.store.patch({
         authFieldErrors: {
-          pseudo_name: 'Pseudo-name must be at least 3 characters.',
+          pseudo_name: "Pseudo-name must be at least 3 characters.",
         },
         pseudoNameDraft: trimmed,
       });
@@ -1765,7 +2304,7 @@ export class MapApp {
     if (trimmed.length > 50) {
       this.store.patch({
         authFieldErrors: {
-          pseudo_name: 'Pseudo-name must be 50 characters or fewer.',
+          pseudo_name: "Pseudo-name must be 50 characters or fewer.",
         },
         pseudoNameDraft: trimmed,
       });
@@ -1775,9 +2314,9 @@ export class MapApp {
     if (!hasStoredAuthTokens()) {
       this.store.patch({
         authFieldErrors: {
-          _form: 'Your session expired. Please log in to continue.',
+          _form: "Your session expired. Please log in to continue.",
         },
-        authStep: 'login',
+        authStep: "login",
         pseudoNameDraft: trimmed,
       });
       return;
@@ -1808,13 +2347,16 @@ export class MapApp {
       });
       this.showVenueSelect();
     } catch (error) {
-      this.handleAuthFailure(error, 'Could not save your profile. Please try again.');
+      this.handleAuthFailure(
+        error,
+        "Could not save your profile. Please try again.",
+      );
     }
   }
 
   showVenueSelect(): void {
     this.store.patch({
-      authStep: 'venue-select',
+      authStep: "venue-select",
       authStepBeforeLocation: null,
       locationGateLoading: false,
       authLoading: false,
@@ -1833,8 +2375,8 @@ export class MapApp {
       return;
     }
     this.store.patch({
-      profileView: 'main',
-      activeTab: 'map',
+      profileView: "main",
+      activeTab: "map",
       settingsConfirm: null,
     });
     this.showVenueSelect();
@@ -1844,7 +2386,11 @@ export class MapApp {
     const state = this.store.get();
     const user = state.authUser;
     const selection = user ? loadVenueSelection(user.id) : null;
-    if (user && resolveOnboardingStep(user, selection) === 'home' && selection) {
+    if (
+      user &&
+      resolveOnboardingStep(user, selection) === "home" &&
+      selection
+    ) {
       this.store.patch({
         selectedVenueId: selection.venueId,
         selectedGateId: selection.sectionId,
@@ -1853,7 +2399,7 @@ export class MapApp {
       void this.enterSelectedVenue({
         skipLocationGate: true,
         welcomeToast: false,
-        homeExperience: 'returning',
+        homeExperience: "returning",
       });
       return;
     }
@@ -1865,6 +2411,9 @@ export class MapApp {
   }
 
   selectOnboardingVenue(venueId: string): void {
+    // Re-tapping the already-selected venue used to clear gates and reload,
+    // which felt like the screen "went back" while scrolling the list.
+    if (this.store.get().selectedVenueId === venueId) return;
     this.store.patch({
       selectedVenueId: venueId,
       selectedGateId: null,
@@ -1875,10 +2424,13 @@ export class MapApp {
   }
 
   selectOnboardingGate(gateId: string): void {
-    this.store.patch({
-      selectedGateId: gateId,
-      authFieldErrors: {},
-    });
+    const state = this.store.get();
+    if (state.selectedGateId === gateId) return;
+    const patch: Partial<AppState> = { selectedGateId: gateId };
+    if (Object.keys(state.authFieldErrors).length > 0) {
+      patch.authFieldErrors = {};
+    }
+    this.store.patch(patch);
   }
 
   submitVenueSelect(): void {
@@ -1890,40 +2442,39 @@ export class MapApp {
     try {
       const venues = await listAllVenues();
       const state = this.store.get();
-      const existingStillValid = venues.some(
+      const forumVenues = venues.map((venue) => this.toVenueSummary(venue));
+      const existingStillValid = forumVenues.some(
         (venue) => String(venue.id) === state.selectedVenueId,
       );
+      const firstCatalog = forumVenues[0];
       const selectedVenueId = existingStillValid
         ? state.selectedVenueId
-        : venues[0]
-          ? String(venues[0].id)
+        : firstCatalog
+          ? String(firstCatalog.id)
           : null;
 
       this.store.patch({
-        forumVenues: venues.map((venue) => this.toVenueSummary(venue)),
+        forumVenues,
         selectedVenueId,
         selectedGateId: existingStillValid ? state.selectedGateId : null,
         forumSections: existingStillValid ? state.forumSections : [],
         authLoading: false,
-        authFieldErrors: venues.length
+        authFieldErrors: forumVenues.length
           ? {}
-          : { _form: 'No venues are available right now.' },
+          : { _form: "No venues are available right now." },
       });
 
       if (selectedVenueId) {
         await this.loadOnboardingSections(selectedVenueId);
       }
     } catch (error) {
-      this.handleAuthFailure(
-        error,
-        'Could not load venues. Please try again.',
-      );
+      this.handleAuthFailure(error, "Could not load venues. Please try again.");
     }
   }
 
   private async loadOnboardingSections(venueId: string): Promise<void> {
     const numericId = Number(venueId);
-    if (!Number.isFinite(numericId)) return;
+    if (!Number.isFinite(numericId) || numericId <= 0) return;
 
     this.store.patch({ authLoading: true, authFieldErrors: {} });
     try {
@@ -1936,13 +2487,9 @@ export class MapApp {
       );
 
       this.store.patch({
-        forumSections: sections.map((section) => ({
-          id: section.id,
-          venue: section.venue,
-          name: section.name,
-          code: section.code,
-          is_active: section.is_active,
-        })),
+        forumSections: sections.map((section) =>
+          this.toSectionSummary(section),
+        ),
         forumCategories: categories.map((category) => ({
           id: category.id,
           name: category.name,
@@ -1958,39 +2505,32 @@ export class MapApp {
         authLoading: false,
         authFieldErrors: sections.length
           ? {}
-          : { _form: 'This venue has no sections yet.' },
+          : { _form: "This venue has no sections yet." },
       });
     } catch (error) {
-      this.handleAuthFailure(
-        error,
-        'Could not load sections for this venue.',
-      );
+      this.handleAuthFailure(error, "Could not load sections for this venue.");
     }
   }
 
-  private async enterSelectedVenue(options?: {
-    welcomeToast?: boolean;
-    /** Location was already granted after create / sign-in / guest. */
-    skipLocationGate?: boolean;
-    /** Signed-in session restore lands on Recently visited, not first-visit. */
-    homeExperience?: HomeExperience;
-  }): Promise<void> {
-    if (this.venueEnterInFlight) return;
+  private async enterSelectedVenue(options?: EnterVenueOptions): Promise<void> {
+    if (!options?.holdEnterLock && this.venueEnterInFlight) return;
 
     const state = this.store.get();
     if (!state.selectedVenueId || !state.selectedGateId) {
       this.store.patch({
+        authLoading: false,
         authFieldErrors: {
-          _form: 'Select a venue and section to continue.',
+          _form: "Select a venue and section to continue.",
         },
       });
       return;
     }
 
     const venueId = Number(state.selectedVenueId);
-    if (!Number.isFinite(venueId)) {
+    if (!Number.isFinite(venueId) || venueId <= 0) {
       this.store.patch({
-        authFieldErrors: { _form: 'Invalid venue selection.' },
+        authLoading: false,
+        authFieldErrors: { _form: "Invalid venue selection." },
       });
       return;
     }
@@ -2004,10 +2544,17 @@ export class MapApp {
     );
     let forumVenues = state.forumVenues;
 
-    this.venueEnterInFlight = true;
+    if (!options?.holdEnterLock) {
+      this.venueEnterInFlight = true;
+    }
+    this.homeFeedSnapshot = null;
     this.venueWideFeedSnapshot = null;
+    this.allConversationNextPages = new Map();
     this.venueFeedScopeGeneration += 1;
-    this.store.patch({ authLoading: true, authFieldErrors: {} });
+    this.store.patch({
+      authLoading: options?.holdEnterLock ? state.authLoading : true,
+      authFieldErrors: {},
+    });
     try {
       if (!venue) {
         try {
@@ -2018,7 +2565,7 @@ export class MapApp {
             venue,
           ];
         } catch (error) {
-          appWarn('Venue', 'Could not load venue name', error);
+          appWarn("Venue", "Could not load venue name", error);
         }
       }
 
@@ -2026,13 +2573,9 @@ export class MapApp {
       let categories = state.forumCategories;
       if (sections.length === 0 || categories.length === 0) {
         const catalog = await loadVenueCatalog(venueId);
-        sections = catalog.sections.map((section) => ({
-          id: section.id,
-          venue: section.venue,
-          name: section.name,
-          code: section.code,
-          is_active: section.is_active,
-        }));
+        sections = catalog.sections.map((section) =>
+          this.toSectionSummary(section),
+        );
         categories = catalog.categories.map((category) => ({
           id: category.id,
           name: category.name,
@@ -2075,20 +2618,33 @@ export class MapApp {
         forumFeedCount: feed.count,
         upvotedPostIds,
         flaggedPostIds: flaggedPostsLocalDatasource.load(this.flagViewerKey()),
-        venueFeedFilter: 'all',
+        venueFeedFilter: "all",
         sectionHeatmap: [],
         sectionHeatmapActive: false,
-        venueLiveStatus: 'idle',
-        authLoading: false,
+        venueLiveStatus: "idle",
+        locationLiveStatus: "idle",
+        socialLocation: null,
+        socialLocationName: null,
         authFieldErrors: {},
       });
       this.seenForumCommentIds.clear();
+      this.homeFeedSnapshot = {
+        posts: venueFeedPosts,
+        next: feed.next,
+        count: feed.count,
+      };
+      this.venueWideFeedSnapshot = null;
+      this.allConversationNextPages = new Map();
+      this.disconnectLocationLiveFeed();
       void this.hydrateVenueFeedCommentCounts();
       this.connectVenueLiveFeed(venueId);
       void this.bootstrapPersonalNotifications();
+      await this.ensureMapForSelectedVenue();
       if (options?.welcomeToast !== false) {
         this.showToast(
-          venue ? `Welcome to ${venue.name}. You're in.` : 'Welcome to fplaces!',
+          venue
+            ? `Welcome to ${venue.name}. You're in.`
+            : "Welcome to fplaces!",
         );
       }
 
@@ -2096,6 +2652,7 @@ export class MapApp {
       if (options?.skipLocationGate || this.store.get().userLocation) {
         this.completeOnboarding({
           homeExperience: options?.homeExperience,
+          landOn: options?.landOn,
         });
       } else {
         this.beginLocationPermissionGate();
@@ -2103,15 +2660,18 @@ export class MapApp {
     } catch (error) {
       this.handleAuthFailure(
         error,
-        'Could not load the venue feed. Please try again.',
+        "Could not load the venue feed. Please try again.",
       );
     } finally {
-      this.venueEnterInFlight = false;
+      if (!options?.holdEnterLock) {
+        this.venueEnterInFlight = false;
+      }
     }
   }
 
   private connectVenueLiveFeed(venueId: number): void {
     this.disconnectVenueLiveFeed();
+    if (!Number.isFinite(venueId) || venueId <= 0) return;
     this.venueLiveSubscription = subscribeVenueLiveFeed(
       venueId,
       (event) => {
@@ -2126,7 +2686,41 @@ export class MapApp {
   private disconnectVenueLiveFeed(): void {
     this.venueLiveSubscription?.disconnect();
     this.venueLiveSubscription = null;
-    this.store.patch({ venueLiveStatus: 'idle' });
+    this.store.patch({ venueLiveStatus: "idle" });
+  }
+
+  private connectLocationLiveFeed(venueId: number, locationId: string): void {
+    if (
+      this.connectedLocationLive?.venueId === venueId &&
+      this.connectedLocationLive.locationId === locationId &&
+      this.locationLiveSubscription
+    ) {
+      return;
+    }
+    this.disconnectLocationLiveFeed();
+    this.connectedLocationLive = { venueId, locationId };
+    this.locationLiveSubscription = subscribeLocationLiveFeed(
+      venueId,
+      locationId,
+      (event) => {
+        this.applyLocationConversationLiveEvent(event);
+      },
+      (status) => {
+        this.store.patch({ locationLiveStatus: status });
+      },
+    );
+  }
+
+  private disconnectLocationLiveFeed(): void {
+    this.locationLiveSubscription?.disconnect();
+    this.locationLiveSubscription = null;
+    this.connectedLocationLive = null;
+    this.store.patch({ locationLiveStatus: "idle" });
+  }
+
+  private applyLocationConversationLiveEvent(event: LocationLiveEvent): void {
+    if (event.type !== "new_location_message") return;
+    this.mergeLocationMessageIntoFeed(event.message);
   }
 
   private async bootstrapPersonalNotifications(): Promise<void> {
@@ -2145,7 +2739,7 @@ export class MapApp {
       });
       this.connectPersonalNotifications();
     } catch (error) {
-      appWarn('Notifications', 'Initial inbox fetch failed', error);
+      appWarn("Notifications", "Initial inbox fetch failed", error);
       // Still open the socket so live badge updates can arrive.
       this.connectPersonalNotifications();
     } finally {
@@ -2198,43 +2792,69 @@ export class MapApp {
 
   private applyVenueLiveEvent(event: VenueLiveEvent): void {
     switch (event.type) {
-      case 'new_post': {
+      case "new_post": {
         this.mergeForumPostIntoFeed(event.post);
         return;
       }
-      case 'new_comment': {
+      case "new_comment": {
         this.mergeLiveForumComment(event.comment);
         return;
       }
-      case 'upvote_update': {
+      case "upvote_update": {
         const state = this.store.get();
         const postId = String(event.update.postId);
         const upvoted = event.update.upvoted;
+        this.patchParkedFeedPosts(postId, (post) => ({
+          ...post,
+          upvotes: event.update.upvotesCount,
+          ...(typeof upvoted === "boolean" ? { hasUpvoted: upvoted } : {}),
+        }));
+        const authUser = this.withUpvotedRecentPosts(
+          state.authUser,
+          postId,
+          event.update.upvotesCount,
+        );
+        if (state.socialLocation) {
+          this.store.patch({
+            authUser,
+            ...(typeof upvoted === "boolean"
+              ? {
+                  upvotedPostIds: upvoted
+                    ? [...new Set([...state.upvotedPostIds, postId])]
+                    : state.upvotedPostIds.filter((id) => id !== postId),
+                }
+              : {}),
+          });
+          return;
+        }
         const venueFeedPosts = state.venueFeedPosts.map((post) =>
           post.id === postId
             ? {
                 ...post,
                 upvotes: event.update.upvotesCount,
-                ...(typeof upvoted === 'boolean'
+                ...(typeof upvoted === "boolean"
                   ? { hasUpvoted: upvoted }
                   : {}),
               }
             : post,
         );
         let upvotedPostIds = state.upvotedPostIds;
-        if (typeof upvoted === 'boolean') {
+        if (typeof upvoted === "boolean") {
           upvotedPostIds = upvoted
             ? [...new Set([...state.upvotedPostIds, postId])]
             : state.upvotedPostIds.filter((id) => id !== postId);
         }
-        this.store.patch({ venueFeedPosts, upvotedPostIds });
+        this.store.patch({ venueFeedPosts, upvotedPostIds, authUser });
         return;
       }
-      case 'post_hidden': {
-        this.removeVenueFeedPost(String(event.postId));
+      case "post_hidden": {
+        const postId = String(event.postId);
+        this.removeFromVenueWideSnapshot(postId);
+        if (this.store.get().socialLocation) return;
+        this.removeVenueFeedPost(postId);
         return;
       }
-      case 'section_heat_update': {
+      case "section_heat_update": {
         this.store.patch({
           sectionHeatmap: event.heatmap.map((entry) => ({
             sectionId: entry.sectionId,
@@ -2256,7 +2876,7 @@ export class MapApp {
 
     // Password-reset email deep links (uid + token → confirm screen) must win
     // over guest/auth routing so /api/users/password-reset-confirm/ can complete.
-    if (this.store.get().authStep === 'reset-password-confirm') {
+    if (this.store.get().authStep === "reset-password-confirm") {
       this.ensureStartupReady();
       return;
     }
@@ -2293,23 +2913,25 @@ export class MapApp {
       deviceHasUsedApp: hasDeviceUsedApp() || Boolean(loadStoredUser()),
     });
 
-    if (destination === 'app' && isReturningSession(returning)) {
+    if (destination === "app" && isReturningSession(returning)) {
       await this.restoreReturningSession(returning);
       this.ensureStartupReady();
       return;
     }
 
-    if (destination === 'app' && hasStoredAuthTokens()) {
+    if (destination === "app" && hasStoredAuthTokens()) {
       this.store.patch({ authLoading: true, authFieldErrors: {} });
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          void this.resumeAuthSession().finally(() => this.ensureStartupReady());
+          void this.resumeAuthSession().finally(() =>
+            this.ensureStartupReady(),
+          );
         });
       });
       return;
     }
 
-    if (destination === 'sign-in') {
+    if (destination === "sign-in") {
       markDeviceHasUsedApp();
       this.store.patch({
         authLoading: false,
@@ -2317,7 +2939,7 @@ export class MapApp {
         authLegalDocument: null,
         legalWebView: null,
       });
-      if (this.pendingSessionRecovery === 'invalid-token') {
+      if (this.pendingSessionRecovery === "invalid-token") {
         this.applyPendingSessionRecovery();
       } else {
         this.showLogin();
@@ -2331,7 +2953,7 @@ export class MapApp {
     }
 
     this.store.patch({
-      authStep: 'none',
+      authStep: "none",
       authLoading: false,
       authFieldErrors: {},
     });
@@ -2347,12 +2969,12 @@ export class MapApp {
     const user = loadStoredUser();
     if (!user) return null;
     const selection = loadVenueSelection(user.id);
-    if (!selection || resolveOnboardingStep(user, selection) !== 'home') {
+    if (!selection || resolveOnboardingStep(user, selection) !== "home") {
       return null;
     }
     return {
       onboardingComplete: true,
-      mode: 'auth',
+      mode: "auth",
       selectedVenueId: selection.venueId,
       selectedGateId: selection.sectionId,
       guestId: null,
@@ -2385,12 +3007,12 @@ export class MapApp {
       selectedVenueId: venueId,
       selectedGateId: gateId,
       guestId: snapshot.guestId ?? this.store.get().guestId,
-      authStep: 'none',
+      authStep: "none",
       authStepBeforeLocation: null,
       authLoading: true,
       authFieldErrors: {},
-      navigateView: 'home',
-      homeExperience: 'returning',
+      navigateView: "home",
+      homeExperience: "returning",
     });
 
     if (hasStoredAuthTokens()) {
@@ -2407,11 +3029,9 @@ export class MapApp {
 
         const selection =
           loadVenueSelection(user.id) ??
-          (venueId && gateId
-            ? { venueId, sectionId: gateId }
-            : null);
+          (venueId && gateId ? { venueId, sectionId: gateId } : null);
         const step = resolveOnboardingStep(user, selection);
-        if (step !== 'home' || !selection) {
+        if (step !== "home" || !selection) {
           this.store.patch({ authLoading: false, onboardingComplete: false });
           await this.continueAfterLocationGranted();
           return;
@@ -2424,24 +3044,24 @@ export class MapApp {
         await this.enterSelectedVenue({
           skipLocationGate: true,
           welcomeToast: false,
-          homeExperience: 'returning',
+          homeExperience: "returning",
         });
         return;
       } catch (error) {
         clearStoredAuthTokens();
         clearStoredAuthUser();
         this.store.patch({ authUser: null });
-        appWarn('Auth', 'Returning session tokens expired', error);
+        appWarn("Auth", "Returning session tokens expired", error);
 
         if (
           isInvalidAccessTokenFailure(error) ||
-          this.store.get().createAccountPrompt === 'invalid-token'
+          this.store.get().createAccountPrompt === "invalid-token"
         ) {
           this.routeToCreateAccountForInvalidToken();
           return;
         }
 
-        if (snapshot.mode !== 'guest' || !venueId || !gateId) {
+        if (snapshot.mode !== "guest" || !venueId || !gateId) {
           clearReturningSession();
           this.store.patch({
             authLoading: false,
@@ -2450,7 +3070,7 @@ export class MapApp {
             selectedGateId: null,
           });
           this.showLogin();
-          this.showToast('Session expired. Please log in again.');
+          this.showToast("Session expired. Please log in again.");
           return;
         }
         // Guest-mode snapshot can still restore after JWT wipe.
@@ -2460,7 +3080,7 @@ export class MapApp {
     if (this.store.get().guestAccessAllowed === false) {
       clearReturningSession();
       this.redirectToCreateAccountForGuestDenial(
-        this.store.get().guestAccessReason ?? 'Guest limit reached',
+        this.store.get().guestAccessReason ?? "Guest limit reached",
       );
       return;
     }
@@ -2474,7 +3094,7 @@ export class MapApp {
       await this.enterSelectedVenue({
         skipLocationGate: true,
         welcomeToast: false,
-        homeExperience: 'returning',
+        homeExperience: "returning",
       });
       return;
     }
@@ -2500,7 +3120,7 @@ export class MapApp {
         guestHasTriedArView: result.session?.hasTriedArView === true,
         guestHasTried2dView: result.session?.hasTried2dView === true,
       });
-      appLog('Guest', 'Guest session validated', {
+      appLog("Guest", "Guest session validated", {
         visitorId: result.visitorId,
         allowed: result.allowed,
         guestId: result.guestId,
@@ -2522,7 +3142,7 @@ export class MapApp {
           return false;
         }
         this.redirectToCreateAccountForGuestDenial(
-          result.reason ?? 'Guest trial expired',
+          result.reason ?? "Guest trial expired",
         );
         return false;
       }
@@ -2530,7 +3150,7 @@ export class MapApp {
       return true;
     } catch (error) {
       // Fail open for anonymous users so a guest-API outage does not brick onboarding.
-      appWarn('Guest', 'Guest token validation failed; continuing', error);
+      appWarn("Guest", "Guest token validation failed; continuing", error);
       this.store.patch({
         visitorId: null,
         guestId: null,
@@ -2549,7 +3169,7 @@ export class MapApp {
 
   private redirectToCreateAccountForGuestDenial(reason: string): void {
     this.store.patch({
-      authStep: 'create',
+      authStep: "create",
       authLoading: false,
       authFieldErrors: {},
       guestAccessAllowed: false,
@@ -2573,7 +3193,7 @@ export class MapApp {
     }
 
     // Only auto-route from the idle gate; leave in-progress auth forms alone.
-    if (state.authStep !== 'none') {
+    if (state.authStep !== "none") {
       return;
     }
 
@@ -2602,15 +3222,15 @@ export class MapApp {
         authUser: null,
         authFieldErrors: {},
       });
-      appWarn('Auth', 'Stored session expired', error);
+      appWarn("Auth", "Stored session expired", error);
       if (
         isInvalidAccessTokenFailure(error) ||
-        this.store.get().createAccountPrompt === 'invalid-token'
+        this.store.get().createAccountPrompt === "invalid-token"
       ) {
         this.routeToCreateAccountForInvalidToken();
       } else {
         this.showLogin();
-        this.showToast('Session expired. Please log in again.');
+        this.showToast("Session expired. Please log in again.");
       }
     } finally {
       this.authResumeInFlight = false;
@@ -2618,7 +3238,7 @@ export class MapApp {
   }
 
   showCreateAccount(): void {
-    this.store.patch({ authStep: 'create', authFieldErrors: {} });
+    this.store.patch({ authStep: "create", authFieldErrors: {} });
   }
 
   dismissInvalidTokenDialog(): void {
@@ -2637,11 +3257,11 @@ export class MapApp {
     }
 
     markDeviceHasUsedApp();
-    const fromWelcome = state.authStep === 'none';
+    const fromWelcome = state.authStep === "none";
     this.store.patch({
       authLoading: true,
       authFieldErrors: {},
-      guestContinueLoading: fromWelcome,
+      guestContinueLoading: true,
     });
     try {
       const result = await registerCurrentGuestFingerprint();
@@ -2657,7 +3277,7 @@ export class MapApp {
 
       if (!result.allowed) {
         this.redirectToCreateAccountForGuestDenial(
-          result.reason ?? 'Guest trial expired',
+          result.reason ?? "Guest trial expired",
         );
         return;
       }
@@ -2670,11 +3290,11 @@ export class MapApp {
       // Keep Continuing… until the location dialog (or next screen) is ready.
       await this.beginLocationPermissionGate();
     } catch (error) {
-      appWarn('Guest', 'Continue as guest failed', error);
+      appWarn("Guest", "Continue as guest failed", error);
       const message =
         error instanceof Error && error.message
           ? error.message
-          : 'Could not continue as guest. Please try again.';
+          : "Could not continue as guest. Please try again.";
       this.store.patch({
         authLoading: false,
         guestContinueLoading: false,
@@ -2692,7 +3312,7 @@ export class MapApp {
     // Guests denied by fingerprint must stay on account creation / sign-in.
     if (this.store.get().guestAccessAllowed === false) {
       this.store.patch({
-        authStep: 'create',
+        authStep: "create",
         authFieldErrors: {},
         authLegalDocument: null,
         legalWebView: null,
@@ -2701,7 +3321,7 @@ export class MapApp {
     }
 
     this.store.patch({
-      authStep: 'none',
+      authStep: "none",
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
@@ -2710,15 +3330,15 @@ export class MapApp {
 
   showLogin(): void {
     if (
-      this.pendingSessionRecovery === 'invalid-token' ||
-      this.store.get().createAccountPrompt === 'invalid-token'
+      this.pendingSessionRecovery === "invalid-token" ||
+      this.store.get().createAccountPrompt === "invalid-token"
     ) {
       this.routeToCreateAccountForInvalidToken();
       return;
     }
     markDeviceHasUsedApp();
     this.store.patch({
-      authStep: 'login',
+      authStep: "login",
       checkEmailPurpose: null,
       authFieldErrors: {},
       authLegalDocument: null,
@@ -2727,9 +3347,17 @@ export class MapApp {
     });
   }
 
+  async loadSavedPasswordCredential(): Promise<SavedPasswordCredential | null> {
+    return loadSavedPasswordCredential();
+  }
+
+  private rememberPasswordCredential(email: string, password: string): void {
+    void savePasswordCredential({ email, password });
+  }
+
   dismissLogin(): void {
     this.store.patch({
-      authStep: 'none',
+      authStep: "none",
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
@@ -2738,7 +3366,7 @@ export class MapApp {
 
   showForgotPassword(): void {
     this.store.patch({
-      authStep: 'forgot-password',
+      authStep: "forgot-password",
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
@@ -2747,7 +3375,7 @@ export class MapApp {
 
   dismissForgotPassword(): void {
     this.store.patch({
-      authStep: 'login',
+      authStep: "login",
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
@@ -2763,7 +3391,7 @@ export class MapApp {
     this.pendingSessionRecovery = null;
     this.store.patch({
       onboardingComplete: false,
-      authStep: 'reset-password-confirm',
+      authStep: "reset-password-confirm",
       authStepBeforeLocation: null,
       passwordResetUid: params.uid,
       passwordResetToken: params.token,
@@ -2778,7 +3406,7 @@ export class MapApp {
 
   showResetPasswordConfirm(uid: string, token: string): void {
     this.store.patch({
-      authStep: 'reset-password-confirm',
+      authStep: "reset-password-confirm",
       passwordResetUid: uid,
       passwordResetToken: token,
       authFieldErrors: {},
@@ -2789,9 +3417,9 @@ export class MapApp {
 
   dismissResetPasswordConfirm(): void {
     this.store.patch({
-      authStep: 'login',
-      passwordResetUid: '',
-      passwordResetToken: '',
+      authStep: "login",
+      passwordResetUid: "",
+      passwordResetToken: "",
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
@@ -2806,13 +3434,13 @@ export class MapApp {
 
     if (!uid || !token) {
       fieldErrors._form =
-        'This reset link is invalid or expired. Request a new one.';
+        "This reset link is invalid or expired. Request a new one.";
     }
     if (!newPassword) {
-      fieldErrors.new_password = 'New password is required.';
-    } else if (evaluatePasswordStrength(newPassword) !== 'strong') {
+      fieldErrors.new_password = "New password is required.";
+    } else if (evaluatePasswordStrength(newPassword) !== "strong") {
       fieldErrors.new_password =
-        'Use at least 8 characters with a letter and a number.';
+        "Use at least 8 characters with a letter and a number.";
     }
 
     if (Object.keys(fieldErrors).length > 0) {
@@ -2827,19 +3455,20 @@ export class MapApp {
         token,
         new_password: newPassword,
       });
+      this.rememberPasswordCredential(state.authEmail, newPassword);
       this.store.patch({
         authLoading: false,
         authFieldErrors: {},
-        authStep: 'login',
+        authStep: "login",
         checkEmailPurpose: null,
-        passwordResetUid: '',
-        passwordResetToken: '',
+        passwordResetUid: "",
+        passwordResetToken: "",
       });
-      this.showToast(message || 'Password updated. You can log in now.');
+      this.showToast(message || "Password updated. You can log in now.");
     } catch (error) {
       this.handleAuthFailure(
         error,
-        'Could not reset your password. The link may have expired.',
+        "Could not reset your password. The link may have expired.",
       );
     }
   }
@@ -2849,9 +3478,9 @@ export class MapApp {
     const trimmedEmail = email.trim();
 
     if (!trimmedEmail) {
-      fieldErrors.email = 'Email is required.';
+      fieldErrors.email = "Email is required.";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-      fieldErrors.email = 'Enter a valid email address.';
+      fieldErrors.email = "Enter a valid email address.";
     }
 
     if (Object.keys(fieldErrors).length > 0) {
@@ -2874,26 +3503,26 @@ export class MapApp {
         authLoading: false,
         authFieldErrors: {},
         authEmail: trimmedEmail,
-        authStep: 'check-email',
-        checkEmailPurpose: 'password-reset',
+        authStep: "check-email",
+        checkEmailPurpose: "password-reset",
       });
-      this.showToast(message || 'Reset link sent. Check your email.');
+      this.showToast(message || "Reset link sent. Check your email.");
     } catch (error) {
       this.handleAuthFailure(
         error,
         error instanceof TypeError
-          ? 'Cannot reach the password reset service. Try again.'
-          : 'Could not send a reset link. Please try again.',
+          ? "Cannot reach the password reset service. Try again."
+          : "Could not send a reset link. Please try again.",
       );
     }
   }
 
   openAuthTerms(): void {
-    this.store.patch({ legalWebView: 'terms' });
+    this.store.patch({ legalWebView: "terms" });
   }
 
   openAuthPrivacy(): void {
-    this.store.patch({ authLegalDocument: 'privacy' });
+    this.store.patch({ authLegalDocument: "privacy" });
   }
 
   dismissAuthLegal(): void {
@@ -2910,25 +3539,26 @@ export class MapApp {
     const trimmedEmail = email.trim();
 
     if (!trimmedEmail) {
-      fieldErrors.email = 'Email is required.';
+      fieldErrors.email = "Email is required.";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-      fieldErrors.email = 'Enter a valid email address.';
+      fieldErrors.email = "Enter a valid email address.";
     }
 
     if (!password) {
-      fieldErrors.password = 'Password is required.';
+      fieldErrors.password = "Password is required.";
     } else if (password.length < 8) {
-      fieldErrors.password = 'Password must be at least 8 characters.';
+      fieldErrors.password = "Password must be at least 8 characters.";
     }
 
     if (!passwordConfirm) {
-      fieldErrors.password_confirm = 'Please confirm your password.';
+      fieldErrors.password_confirm = "Please confirm your password.";
     } else if (password !== passwordConfirm) {
-      fieldErrors.password_confirm = 'Passwords must match.';
+      fieldErrors.password_confirm = "Passwords must match.";
     }
 
     if (!termsAccepted) {
-      fieldErrors.terms = 'Please agree to the Terms of Service and Privacy Policy.';
+      fieldErrors.terms =
+        "Please agree to the Terms of Service and Privacy Policy.";
     }
 
     if (Object.keys(fieldErrors).length > 0) {
@@ -2957,7 +3587,7 @@ export class MapApp {
         authLoading: false,
         authUser: user,
         authEmail: trimmedEmail,
-        authStep: 'verify',
+        authStep: "verify",
         authFieldErrors: {},
       });
     } catch (error) {
@@ -2965,8 +3595,8 @@ export class MapApp {
       this.handleAuthFailure(
         error,
         error instanceof TypeError
-          ? 'Cannot reach the registration service. Restart the dev server and try again.'
-          : 'Could not create your account. Please try again.',
+          ? "Cannot reach the registration service. Restart the dev server and try again."
+          : "Could not create your account. Please try again.",
       );
     }
   }
@@ -2974,7 +3604,7 @@ export class MapApp {
   dismissCheckEmail(): void {
     const purpose = this.store.get().checkEmailPurpose;
     this.store.patch({
-      authStep: purpose === 'password-reset' ? 'forgot-password' : 'create',
+      authStep: purpose === "password-reset" ? "forgot-password" : "create",
       checkEmailPurpose: null,
       authFieldErrors: {},
     });
@@ -2983,26 +3613,26 @@ export class MapApp {
   /** Resend from the check-email screen: verify OTP or password-reset link. */
   async resendCheckEmail(): Promise<boolean> {
     const state = this.store.get();
-    if (state.checkEmailPurpose === 'password-reset') {
+    if (state.checkEmailPurpose === "password-reset") {
       const email = state.authEmail.trim();
       if (!email) {
-        this.showToast('Missing email for password reset.');
+        this.showToast("Missing email for password reset.");
         return false;
       }
       this.store.patch({ authLoading: true });
       try {
         const message = await requestPasswordReset(email);
         this.store.patch({ authLoading: false });
-        this.showToast(message || 'Reset link sent. Check your email.');
+        this.showToast(message || "Reset link sent. Check your email.");
         return true;
       } catch (error) {
         this.store.patch({ authLoading: false });
         const message =
           error instanceof AuthApiError
             ? error.summary
-            : 'Could not resend the reset link.';
+            : "Could not resend the reset link.";
         this.showToast(message);
-        appWarn('Auth', 'Resend password reset failed', error);
+        appWarn("Auth", "Resend password reset failed", error);
         return false;
       }
     }
@@ -3010,21 +3640,22 @@ export class MapApp {
   }
 
   dismissVerifyEmail(): void {
-    this.store.patch({ authStep: 'create', authFieldErrors: {} });
+    this.store.patch({ authStep: "create", authFieldErrors: {} });
   }
 
   async submitVerification(otp: string): Promise<void> {
     const state = this.store.get();
-    const email = state.authEmail || state.authUser?.email || '';
+    const email = state.authEmail || state.authUser?.email || "";
     const trimmedOtp = otp.trim();
     const fieldErrors: Record<string, string> = {};
 
     if (!isCompleteOtpCode(trimmedOtp)) {
-      fieldErrors.otp = 'Enter the 6-digit code from your email.';
+      fieldErrors.otp = "Enter the 6-digit code from your email.";
     }
 
     if (!email) {
-      fieldErrors._form = 'Missing email for verification. Please sign up again.';
+      fieldErrors._form =
+        "Missing email for verification. Please sign up again.";
     }
 
     if (Object.keys(fieldErrors).length > 0) {
@@ -3040,7 +3671,7 @@ export class MapApp {
         this.store.patch({
           authLoading: false,
           authFieldErrors: {
-            _form: 'Verification did not complete. Please try again.',
+            _form: "Verification did not complete. Please try again.",
           },
         });
         return;
@@ -3049,6 +3680,9 @@ export class MapApp {
       let user = verifiedUser;
       const password = this.pendingAuthPassword;
       this.pendingAuthPassword = null;
+      if (password) {
+        this.rememberPasswordCredential(email, password);
+      }
 
       if (password) {
         try {
@@ -3060,15 +3694,15 @@ export class MapApp {
             authLoading: false,
             authUser: verifiedUser,
             authEmail: email,
-            authStep: 'login',
+            authStep: "login",
             authFieldErrors: {
               _form:
                 loginError instanceof AuthApiError
-                  ? 'Email verified. Please log in to continue setup.'
-                  : 'Email verified. Log in to finish setting up your profile.',
+                  ? "Email verified. Please log in to continue setup."
+                  : "Email verified. Log in to finish setting up your profile.",
             },
           });
-          this.showToast('Email verified. Please log in to continue.');
+          this.showToast("Email verified. Please log in to continue.");
           return;
         }
       } else if (!hasStoredAuthTokens()) {
@@ -3077,18 +3711,17 @@ export class MapApp {
           authLoading: false,
           authUser: verifiedUser,
           authEmail: email,
-          authStep: 'login',
+          authStep: "login",
           authFieldErrors: {
-            _form: 'Email verified. Please log in to continue setup.',
+            _form: "Email verified. Please log in to continue setup.",
           },
         });
-        this.showToast('Email verified. Please log in to continue.');
+        this.showToast("Email verified. Please log in to continue.");
         return;
       }
 
       this.persistSessionUser(user);
       this.store.patch({
-        authLoading: false,
         authUser: user,
         authEmail: user.email,
         authFieldErrors: {},
@@ -3096,15 +3729,15 @@ export class MapApp {
       await this.continueAfterAuthenticated(user, { promptLocation: true });
       this.showToast(
         userNeedsPseudoName(user)
-          ? 'Email verified. Pick a name to continue.'
-          : 'Email verified.',
+          ? "Email verified. Pick a name to continue."
+          : "Email verified.",
       );
     } catch (error) {
       this.handleAuthFailure(
         error,
         error instanceof TypeError
-          ? 'Cannot reach the verification service. Try again.'
-          : 'Could not verify your email. Please try again.',
+          ? "Cannot reach the verification service. Try again."
+          : "Could not verify your email. Please try again.",
       );
     }
   }
@@ -3114,13 +3747,13 @@ export class MapApp {
     const trimmedEmail = email.trim();
 
     if (!trimmedEmail) {
-      fieldErrors.email = 'Email is required.';
+      fieldErrors.email = "Email is required.";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-      fieldErrors.email = 'Enter a valid email address.';
+      fieldErrors.email = "Enter a valid email address.";
     }
 
     if (!password) {
-      fieldErrors.password = 'Password is required.';
+      fieldErrors.password = "Password is required.";
     }
 
     if (Object.keys(fieldErrors).length > 0) {
@@ -3143,6 +3776,7 @@ export class MapApp {
         password,
       });
       this.pendingAuthPassword = null;
+      this.rememberPasswordCredential(trimmedEmail, password);
       this.persistSessionUser(session.user);
       this.store.patch({
         authUser: session.user,
@@ -3159,8 +3793,8 @@ export class MapApp {
       this.handleAuthFailure(
         error,
         error instanceof TypeError
-          ? 'Cannot reach the login service. Try again.'
-          : 'Could not log in. Check your email and password.',
+          ? "Cannot reach the login service. Try again."
+          : "Could not log in. Check your email and password.",
       );
     }
   }
@@ -3189,42 +3823,44 @@ export class MapApp {
           ? error.summary
           : error instanceof Error
             ? error.message
-            : 'Google sign-in failed. Please try again.';
+            : "Google sign-in failed. Please try again.";
       this.store.patch({
         authLoading: false,
         authFieldErrors: { _form: message },
       });
-      appWarn('Auth', 'Google sign-in failed', error);
+      appWarn("Auth", "Google sign-in failed", error);
     }
   }
 
   async logout(): Promise<void> {
-    this.store.patch({ authLoading: true, settingsConfirm: 'logout' });
+    this.store.patch({ authLoading: true, settingsConfirm: "logout" });
     this.disconnectVenueLiveFeed();
+    this.disconnectLocationLiveFeed();
     this.disconnectPersonalNotifications();
     try {
       await logoutUser();
     } catch (error) {
       clearStoredAuthTokens();
-      appWarn('Auth', 'Logout request failed; cleared local session', error);
+      appWarn("Auth", "Logout request failed; cleared local session", error);
     }
-    this.resetAuthState({ showLogin: true, toast: 'Logged out.' });
+    this.resetAuthState({ showLogin: true, toast: "Logged out." });
   }
 
   async deleteAccount(): Promise<void> {
     const userId = this.store.get().authUser?.id;
-    this.store.patch({ authLoading: true, settingsConfirm: 'delete-account' });
+    this.store.patch({ authLoading: true, settingsConfirm: "delete-account" });
     this.disconnectVenueLiveFeed();
+    this.disconnectLocationLiveFeed();
     this.disconnectPersonalNotifications();
 
     try {
       await deleteCurrentAccount();
-      if (typeof userId === 'number') {
+      if (typeof userId === "number") {
         clearVenueSelection(userId);
       }
       this.resetAuthState({
         showCreate: true,
-        toast: 'Your account has been deleted.',
+        toast: "Your account has been deleted.",
         preserveAsNewDevice: true,
       });
     } catch (error) {
@@ -3234,9 +3870,9 @@ export class MapApp {
           ? error.summary
           : error instanceof Error
             ? error.message
-            : 'Could not delete your account.';
+            : "Could not delete your account.";
       this.showToast(message);
-      appWarn('Auth', 'Delete account failed', error);
+      appWarn("Auth", "Delete account failed", error);
     }
   }
 
@@ -3245,7 +3881,7 @@ export class MapApp {
     showLogin?: boolean;
     formError?: string;
     toast?: string;
-    createAccountPrompt?: 'invalid-token' | null;
+    createAccountPrompt?: "invalid-token" | null;
     /** After account deletion, allow marketing onboarding again. */
     preserveAsNewDevice?: boolean;
   }): void {
@@ -3259,22 +3895,24 @@ export class MapApp {
       markDeviceHasUsedApp();
     }
     this.disconnectVenueLiveFeed();
+    this.disconnectLocationLiveFeed();
     this.disconnectPersonalNotifications();
     this.stopLiveUserLocationWatch();
+    this.homeFeedSnapshot = null;
     this.venueWideFeedSnapshot = null;
+    this.allConversationNextPages = new Map();
     this.venueFeedScopeGeneration += 1;
     const storedLocation = permissionChoiceLocalDatasource.loadLocation();
     this.store.patch({
       authUser: null,
-      authEmail: '',
+      authEmail: "",
       authLoading: false,
-      authFieldErrors: options?.formError
-        ? { _form: options.formError }
-        : {},
-      authStep: 'none',
+      profileEditSaving: false,
+      authFieldErrors: options?.formError ? { _form: options.formError } : {},
+      authStep: "none",
       authStepBeforeLocation: null,
       onboardingComplete: false,
-      homeExperience: 'returning',
+      homeExperience: "returning",
       userLocation: null,
       locationPermission: storedLocation,
       locationGateLoading: false,
@@ -3290,8 +3928,8 @@ export class MapApp {
       guestArGateLoading: false,
       guestContinueLoading: false,
       createAccountPrompt: options?.createAccountPrompt ?? null,
-      pseudoNameDraft: '',
-      pseudoNameHint: '',
+      pseudoNameDraft: "",
+      pseudoNameHint: "",
       selectedInterests: [],
       selectedVenueId: null,
       selectedGateId: null,
@@ -3302,12 +3940,15 @@ export class MapApp {
       forumFeedCount: 0,
       sectionHeatmap: [],
       sectionHeatmapActive: false,
-      venueLiveStatus: 'idle',
+      venueLiveStatus: "idle",
+      locationLiveStatus: "idle",
       socialLocation: null,
       socialLocationName: null,
       venueFeedPosts: [],
-      venueFeedFilter: 'all',
+      venueFeedFilter: "all",
       venueFeedLoading: false,
+      venueFeedLoadingMore: false,
+      venueFeedSubmitting: false,
       upvotedPostIds: [],
       flaggedPostIds: [],
       notificationsOpen: false,
@@ -3322,12 +3963,12 @@ export class MapApp {
       postCommentsOpen: false,
       postCommentsPostId: null,
       postComments: [],
-      postCommentsDraft: '',
+      postCommentsDraft: "",
       postCommentsLoading: false,
       postCommentsSubmitting: false,
       postCommentsEditing: false,
       postCommentsError: null,
-      profileView: 'main',
+      profileView: "main",
       settingsConfirm: null,
       productTourStepIndex: null,
       productTourCompleted: options?.preserveAsNewDevice
@@ -3349,18 +3990,19 @@ export class MapApp {
     if (options?.toast) {
       this.showToast(options.toast);
     }
-    if (storedLocation === 'granted') {
+    if (storedLocation === "granted") {
       this.startLiveUserLocationWatch();
     }
   }
 
   private handleAuthSessionExpired(
-    reason: AuthSessionClearedReason = 'expired',
+    reason: AuthSessionClearedReason = "expired",
   ): void {
     if (this.handlingSessionExpiry) return;
     this.handlingSessionExpiry = true;
     try {
       this.disconnectVenueLiveFeed();
+      this.disconnectLocationLiveFeed();
       this.disconnectPersonalNotifications();
       clearReturningSession();
       clearStoredAuthUser();
@@ -3392,21 +4034,21 @@ export class MapApp {
     const recovery = this.pendingSessionRecovery;
     if (!recovery) return;
     this.pendingSessionRecovery = null;
-    if (recovery === 'invalid-token') {
+    if (recovery === "invalid-token") {
       this.routeToCreateAccountForInvalidToken();
       return;
     }
     this.resetAuthState({
       showLogin: true,
-      formError: 'Your session expired. Please log in again.',
-      toast: 'Session expired. Please log in again.',
+      formError: "Your session expired. Please log in again.",
+      toast: "Session expired. Please log in again.",
     });
   }
 
   private finishIfInvalidTokenRecovery(): boolean {
     if (
-      this.pendingSessionRecovery !== 'invalid-token' &&
-      this.store.get().createAccountPrompt !== 'invalid-token'
+      this.pendingSessionRecovery !== "invalid-token" &&
+      this.store.get().createAccountPrompt !== "invalid-token"
     ) {
       return false;
     }
@@ -3419,13 +4061,13 @@ export class MapApp {
     this.pendingSessionRecovery = null;
     this.ensureStartupReady();
     const alreadyPrompted =
-      this.store.get().authStep === 'create' &&
-      this.store.get().createAccountPrompt === 'invalid-token';
+      this.store.get().authStep === "create" &&
+      this.store.get().createAccountPrompt === "invalid-token";
     if (alreadyPrompted) return;
 
     this.resetAuthState({
       showCreate: true,
-      createAccountPrompt: 'invalid-token',
+      createAccountPrompt: "invalid-token",
     });
     this.store.patch({
       guestAccessAllowed: false,
@@ -3444,7 +4086,7 @@ export class MapApp {
       this.persistSessionUser(user);
       return user;
     } catch (error) {
-      appWarn('Auth', 'Could not refresh profile after onboarding step', error);
+      appWarn("Auth", "Could not refresh profile after onboarding step", error);
       this.persistSessionUser(fallback);
       return fallback;
     }
@@ -3465,16 +4107,17 @@ export class MapApp {
     }
 
     this.store.patch({
-      authLoading: false,
       authFieldErrors: {},
       authLegalDocument: null,
       legalWebView: null,
     });
 
-    // Location dialog only after explicit create / sign-in / guest - never on
-    // silent session restore over the welcome screen.
+    // Keep Logging in… / Continuing… until the next destination is on screen
+    // (location dialog, pseudo-name, venue select, or home). Clearing the
+    // spinner here flashes the idle login button before that route is ready.
+
     if (options?.promptLocation) {
-      this.beginLocationPermissionGate();
+      await this.beginLocationPermissionGate();
       return;
     }
 
@@ -3509,12 +4152,12 @@ export class MapApp {
     const selection = loadVenueSelection(user.id);
     const step = resolveOnboardingStep(user, selection);
 
-    if (step === 'pseudo-name') {
+    if (step === "pseudo-name") {
       this.showPseudoNameSetup();
       return;
     }
 
-    if (step === 'venue-select') {
+    if (step === "venue-select") {
       if (selection?.venueId) {
         this.store.patch({
           selectedVenueId: selection.venueId,
@@ -3535,7 +4178,7 @@ export class MapApp {
     await this.enterSelectedVenue({
       skipLocationGate: true,
       welcomeToast: true,
-      homeExperience: 'returning',
+      homeExperience: "returning",
     });
   }
 
@@ -3546,17 +4189,17 @@ export class MapApp {
     }
     if (error instanceof AuthApiError) {
       const knownFields = new Set([
-        'email',
-        'password',
-        'password_confirm',
-        'old_password',
-        'new_password',
-        'uid',
-        'token',
-        'otp',
-        'pseudo_name',
-        'id_token',
-        '_form',
+        "email",
+        "password",
+        "password_confirm",
+        "old_password",
+        "new_password",
+        "uid",
+        "token",
+        "otp",
+        "pseudo_name",
+        "id_token",
+        "_form",
       ]);
       const fieldErrors: Record<string, string> = {};
       const orphanMessages: string[] = [];
@@ -3569,10 +4212,7 @@ export class MapApp {
         }
       }
 
-      if (
-        Object.keys(fieldErrors).length === 0 ||
-        orphanMessages.length > 0
-      ) {
+      if (Object.keys(fieldErrors).length === 0 || orphanMessages.length > 0) {
         fieldErrors._form =
           fieldErrors._form || orphanMessages[0] || error.summary;
       }
@@ -3584,6 +4224,7 @@ export class MapApp {
 
       this.store.patch({
         authLoading: false,
+        profileEditSaving: false,
         authFieldErrors: fieldErrors,
       });
       return;
@@ -3591,30 +4232,31 @@ export class MapApp {
 
     this.store.patch({
       authLoading: false,
+      profileEditSaving: false,
       authFieldErrors: { _form: fallbackMessage },
     });
-    appWarn('Auth', fallbackMessage, error);
+    appWarn("Auth", fallbackMessage, error);
   }
 
   async resendVerificationCode(): Promise<boolean> {
     const state = this.store.get();
-    const email = state.authEmail || state.authUser?.email || '';
+    const email = state.authEmail || state.authUser?.email || "";
     if (!email) {
-      this.showToast('Missing email for verification.');
+      this.showToast("Missing email for verification.");
       return false;
     }
 
     try {
       await resendVerification(email);
-      this.showToast('Code sent. Check your email.');
+      this.showToast("Code sent. Check your email.");
       return true;
     } catch (error) {
       const message =
         error instanceof AuthApiError
           ? error.summary
-          : 'Could not resend the verification code.';
+          : "Could not resend the verification code.";
       this.showToast(message);
-      appWarn('Auth', 'Resend verification failed', error);
+      appWarn("Auth", "Resend verification failed", error);
       return false;
     }
   }
@@ -3626,48 +4268,61 @@ export class MapApp {
     });
   }
 
-  setSocialLocation(locationId: string | null, locationName?: string | null): void {
+  setSocialLocation(
+    locationId: string | null,
+    locationName?: string | null,
+  ): void {
     if (!locationId) return;
     const state = this.store.get();
+    if (state.socialLocation === locationId) return;
     const sectionId = sectionIdForLocation(state.forumSections, locationId);
     const sectionName =
       state.forumSections.find((section) => section.id === sectionId)?.name ??
       null;
-    const trimmedName = locationName?.trim() || '';
+    const trimmedName = locationName?.trim() || "";
+    this.captureVenueWideFeedSnapshot(state);
     this.store.patch({
-      activeTab: 'social',
+      activeTab: "social",
       socialLocation: locationId,
       socialLocationName: trimmedName || sectionName,
       venueFeedDraft: this.captureVenueFeedDraft(),
       venueFeedLoading: true,
+      venueFeedPosts: [],
+      forumFeedNext: null,
+      forumFeedCount: 0,
     });
     void this.loadConversationFeed(locationId);
   }
 
-  /** Back to the venue-wide feed from a location-scoped view. */
+  /** Back to every section conversation from a single location thread. */
   clearSocialLocation(): void {
     this.store.patch({
       socialLocation: null,
       socialLocationName: null,
       venueFeedDraft: this.captureVenueFeedDraft(),
     });
-    this.restoreVenueWideFeed();
-    void this.hydrateVenueFeedCommentCounts();
+    if (this.venueWideFeedSnapshot) {
+      this.restoreVenueWideFeed();
+      return;
+    }
+    void this.loadAllConversationFeed();
   }
 
-  private captureVenueWideFeedSnapshot(state: AppState): void {
-    if (this.venueWideFeedSnapshot) return;
-    this.venueWideFeedSnapshot = {
+  private captureHomeFeedSnapshot(state: AppState): void {
+    if (state.venueFeedPosts.some((post) => isConversationFeedItem(post))) {
+      return;
+    }
+    this.homeFeedSnapshot = {
       posts: state.venueFeedPosts,
       next: state.forumFeedNext,
       count: state.forumFeedCount,
     };
   }
 
-  private restoreVenueWideFeed(): void {
-    const snapshot = this.venueWideFeedSnapshot;
-    this.venueWideFeedSnapshot = null;
+  private restoreHomeFeedSnapshot(): void {
+    this.disconnectLocationLiveFeed();
     this.venueFeedScopeGeneration += 1;
+    const snapshot = this.homeFeedSnapshot;
     if (!snapshot) {
       this.store.patch({ venueFeedLoading: false });
       return;
@@ -3680,6 +4335,81 @@ export class MapApp {
     });
   }
 
+  private applyConversationNextPages(
+    nextByLocation: Map<string, number>,
+  ): string | null {
+    this.allConversationNextPages = nextByLocation;
+    return nextByLocation.size ? VENUE_ALL_CONVERSATIONS_NEXT : null;
+  }
+
+  private captureVenueWideFeedSnapshot(state: AppState): void {
+    if (this.venueWideFeedSnapshot) return;
+    this.venueWideFeedSnapshot = {
+      posts: state.venueFeedPosts,
+      next: state.forumFeedNext,
+      count: state.forumFeedCount,
+      conversationNextPages: new Map(this.allConversationNextPages),
+    };
+  }
+
+  private restoreVenueWideFeed(): void {
+    this.disconnectLocationLiveFeed();
+    const snapshot = this.venueWideFeedSnapshot;
+    this.venueWideFeedSnapshot = null;
+    this.venueFeedScopeGeneration += 1;
+    if (!snapshot) {
+      this.store.patch({ venueFeedLoading: false });
+      return;
+    }
+    this.allConversationNextPages = snapshot.conversationNextPages
+      ? new Map(snapshot.conversationNextPages)
+      : new Map();
+    this.store.patch({
+      venueFeedPosts: snapshot.posts,
+      forumFeedNext: snapshot.next,
+      forumFeedCount: snapshot.count,
+      venueFeedLoading: false,
+    });
+  }
+
+  private async loadAllConversationFeed(): Promise<void> {
+    const state = this.store.get();
+    const venueId = Number(state.selectedVenueId);
+    if (!Number.isFinite(venueId) || venueId <= 0) {
+      this.store.patch({ venueFeedLoading: false });
+      return;
+    }
+
+    const locationIds = conversationLocationIdsForSections(state.forumSections);
+    const generation = ++this.venueFeedScopeGeneration;
+    this.disconnectLocationLiveFeed();
+    this.store.patch({
+      venueFeedLoading: true,
+      venueFeedPosts: [],
+      forumFeedNext: null,
+      forumFeedCount: 0,
+    });
+    try {
+      const feed = await loadAllVenueConversations(venueId, locationIds);
+      if (generation !== this.venueFeedScopeGeneration) return;
+      if (this.store.get().socialLocation) {
+        this.store.patch({ venueFeedLoading: false });
+        return;
+      }
+      this.store.patch({
+        venueFeedPosts: mapLocationMessagesToVenueFeed(feed.results),
+        forumFeedNext: this.applyConversationNextPages(feed.nextByLocation),
+        forumFeedCount: feed.count,
+        venueFeedLoading: false,
+      });
+    } catch (error) {
+      if (generation !== this.venueFeedScopeGeneration) return;
+      this.store.patch({ venueFeedLoading: false });
+      appWarn("Forum", "Load venue conversations failed", error);
+      this.showToast("Could not load conversations. Please try again.");
+    }
+  }
+
   private async loadConversationFeed(locationId: string): Promise<void> {
     const state = this.store.get();
     const venueId = Number(state.selectedVenueId);
@@ -3690,21 +4420,15 @@ export class MapApp {
 
     this.captureVenueWideFeedSnapshot(state);
     const generation = ++this.venueFeedScopeGeneration;
-    const sectionId = sectionIdForLocation(state.forumSections, locationId);
 
-    if (sectionId == null) {
-      this.store.patch({
-        venueFeedPosts: [],
-        forumFeedNext: null,
-        forumFeedCount: 0,
-        venueFeedLoading: false,
-      });
-      return;
-    }
-
-    this.store.patch({ venueFeedLoading: true });
+    this.store.patch({
+      venueFeedLoading: true,
+      venueFeedPosts: [],
+      forumFeedNext: null,
+      forumFeedCount: 0,
+    });
     try {
-      const feed = await loadVenueSectionFeed(venueId, sectionId);
+      const feed = await loadLocationConversation(venueId, locationId);
       if (generation !== this.venueFeedScopeGeneration) return;
       const current = this.store.get();
       if (current.socialLocation !== locationId) {
@@ -3712,29 +4436,18 @@ export class MapApp {
         return;
       }
 
-      const venueFeedPosts = mapForumPostsToVenueFeed(
-        feed.results,
-        current.forumSections,
-        current.forumCategories,
-      );
-      const sectionUpvotedIds = venueFeedPosts
-        .filter((post) => post.hasUpvoted)
-        .map((post) => post.id);
       this.store.patch({
-        venueFeedPosts,
+        venueFeedPosts: mapLocationMessagesToVenueFeed(feed.results),
         forumFeedNext: feed.next,
         forumFeedCount: feed.count,
         venueFeedLoading: false,
-        upvotedPostIds: [
-          ...new Set([...current.upvotedPostIds, ...sectionUpvotedIds]),
-        ],
       });
-      void this.hydrateVenueFeedCommentCounts();
+      this.connectLocationLiveFeed(venueId, locationId);
     } catch (error) {
       if (generation !== this.venueFeedScopeGeneration) return;
       this.store.patch({ venueFeedLoading: false });
-      appWarn('Forum', 'Load conversation feed failed', error);
-      this.showToast('Could not load this conversation. Please try again.');
+      appWarn("Forum", "Load conversation feed failed", error);
+      this.showToast("Could not load this conversation. Please try again.");
     }
   }
 
@@ -3786,7 +4499,7 @@ export class MapApp {
       const continueArSetup =
         this.store.get().arRouteSetupActive && !hasDestination;
       this.store.patch({
-        activeTab: 'map',
+        activeTab: "map",
         markers: this.routePlanner.markersState,
         showRouteSheet: hasDestination,
         route: null,
@@ -3797,7 +4510,7 @@ export class MapApp {
         routeRemainingMeters: null,
         ...(continueArSetup
           ? {
-              searchQuery: '',
+              searchQuery: "",
               searchResults: [],
             }
           : {}),
@@ -3807,11 +4520,11 @@ export class MapApp {
         this.scheduleAutoRoute();
       } else if (continueArSetup) {
         this.pendingMapSearchFocus = true;
-        this.showToast('Now pick your destination.');
+        this.showToast("Now pick your destination.");
       }
     } catch (error) {
       this.showToast(
-        toUserFacingRouteError(error, 'Could not set start point.'),
+        toUserFacingRouteError(error, "Could not set start point."),
       );
     }
   }
@@ -3835,7 +4548,7 @@ export class MapApp {
       );
 
       this.store.patch({
-        activeTab: 'map',
+        activeTab: "map",
         markers: this.routePlanner.markersState,
         showRouteSheet: true,
         route: null,
@@ -3848,7 +4561,7 @@ export class MapApp {
       this.scheduleAutoRoute();
     } catch (error) {
       this.showToast(
-        toUserFacingRouteError(error, 'Could not set destination.'),
+        toUserFacingRouteError(error, "Could not set destination."),
       );
     }
   }
@@ -3873,18 +4586,23 @@ export class MapApp {
     if (!Number.isFinite(numericId) || numericId <= 0) return;
     if (this.venueFeedUpvoteInFlight.has(postId)) return;
     if (!hasStoredAuthTokens()) {
-      this.showToast('Sign in to upvote posts.');
+      this.showToast("Sign in to upvote posts.");
       return;
     }
 
     const state = this.store.get();
-    const post = state.venueFeedPosts.find((entry) => entry.id === postId);
-    if (!post) return;
+    const post =
+      state.venueFeedPosts.find((entry) => entry.id === postId) ??
+      this.venueWideFeedSnapshot?.posts.find((entry) => entry.id === postId);
+    if (post && isConversationFeedItem(post)) return;
 
+    const recent = state.authUser?.recent_posts?.find(
+      (entry) => entry.id === numericId,
+    );
     const wasUpvoted =
-      state.upvotedPostIds.includes(postId) || Boolean(post.hasUpvoted);
+      state.upvotedPostIds.includes(postId) || Boolean(post?.hasUpvoted);
     const nextUpvoted = !wasUpvoted;
-    const previousUpvotes = post.upvotes;
+    const previousUpvotes = post?.upvotes ?? recent?.upvotes_count ?? 0;
     this.applyOptimisticVenueFeedUpvote(postId, nextUpvoted);
 
     this.venueFeedUpvoteInFlight.add(postId);
@@ -3896,20 +4614,21 @@ export class MapApp {
         ...updated,
         // Keep the toggled state even if the API omits / mishandles has_upvoted.
         has_upvoted: nextUpvoted,
-        upvotes_count: Number.isFinite(updated.upvotes_count)
-          ? updated.upvotes_count
-          : nextUpvoted
-            ? previousUpvotes + 1
-            : Math.max(0, previousUpvotes - 1),
+        upvotes_count: resolveToggledUpvoteCount({
+          previousCount: previousUpvotes,
+          nextUpvoted,
+          apiCount: updated.upvotes_count,
+          payloadPartial: isPartialForumPostPayload(updated),
+        }),
       });
     } catch (error) {
       this.applyOptimisticVenueFeedUpvote(postId, wasUpvoted, previousUpvotes);
       const message =
         error instanceof AuthApiError
           ? error.summary
-          : 'Could not update upvote. Please try again.';
+          : "Could not update upvote. Please try again.";
       this.showToast(message);
-      appWarn('Forum', 'Upvote toggle failed', error);
+      appWarn("Forum", "Upvote toggle failed", error);
     } finally {
       this.venueFeedUpvoteInFlight.delete(postId);
     }
@@ -3920,7 +4639,7 @@ export class MapApp {
     const state = this.store.get();
     if (state.authUser) return `user:${state.authUser.id}`;
     if (state.guestId) return `guest:${state.guestId}`;
-    return 'guest';
+    return "guest";
   }
 
   /**
@@ -3933,9 +4652,13 @@ export class MapApp {
     if (!Number.isFinite(numericId) || numericId <= 0) return;
     if (this.venueFeedFlagInFlight.has(postId)) return;
     if (!hasStoredAuthTokens()) {
-      this.showToast('Sign in to report posts.');
+      this.showToast("Sign in to report posts.");
       return;
     }
+    const flagTarget = this.store
+      .get()
+      .venueFeedPosts.find((entry) => entry.id === postId);
+    if (flagTarget && isConversationFeedItem(flagTarget)) return;
 
     if (this.store.get().flaggedPostIds.includes(postId)) {
       flaggedPostsLocalDatasource.remove(this.flagViewerKey(), postId);
@@ -3944,7 +4667,7 @@ export class MapApp {
           .get()
           .flaggedPostIds.filter((id) => id !== postId),
       });
-      this.showToast('Report removed.');
+      this.showToast("Report removed.");
       return;
     }
 
@@ -3954,9 +4677,9 @@ export class MapApp {
         numericId,
         reason?.trim() ? { reason: reason.trim() } : undefined,
       );
-      if (updated.status === 'hidden') {
+      if (updated.status === "hidden") {
         this.removeVenueFeedPost(String(updated.id));
-        this.showToast('Post reported and removed.');
+        this.showToast("Post reported and removed.");
       } else {
         this.mergeForumPostIntoFeed(updated);
         flaggedPostsLocalDatasource.add(this.flagViewerKey(), postId);
@@ -3965,15 +4688,15 @@ export class MapApp {
             ...new Set([...this.store.get().flaggedPostIds, postId]),
           ],
         });
-        this.showToast('Thanks. Post reported.');
+        this.showToast("Thanks. Post reported.");
       }
     } catch (error) {
       const message =
         error instanceof AuthApiError
           ? error.summary
-          : 'Could not report this post. Please try again.';
+          : "Could not report this post. Please try again.";
       this.showToast(message);
-      appWarn('Forum', 'Flag post failed', error);
+      appWarn("Forum", "Flag post failed", error);
     } finally {
       this.venueFeedFlagInFlight.delete(postId);
     }
@@ -3984,24 +4707,71 @@ export class MapApp {
     const state = this.store.get();
     if (state.venueFeedLoadingMore) return;
 
-    const page = nextFeedPageFromUrl(state.forumFeedNext);
     const venueId = Number(state.selectedVenueId);
-    if (page == null || !Number.isFinite(venueId) || venueId <= 0) return;
+    if (!Number.isFinite(venueId) || venueId <= 0) return;
+
+    if (!state.socialLocation && this.allConversationNextPages.size) {
+      this.store.patch({
+        venueFeedLoadingMore: true,
+        venueFeedDraft: this.captureVenueFeedDraft(),
+      });
+      try {
+        const feed = await loadAllVenueConversations(
+          venueId,
+          [...this.allConversationNextPages.keys()],
+          this.allConversationNextPages,
+        );
+        const current = this.store.get();
+        this.store.patch({
+          venueFeedPosts: appendOlderVenueFeedPosts(
+            current.venueFeedPosts,
+            mapLocationMessagesToVenueFeed(feed.results),
+          ),
+          forumFeedNext: this.applyConversationNextPages(feed.nextByLocation),
+          forumFeedCount: Math.max(current.forumFeedCount, feed.count),
+          venueFeedLoadingMore: false,
+        });
+      } catch (error) {
+        this.store.patch({ venueFeedLoadingMore: false });
+        appWarn("Forum", "Load more conversations failed", error);
+        this.showToast("Could not load older messages. Please try again.");
+      }
+      return;
+    }
+
+    const page = nextFeedPageFromUrl(state.forumFeedNext);
+    if (page == null) return;
 
     this.store.patch({
       venueFeedLoadingMore: true,
       venueFeedDraft: this.captureVenueFeedDraft(),
     });
     try {
-      const sectionId = sectionIdForLocation(
-        state.forumSections,
-        state.socialLocation,
-      );
+      if (state.socialLocation) {
+        const response = await listLocationMessages({
+          venue: venueId,
+          location_id: state.socialLocation,
+          page,
+          ordering: "-created_at",
+        });
+        const current = this.store.get();
+        const older = mapLocationMessagesToVenueFeed(response.results);
+        this.store.patch({
+          venueFeedPosts: appendOlderVenueFeedPosts(
+            current.venueFeedPosts,
+            older,
+          ),
+          forumFeedNext: response.next,
+          forumFeedCount: response.count,
+          venueFeedLoadingMore: false,
+        });
+        return;
+      }
+
       const response = await listVenuePosts({
         venue: venueId,
         latest: true,
         page,
-        ...(sectionId != null ? { section: sectionId } : {}),
       });
       const current = this.store.get();
       const older = mapForumPostsToVenueFeed(
@@ -4031,98 +4801,78 @@ export class MapApp {
       void this.hydrateVenueFeedCommentCounts(appendedIds);
     } catch (error) {
       this.store.patch({ venueFeedLoadingMore: false });
-      appWarn('Forum', 'Load more posts failed', error);
-      this.showToast('Could not load older posts. Please try again.');
+      appWarn("Forum", "Load more posts failed", error);
+      this.showToast(
+        this.store.get().socialLocation
+          ? "Could not load older messages. Please try again."
+          : "Could not load older posts. Please try again.",
+      );
     }
   }
 
   async submitVenueFeedPost(): Promise<void> {
     if (this.venueFeedCreateInFlight) return;
     if (!hasStoredAuthTokens()) {
-      this.showToast('Sign in to post.');
+      this.showToast("Sign in to post.");
       return;
     }
+    if (await this.blockPostingWhenAwayFromVenue()) return;
 
     const state = this.store.get();
-    const content = this.captureVenueFeedDraft().trim().slice(0, 140);
+    if (!state.socialLocation) {
+      this.showToast("Pick a section to start chatting.");
+      return;
+    }
+    const content = this.captureVenueFeedDraft()
+      .trim()
+      .slice(0, LOCATION_MESSAGE_CONTENT_MAX_LENGTH);
     if (!content) return;
 
     const venueId = Number(state.selectedVenueId);
     if (!Number.isFinite(venueId) || venueId <= 0) {
-      this.showToast('Select a venue before posting.');
+      this.showToast("Select a venue before posting.");
       return;
     }
 
-    // A map-area conversation posts only to that section. The venue-wide
-    // composer still uses the gate picked during onboarding.
-    const scopedSectionId = sectionIdForLocation(
-      state.forumSections,
-      state.socialLocation,
-    );
-    if (state.socialLocation && scopedSectionId == null) {
-      this.showToast('This area is not open for posts yet.');
-      return;
-    }
-    const section =
-      scopedSectionId != null
-        ? state.forumSections.find((item) => item.id === scopedSectionId) ??
-          null
-        : state.forumSections.find(
-            (item) => String(item.id) === state.selectedGateId,
-          ) ?? null;
-
-    const filterCategory =
-      state.venueFeedFilter !== 'all'
-        ? state.forumCategories.find(
-            (item) => String(item.id) === state.venueFeedFilter,
-          )
-        : undefined;
-    const category =
-      filterCategory ??
-      state.forumCategories.find((item) => item.slug === 'fan-vibe') ??
-      state.forumCategories[0];
-
-    if (!category) {
-      this.showToast('Categories are still loading. Try again in a moment.');
-      return;
-    }
-
+    const locationName = state.socialLocationName?.trim();
     this.venueFeedCreateInFlight = true;
-    this.store.patch({ venueFeedDraft: '' });
-
+    this.store.patch({ venueFeedDraft: "", venueFeedSubmitting: true });
     try {
-      const created = await createForumPost({
+      const created = await createLocationMessage({
         venue: venueId,
-        category: category.id,
+        location_id: state.socialLocation,
         content,
-        section: section?.id ?? null,
+        ...(locationName ? { location_name: locationName } : {}),
       });
-      this.mergeForumPostIntoFeed(created);
+      this.mergeLocationMessageIntoFeed(created);
     } catch (error) {
       this.store.patch({ venueFeedDraft: content });
       const message =
         error instanceof AuthApiError
           ? error.summary
-          : 'Could not post. Please try again.';
+          : "Could not send that message. Please try again.";
       this.showToast(message);
-      appWarn('Forum', 'Create post failed', error);
+      appWarn("Forum", "Create location message failed", error);
     } finally {
       this.venueFeedCreateInFlight = false;
+      this.store.patch({ venueFeedSubmitting: false });
     }
   }
 
   openPostComments(postId: string): void {
-    const post = this.store.get().venueFeedPosts.find((entry) => entry.id === postId);
-    if (!post) {
-      this.showToast('Post not found.');
+    const post = this.store
+      .get()
+      .venueFeedPosts.find((entry) => entry.id === postId);
+    if (!post || isConversationFeedItem(post)) {
+      this.showToast("Post not found.");
       return;
     }
     this.store.patch({
-      activeTab: 'social',
+      activeTab: "social",
       postCommentsOpen: true,
       postCommentsPostId: postId,
       postComments: [],
-      postCommentsDraft: '',
+      postCommentsDraft: "",
       postCommentsLoading: true,
       postCommentsSubmitting: false,
       postCommentsEditing: false,
@@ -4137,7 +4887,7 @@ export class MapApp {
       postCommentsOpen: false,
       postCommentsPostId: null,
       postComments: [],
-      postCommentsDraft: '',
+      postCommentsDraft: "",
       postCommentsLoading: false,
       postCommentsSubmitting: false,
       postCommentsEditing: false,
@@ -4162,13 +4912,16 @@ export class MapApp {
     if (!Number.isFinite(numericId)) {
       this.store.patch({
         postCommentsLoading: false,
-        postCommentsError: 'Invalid post.',
+        postCommentsError: "Invalid post.",
       });
       return;
     }
 
     try {
-      const page = await listForumComments({ post: numericId, ordering: 'created_at' });
+      const page = await listForumComments({
+        post: numericId,
+        ordering: "created_at",
+      });
       if (this.store.get().postCommentsPostId !== postId) return;
       const items = mapForumCommentsToItems(page.results);
       for (const item of items) {
@@ -4178,9 +4931,11 @@ export class MapApp {
         postComments: items,
         postCommentsLoading: false,
         postCommentsError: null,
-        venueFeedPosts: this.store.get().venueFeedPosts.map((post) =>
-          post.id === postId ? { ...post, comments: items.length } : post,
-        ),
+        venueFeedPosts: this.store
+          .get()
+          .venueFeedPosts.map((post) =>
+            post.id === postId ? { ...post, comments: items.length } : post,
+          ),
       });
     } catch (error) {
       if (this.store.get().postCommentsPostId !== postId) return;
@@ -4189,9 +4944,9 @@ export class MapApp {
         postCommentsError:
           error instanceof AuthApiError
             ? error.summary
-            : 'Could not load comments.',
+            : "Could not load comments.",
       });
-      appWarn('Forum', 'List comments failed', error);
+      appWarn("Forum", "List comments failed", error);
     }
   }
 
@@ -4202,9 +4957,10 @@ export class MapApp {
     if (!postId || !content || state.postCommentsSubmitting) return;
 
     if (!hasStoredAuthTokens()) {
-      this.showToast('Sign in to comment.');
+      this.showToast("Sign in to comment.");
       return;
     }
+    if (await this.blockPostingWhenAwayFromVenue()) return;
 
     const numericId = Number(postId);
     if (!Number.isFinite(numericId)) return;
@@ -4212,7 +4968,7 @@ export class MapApp {
     this.store.patch({
       postCommentsSubmitting: true,
       postCommentsError: null,
-      postCommentsDraft: '',
+      postCommentsDraft: "",
     });
 
     try {
@@ -4229,9 +4985,11 @@ export class MapApp {
       this.store.patch({
         postComments: comments,
         postCommentsSubmitting: false,
-        venueFeedPosts: this.store.get().venueFeedPosts.map((post) =>
-          post.id === postId ? { ...post, comments: comments.length } : post,
-        ),
+        venueFeedPosts: this.store
+          .get()
+          .venueFeedPosts.map((post) =>
+            post.id === postId ? { ...post, comments: comments.length } : post,
+          ),
       });
     } catch (error) {
       this.store.patch({
@@ -4240,9 +4998,9 @@ export class MapApp {
         postCommentsError:
           error instanceof AuthApiError
             ? error.summary
-            : 'Could not post comment.',
+            : "Could not post comment.",
       });
-      appWarn('Forum', 'Create comment failed', error);
+      appWarn("Forum", "Create comment failed", error);
     }
   }
 
@@ -4255,16 +5013,20 @@ export class MapApp {
     try {
       await deleteForumComment(id);
       const postId = this.store.get().postCommentsPostId;
-      const comments = this.store.get().postComments.filter(
-        (comment) => comment.id !== id,
-      );
+      const comments = this.store
+        .get()
+        .postComments.filter((comment) => comment.id !== id);
       this.store.patch({
         postComments: comments,
         postCommentsSubmitting: false,
         venueFeedPosts: postId
-          ? this.store.get().venueFeedPosts.map((post) =>
-              post.id === postId ? { ...post, comments: comments.length } : post,
-            )
+          ? this.store
+              .get()
+              .venueFeedPosts.map((post) =>
+                post.id === postId
+                  ? { ...post, comments: comments.length }
+                  : post,
+              )
           : this.store.get().venueFeedPosts,
       });
     } catch (error) {
@@ -4273,9 +5035,9 @@ export class MapApp {
         postCommentsError:
           error instanceof AuthApiError
             ? error.summary
-            : 'Could not delete comment.',
+            : "Could not delete comment.",
       });
-      appWarn('Forum', 'Delete comment failed', error);
+      appWarn("Forum", "Delete comment failed", error);
     }
   }
 
@@ -4284,12 +5046,12 @@ export class MapApp {
     const trimmed = content.trim();
     if (!postId || !trimmed) {
       this.store.patch({
-        postCommentsError: 'Post content cannot be empty.',
+        postCommentsError: "Post content cannot be empty.",
       });
       return;
     }
     if (!hasStoredAuthTokens()) {
-      this.showToast('Sign in to edit posts.');
+      this.showToast("Sign in to edit posts.");
       return;
     }
 
@@ -4304,16 +5066,16 @@ export class MapApp {
         postCommentsSubmitting: false,
         postCommentsEditing: false,
       });
-      this.showToast('Post updated.');
+      this.showToast("Post updated.");
     } catch (error) {
       this.store.patch({
         postCommentsSubmitting: false,
         postCommentsError:
           error instanceof AuthApiError
             ? error.summary
-            : 'Could not update post.',
+            : "Could not update post.",
       });
-      appWarn('Forum', 'Update post failed', error);
+      appWarn("Forum", "Update post failed", error);
     }
   }
 
@@ -4328,16 +5090,16 @@ export class MapApp {
       await deleteForumPost(numericId);
       this.removeVenueFeedPost(postId);
       this.closePostComments();
-      this.showToast('Post deleted.');
+      this.showToast("Post deleted.");
     } catch (error) {
       this.store.patch({
         postCommentsSubmitting: false,
         postCommentsError:
           error instanceof AuthApiError
             ? error.summary
-            : 'Could not delete post.',
+            : "Could not delete post.",
       });
-      appWarn('Forum', 'Delete post failed', error);
+      appWarn("Forum", "Delete post failed", error);
     }
   }
 
@@ -4347,40 +5109,96 @@ export class MapApp {
     upvotesOverride?: number,
   ): void {
     const state = this.store.get();
+    const nextCount = (current: number) =>
+      typeof upvotesOverride === "number"
+        ? upvotesOverride
+        : upvoted
+          ? current + 1
+          : Math.max(0, current - 1);
+
+    const currentCount =
+      state.venueFeedPosts.find((entry) => entry.id === postId)?.upvotes ??
+      this.venueWideFeedSnapshot?.posts.find((entry) => entry.id === postId)
+        ?.upvotes ??
+      state.authUser?.recent_posts?.find((entry) => String(entry.id) === postId)
+        ?.upvotes_count ??
+      0;
+
     const posts = state.venueFeedPosts.map((entry) => {
       if (entry.id !== postId) return entry;
-      const nextUpvotes =
-        typeof upvotesOverride === 'number'
-          ? upvotesOverride
-          : upvoted
-            ? entry.upvotes + 1
-            : Math.max(0, entry.upvotes - 1);
-      return { ...entry, upvotes: nextUpvotes, hasUpvoted: upvoted };
+      return {
+        ...entry,
+        upvotes: nextCount(entry.upvotes),
+        hasUpvoted: upvoted,
+      };
     });
+    this.patchParkedFeedPosts(postId, (post) => ({
+      ...post,
+      upvotes: nextCount(post.upvotes),
+      hasUpvoted: upvoted,
+    }));
+
     this.store.patch({
       venueFeedPosts: posts,
       upvotedPostIds: upvoted
         ? [...new Set([...state.upvotedPostIds, postId])]
         : state.upvotedPostIds.filter((id) => id !== postId),
+      authUser: this.withUpvotedRecentPosts(
+        state.authUser,
+        postId,
+        nextCount(currentCount),
+      ),
       venueFeedDraft: this.captureVenueFeedDraft(),
     });
   }
 
+  private withUpvotedRecentPosts(
+    user: AuthUser | null,
+    postId: string,
+    upvotesCount: number,
+  ): AuthUser | null {
+    if (!user) return user;
+    const recent_posts = withRecentPostUpvotes(
+      user.recent_posts,
+      Number(postId),
+      upvotesCount,
+    );
+    if (recent_posts === user.recent_posts) return user;
+    return { ...user, recent_posts };
+  }
+
   /** Merge a REST `Post` into the feed (create / upvote / flag). WS events also dedupe by id. */
   private mergeForumPostIntoFeed(post: ForumPost): void {
-    if (post.status === 'hidden') {
+    if (post.status === "hidden") {
       this.removeVenueFeedPost(String(post.id));
       return;
     }
 
     const state = this.store.get();
+    const postId = String(post.id);
+    const authUser = this.withUpvotedRecentPosts(
+      state.authUser,
+      postId,
+      post.upvotes_count,
+    );
     const venueId = Number(state.selectedVenueId);
-    if (Number.isFinite(venueId) && venueId > 0 && post.venue !== venueId) {
+    const otherVenue =
+      Number.isFinite(venueId) &&
+      venueId > 0 &&
+      post.venue > 0 &&
+      post.venue !== venueId;
+    if (otherVenue) {
+      if (authUser !== state.authUser) {
+        this.store.patch({ authUser });
+      }
       return;
     }
 
-    const postId = String(post.id);
-    const existing = state.venueFeedPosts.find((entry) => entry.id === postId);
+    const showingConversations =
+      Boolean(state.socialLocation) || state.activeTab === "social";
+    const existing = showingConversations
+      ? this.homeFeedSnapshot?.posts.find((entry) => entry.id === postId)
+      : state.venueFeedPosts.find((entry) => entry.id === postId);
     const sectionById = new Map(
       state.forumSections.map((section) => [section.id, section]),
     );
@@ -4393,24 +5211,36 @@ export class MapApp {
       categoryById,
       existing,
     );
-    const isPartial = !post.content || post.user.id <= 0;
+    const isPartial = isPartialForumPostPayload(post);
 
-    const merged = existing && isPartial
-      ? {
-          ...existing,
-          upvotes: mapped.upvotes,
-          hasUpvoted: mapped.hasUpvoted,
-        }
-      : mapped;
+    if (isPartial && !existing) {
+      this.mergePostIntoHomeFeedSnapshot(post, mapped);
+      this.store.patch({
+        authUser,
+        upvotedPostIds: post.has_upvoted
+          ? [...new Set([...state.upvotedPostIds, postId])]
+          : state.upvotedPostIds.filter((id) => id !== postId),
+      });
+      return;
+    }
 
-    this.mergePostIntoVenueWideSnapshot(post, merged);
+    const merged =
+      existing && isPartial
+        ? {
+            ...existing,
+            upvotes: mapped.upvotes,
+            hasUpvoted: mapped.hasUpvoted,
+          }
+        : mapped;
 
-    const belongsInConversation = forumPostMatchesLocation(
-      post.section,
-      state.socialLocation,
-      state.forumSections,
-    );
-    if (!belongsInConversation && !existing) {
+    this.mergePostIntoHomeFeedSnapshot(post, merged);
+
+    const upvotedPostIds = merged.hasUpvoted
+      ? [...new Set([...state.upvotedPostIds, postId])]
+      : state.upvotedPostIds.filter((id) => id !== postId);
+
+    if (state.socialLocation || state.activeTab === "social") {
+      this.store.patch({ authUser, upvotedPostIds });
       return;
     }
 
@@ -4419,26 +5249,95 @@ export class MapApp {
           entry.id === postId ? merged : entry,
         )
       : [merged, ...state.venueFeedPosts];
-    const upvotedPostIds = merged.hasUpvoted
-      ? [...new Set([...state.upvotedPostIds, postId])]
-      : state.upvotedPostIds.filter((id) => id !== postId);
 
     this.store.patch({
       venueFeedPosts,
-      forumFeedCount: existing ? state.forumFeedCount : state.forumFeedCount + 1,
+      forumFeedCount: existing
+        ? state.forumFeedCount
+        : state.forumFeedCount + 1,
       upvotedPostIds,
+      authUser,
     });
   }
 
-  private mergePostIntoVenueWideSnapshot(
+  private mergeLocationMessageIntoFeed(message: LocationMessage): void {
+    const state = this.store.get();
+    const onAllConversations =
+      state.activeTab === "social" && !state.socialLocation;
+    if (state.socialLocation) {
+      if (message.location_id !== state.socialLocation) return;
+    } else if (onAllConversations) {
+      const allowed = new Set(
+        conversationLocationIdsForSections(state.forumSections),
+      );
+      if (!allowed.has(message.location_id)) return;
+    } else {
+      return;
+    }
+
+    const venueId = Number(state.selectedVenueId);
+    if (Number.isFinite(venueId) && venueId > 0 && message.venue !== venueId) {
+      return;
+    }
+
+    const messageId = String(message.id);
+    const existing = state.venueFeedPosts.find(
+      (entry) => entry.id === messageId,
+    );
+    const mapped = mapLocationMessageToVenueFeed(message);
+    const venueFeedPosts = existing
+      ? state.venueFeedPosts.map((entry) =>
+          entry.id === messageId ? mapped : entry,
+        )
+      : [mapped, ...state.venueFeedPosts];
+
+    this.store.patch({
+      venueFeedPosts,
+      forumFeedCount: existing
+        ? state.forumFeedCount
+        : state.forumFeedCount + 1,
+    });
+  }
+
+  private patchParkedFeedPosts(
+    postId: string,
+    patch: (post: VenueFeedPost) => VenueFeedPost,
+  ): void {
+    for (const snapshot of [
+      this.homeFeedSnapshot,
+      this.venueWideFeedSnapshot,
+    ]) {
+      if (!snapshot) continue;
+      snapshot.posts = snapshot.posts.map((post) =>
+        post.id === postId ? patch(post) : post,
+      );
+    }
+  }
+
+  private removeFromVenueWideSnapshot(postId: string): void {
+    for (const snapshot of [
+      this.homeFeedSnapshot,
+      this.venueWideFeedSnapshot,
+    ]) {
+      if (!snapshot) continue;
+      const before = snapshot.posts.length;
+      snapshot.posts = snapshot.posts.filter((post) => post.id !== postId);
+      if (snapshot.posts.length < before) {
+        snapshot.count = Math.max(0, snapshot.count - 1);
+      }
+    }
+  }
+
+  private mergePostIntoHomeFeedSnapshot(
     post: ForumPost,
     mapped: VenueFeedPost,
   ): void {
-    const snapshot = this.venueWideFeedSnapshot;
+    const snapshot = this.homeFeedSnapshot;
     if (!snapshot) return;
 
     const existing = snapshot.posts.find((entry) => entry.id === mapped.id);
-    const isPartial = !post.content || post.user.id <= 0;
+    const isPartial = isPartialForumPostPayload(post);
+    if (isPartial && !existing) return;
     const merged =
       existing && isPartial
         ? {
@@ -4448,9 +5347,7 @@ export class MapApp {
           }
         : mapped;
     snapshot.posts = existing
-      ? snapshot.posts.map((entry) =>
-          entry.id === mapped.id ? merged : entry,
-        )
+      ? snapshot.posts.map((entry) => (entry.id === mapped.id ? merged : entry))
       : [merged, ...snapshot.posts];
     if (!existing) {
       snapshot.count += 1;
@@ -4467,9 +5364,12 @@ export class MapApp {
   ): Promise<void> {
     if (this.venueFeedCommentCountsInFlight) return;
     if (!hasStoredAuthTokens()) return;
+    if (this.store.get().socialLocation) return;
+    if (this.store.get().activeTab === "social") return;
     const feedIds = this.store
       .get()
-      .venueFeedPosts.map((post) => Number(post.id))
+      .venueFeedPosts.filter((post) => !isConversationFeedItem(post))
+      .map((post) => Number(post.id))
       .filter((id) => Number.isFinite(id) && id > 0);
     const postIds = onlyPostIds
       ? feedIds.filter((id) => onlyPostIds.includes(id))
@@ -4489,7 +5389,7 @@ export class MapApp {
         ),
       });
     } catch (error) {
-      appWarn('Forum', 'Comment count refresh failed', error);
+      appWarn("Forum", "Comment count refresh failed", error);
     } finally {
       this.venueFeedCommentCountsInFlight = false;
     }
@@ -4540,7 +5440,7 @@ export class MapApp {
 
   private captureVenueFeedDraft(): string {
     return (
-      document.querySelector<HTMLInputElement>('#venue-feed-input')?.value ??
+      document.querySelector<HTMLInputElement>("#venue-feed-input")?.value ??
       this.store.get().venueFeedDraft
     );
   }
@@ -4553,14 +5453,15 @@ export class MapApp {
     this.store.patch({
       socialTag: nextTag,
       socialDraft: nextTag
-        ? this.socialTagDraft(SOCIAL_QUICK_TAG_LABELS[nextTag] ?? '', draft)
+        ? this.socialTagDraft(SOCIAL_QUICK_TAG_LABELS[nextTag] ?? "", draft)
         : draft,
     });
   }
 
   toggleSocialUpvote(postId: string): void {
     const state = this.store.get();
-    const posts = state.socialPosts.length ? [...state.socialPosts] : [...INITIAL_SOCIAL_POSTS];
+    if (!state.socialPosts.length) return;
+    const posts = [...state.socialPosts];
     const post = posts.find((entry) => entry.id === postId);
     if (!post) return;
 
@@ -4588,18 +5489,20 @@ export class MapApp {
     const content = this.captureSocialDraft().trim();
     if (!content) return;
 
-    const posts = state.socialPosts.length ? [...state.socialPosts] : [...INITIAL_SOCIAL_POSTS];
-    const category = state.socialCategory === 'all' ? 'vibe' : state.socialCategory;
-    const locationEntry = SOCIAL_LOCATIONS_BY_ID[state.socialLocation ?? 'section-114'];
+    const posts = [...state.socialPosts];
+    const category =
+      state.socialCategory === "all" ? "vibe" : state.socialCategory;
+    const locationEntry =
+      SOCIAL_LOCATIONS_BY_ID[state.socialLocation ?? "section-114"];
 
     posts.unshift({
       id: `post-${Date.now()}`,
-      author: 'You',
-      initials: 'YO',
-      avatarColor: '#12121a',
-      location: locationEntry?.label ?? 'LA Stadium',
-      locationId: state.socialLocation ?? 'section-114',
-      timeAgo: 'just now',
+      author: "You",
+      initials: "YO",
+      avatarColor: "#12121a",
+      location: locationEntry?.label ?? "LA Stadium",
+      locationId: state.socialLocation ?? "section-114",
+      timeAgo: "just now",
       category,
       categoryLabel: SOCIAL_CATEGORY_LABELS[category],
       content,
@@ -4609,14 +5512,14 @@ export class MapApp {
 
     this.store.patch({
       socialPosts: posts,
-      socialDraft: '',
+      socialDraft: "",
       socialTag: null,
     });
   }
 
   private captureSocialDraft(): string {
     return (
-      document.querySelector<HTMLInputElement>('#social-input')?.value ??
+      document.querySelector<HTMLInputElement>("#social-input")?.value ??
       this.store.get().socialDraft
     );
   }
@@ -4655,7 +5558,7 @@ export class MapApp {
         this.pendingMapSearchFocus = true;
         this.store.patch({
           searchResults: [],
-          searchQuery: '',
+          searchQuery: "",
           markers: this.routePlanner.markersState,
           showRouteSheet: false,
           route: null,
@@ -4667,8 +5570,8 @@ export class MapApp {
         });
         this.showToast(
           continueArSetup
-            ? 'Start set. Now search for your destination.'
-            : 'Start set. Search for your destination.',
+            ? "Start set. Now search for your destination."
+            : "Start set. Search for your destination.",
         );
         return;
       }
@@ -4680,7 +5583,7 @@ export class MapApp {
       this.routePlanner.clearHighlights();
       this.store.patch({
         searchResults: [],
-        searchQuery: '',
+        searchQuery: "",
         markers: this.routePlanner.markersState,
         showRouteSheet: true,
         route: null,
@@ -4693,8 +5596,8 @@ export class MapApp {
         toUserFacingRouteError(
           error,
           missingStart
-            ? 'Could not set start point.'
-            : 'Could not set destination.',
+            ? "Could not set start point."
+            : "Could not set destination.",
         ),
       );
     }
@@ -4715,7 +5618,7 @@ export class MapApp {
         instructions: state.routeInstructions,
         floors: state.floors,
         navigationProgress: this.getNavigationProgressSnapshot(),
-        reason: 'floor_change',
+        reason: "floor_change",
       });
     }
   }
@@ -4783,7 +5686,7 @@ export class MapApp {
         maxZoomLevel: 20,
         duration: 0,
       }) as { finally?: (fn: () => void) => unknown } | undefined;
-      if (result && typeof result.finally === 'function') {
+      if (result && typeof result.finally === "function") {
         void result.finally(done);
       } else {
         window.setTimeout(done, 400);
@@ -4799,7 +5702,16 @@ export class MapApp {
 
   async goToMyLocation(): Promise<void> {
     if (!this.mapView || !this.blueDotService) {
-      this.showToast('Map is still loading. Try again in a moment.');
+      this.showToast("Map is still loading. Try again in a moment.");
+      return;
+    }
+
+    if (this.isAwayFromSelectedVenue()) {
+      const state = this.store.get();
+      const venue = state.forumVenues.find(
+        (item) => String(item.id) === state.selectedVenueId,
+      );
+      this.showToast(myLocationNotAtVenueCopy(venue?.name).body);
       return;
     }
 
@@ -4807,8 +5719,20 @@ export class MapApp {
       const coords = await this.locationService.requestLocation({
         timeoutMs: 15_000,
       });
-      this.persistLocationChoice('granted');
+      this.persistLocationChoice("granted");
       this.publishUserLocation(coords);
+
+      if (this.isAwayFromSelectedVenue()) {
+        const state = this.store.get();
+        const venue = state.forumVenues.find(
+          (item) => String(item.id) === state.selectedVenueId,
+        );
+        this.blueDotService.stopFollow();
+        this.store.patch({ blueDotFollowing: false });
+        this.showToast(myLocationNotAtVenueCopy(venue?.name).body);
+        return;
+      }
+
       const floorId =
         this.mapView.currentFloor?.id ??
         this.store.get().currentFloorId ??
@@ -4837,34 +5761,42 @@ export class MapApp {
 
       this.store.patch({
         blueDotFollowing: true,
-        blueDotStatus: 'active',
+        blueDotStatus: "active",
       });
 
-      const origin =
-        this.blueDotService.coordinate ??
-        this.mapView.createCoordinate?.(
-          coords.latitude,
-          coords.longitude,
-          this.mapView.currentFloor ?? undefined,
-        );
-      if (origin && this.routePlanner) {
-        try {
-          this.routePlanner.setOrigin(origin, 'my location');
-          this.store.patch({ markers: this.routePlanner.markersState });
-          this.scheduleAutoRoute();
-        } catch {
-          // GPS can fall outside indoor geometry; the marker still shows you.
+      // Indoor GPS is often tens of metres off the Mappedin path. Only adopt it
+      // as the route start when the fix is tight enough to trust.
+      const accuracyOk =
+        coords.accuracy != null &&
+        Number.isFinite(coords.accuracy) &&
+        coords.accuracy <= 40;
+      if (accuracyOk && this.routePlanner && !this.routePlanner.hasOrigin) {
+        const origin =
+          this.blueDotService.coordinate ??
+          this.mapView.createCoordinate?.(
+            coords.latitude,
+            coords.longitude,
+            this.mapView.currentFloor ?? undefined,
+          );
+        if (origin) {
+          try {
+            this.routePlanner.setOrigin(origin, "my location");
+            this.store.patch({ markers: this.routePlanner.markersState });
+            this.scheduleAutoRoute();
+          } catch {
+            // GPS can fall outside indoor geometry; the marker still shows you.
+          }
         }
       }
 
       this.showToast(
         coords.accuracy != null
           ? `You are here (±${Math.round(coords.accuracy)} m).`
-          : 'You are here.',
+          : "You are here.",
       );
     } catch (error) {
       if (this.locationService.isPermissionDeniedError(error)) {
-        this.persistLocationChoice('denied');
+        this.persistLocationChoice("denied");
       }
       const message =
         error instanceof GeolocationPositionError ||
@@ -4872,7 +5804,7 @@ export class MapApp {
           ? this.locationService.geolocationErrorMessage(
               error as GeolocationPositionError | Error,
             )
-          : toUserFacingRouteError(error, 'Could not get your location.');
+          : toUserFacingRouteError(error, "Could not get your location.");
       this.showToast(message);
     }
   }
@@ -4909,7 +5841,7 @@ export class MapApp {
       route: null,
       showRouteSheet: false,
       currentLegIndex: 0,
-      routeInstructions: '',
+      routeInstructions: "",
       routeTraveledMeters: 0,
       routeRemainingMeters: null,
       routeSimulating: false,
@@ -4932,14 +5864,17 @@ export class MapApp {
   routeNextLeg(): void {
     const state = this.store.get();
     if (!state.route) return;
-    const next = Math.min(state.route.legs.length - 1, state.currentLegIndex + 1);
+    const next = Math.min(
+      state.route.legs.length - 1,
+      state.currentLegIndex + 1,
+    );
     this.applyLegIndex(next);
   }
 
   async openAr(): Promise<void> {
     const state = this.store.get();
     if (!state.route) {
-      this.showToast('Generate a route before opening AR.');
+      this.showToast("Generate a route before opening AR.");
       return;
     }
 
@@ -4959,19 +5894,19 @@ export class MapApp {
         });
 
         if (!eligibility.allowed) {
-          this.store.patch({ guestArGatePrompt: 'already-used' });
+          this.store.patch({ guestArGatePrompt: "already-used" });
           return;
         }
 
         // First-time guests must acknowledge the one-time trial before AR opens.
-        if (this.store.get().guestArGatePrompt !== 'one-time-info') {
-          this.store.patch({ guestArGatePrompt: 'one-time-info' });
+        if (this.store.get().guestArGatePrompt !== "one-time-info") {
+          this.store.patch({ guestArGatePrompt: "one-time-info" });
           return;
         }
       } catch (error) {
         this.store.patch({ guestArGateLoading: false });
-        appWarn('Guest', 'Could not resolve AR eligibility', error);
-        this.showToast('Could not verify your AR trial. Please try again.');
+        appWarn("Guest", "Could not resolve AR eligibility", error);
+        this.showToast("Could not verify your AR trial. Please try again.");
         return;
       }
     }
@@ -5000,7 +5935,7 @@ export class MapApp {
 
     if (!this.store.get().route) {
       this.store.patch({ guestArGatePrompt: null });
-      this.showToast('Generate a route before opening AR.');
+      this.showToast("Generate a route before opening AR.");
       return;
     }
 
@@ -5018,8 +5953,8 @@ export class MapApp {
       await this.enterArFullscreen();
     } catch (error) {
       this.store.patch({ guestArGateLoading: false });
-      appWarn('Guest', 'Could not mark AR trial as used', error);
-      this.showToast('Could not start your AR trial. Please try again.');
+      appWarn("Guest", "Could not mark AR trial as used", error);
+      this.showToast("Could not start your AR trial. Please try again.");
     }
   }
 
@@ -5035,21 +5970,21 @@ export class MapApp {
         guestHasTried2dView: preferences.hasTried2dView,
       });
     } catch (error) {
-      appWarn('Guest', 'Could not mark 2D map trial as used', error);
+      appWarn("Guest", "Could not mark 2D map trial as used", error);
     }
   }
 
   private async enterArFullscreen(): Promise<void> {
     const state = this.store.get();
     if (!state.route) {
-      this.showToast('Generate a route before opening AR.');
+      this.showToast("Generate a route before opening AR.");
       return;
     }
 
     const cameraReadyHint = shouldReuseGrantedArCamera(
-      permissionChoiceLocalDatasource.loadCamera() === 'granted'
-        ? 'granted'
-        : 'prompt',
+      permissionChoiceLocalDatasource.loadCamera() === "granted"
+        ? "granted"
+        : "prompt",
       isArSameOrigin(),
     );
 
@@ -5059,11 +5994,14 @@ export class MapApp {
         ? ({
             latitude: progress.latitude,
             longitude: progress.longitude,
-            floorId: progress.floorId ?? state.route.pathCoordinates[0]?.floorId ?? 'unknown',
+            floorId:
+              progress.floorId ??
+              state.route.pathCoordinates[0]?.floorId ??
+              "unknown",
             ...(progress.heading != null ? { heading: progress.heading } : {}),
           } as RouteCoordinate & { heading?: number })
-        : this.blueDotService?.getLastPosition()?.coordinate ??
-          serializeCoordinate(state.route.pathCoordinates[0] ?? null);
+        : (this.blueDotService?.getLastPosition()?.coordinate ??
+          serializeCoordinate(state.route.pathCoordinates[0] ?? null));
 
     const routePayload = buildArRoutePayloadForHandoff(
       state.route,
@@ -5084,12 +6022,12 @@ export class MapApp {
     );
     openArFullscreen(url, routePayload, { cameraReady: cameraReadyHint });
     this.store.patch({
-      arPresentation: 'fullscreen',
+      arPresentation: "fullscreen",
       guestArGatePrompt: null,
       guestArGateLoading: false,
     });
     this.resumeRouteNavigation(progress);
-    appLog('AR', 'Opened', { url, alongPathMeters: progress.alongPathMeters });
+    appLog("AR", "Opened", { url, alongPathMeters: progress.alongPathMeters });
 
     void consumeArMediaPermissionPrime().then((permissions) => {
       const cameraReady = shouldReuseGrantedArCamera(
@@ -5098,10 +6036,10 @@ export class MapApp {
       );
       notifyArIframePermissions(
         cameraReady
-          ? 'granted'
+          ? "granted"
           : isArSameOrigin()
             ? permissions.camera
-            : 'prompt',
+            : "prompt",
       );
     });
     void this.warmArSensors();
@@ -5110,7 +6048,7 @@ export class MapApp {
   private async warmArSensors(): Promise<void> {
     const pendingSource = PositionProviderRegistry.resolveActiveSource();
     if (
-      (pendingSource === 'gps' || pendingSource === 'apple_indoor') &&
+      (pendingSource === "gps" || pendingSource === "apple_indoor") &&
       shouldRequestArMotionPermission()
     ) {
       void requestDeviceOrientationPermission();
@@ -5128,21 +6066,21 @@ export class MapApp {
   minimizeAr(): void {
     if (!isArSessionActive(this.store.get().arPresentation)) return;
     setArMinimized();
-    this.store.patch({ arPresentation: 'minimized' });
-    appLog('AR', 'Minimized to picture-in-picture');
+    this.store.patch({ arPresentation: "minimized" });
+    appLog("AR", "Minimized to picture-in-picture");
   }
 
   maximizeAr(): void {
     if (!isArSessionActive(this.store.get().arPresentation)) return;
     setArMaximized();
-    this.store.patch({ arPresentation: 'fullscreen' });
+    this.store.patch({ arPresentation: "fullscreen" });
     syncNavigationToAr(this.getNavigationProgressSnapshot());
-    appLog('AR', 'Maximized to fullscreen');
+    appLog("AR", "Maximized to fullscreen");
   }
 
   closeAr(): void {
     closeArFullscreen();
-    this.store.patch({ arPresentation: 'closed' });
+    this.store.patch({ arPresentation: "closed" });
     this.maybeRevealArrivalDialog(this.store.get().routeSimulationComplete);
   }
 
@@ -5161,12 +6099,12 @@ export class MapApp {
   }
 
   focusRouteStart(): void {
-    this.routePlanner?.focusRoutePoint('start');
+    this.routePlanner?.focusRoutePoint("start");
     this.startRouteMovement({ alongPathMeters: 0, resetProgress: true });
   }
 
   focusRouteEnd(): void {
-    this.routePlanner?.focusRoutePoint('end');
+    this.routePlanner?.focusRoutePoint("end");
   }
 
   isArOpen(): boolean {
@@ -5184,12 +6122,13 @@ export class MapApp {
    * wiping navigation progress.
    */
   private applyNavigationPositionMode(options: {
-    path: RoutePayload['pathCoordinates'];
+    path: RoutePayload["pathCoordinates"];
     resumeNavigating?: boolean;
     alongPathMeters?: number;
   }): void {
     const resumeNavigating = options.resumeNavigating === true;
-    const alongPathMeters = options.alongPathMeters ?? this.store.get().routeTraveledMeters;
+    const alongPathMeters =
+      options.alongPathMeters ?? this.store.get().routeTraveledMeters;
     const remainingHint =
       this.store.get().routeRemainingMeters ??
       this.store.get().route?.distanceMeters ??
@@ -5205,7 +6144,7 @@ export class MapApp {
       this.startPositionProvider(options.path);
     }
 
-    if (this.store.get().locationPermission !== 'granted') {
+    if (this.store.get().locationPermission !== "granted") {
       this.liveRouteTracking = false;
       this.store.patch({
         routeSimulating: false,
@@ -5213,7 +6152,7 @@ export class MapApp {
         routeTraveledMeters: alongPathMeters,
         routeRemainingMeters: remainingHint,
       });
-      this.showToast('Turn on location to track as you walk.');
+      this.showToast("Turn on location to track as you walk.");
       return;
     }
 
@@ -5244,7 +6183,9 @@ export class MapApp {
     }
   }
 
-  private projectFrameOntoRoute(frame: FplacesPositionFrame): FplacesPositionFrame {
+  private projectFrameOntoRoute(
+    frame: FplacesPositionFrame,
+  ): FplacesPositionFrame {
     const path = this.store.get().route?.pathCoordinates;
     if (!path?.length) return frame;
 
@@ -5304,12 +6245,9 @@ export class MapApp {
     let routeRemainingMeters = state.routeRemainingMeters;
     const routeSimulating = state.routeSimulating;
     const routeSimulationComplete = state.routeSimulationComplete;
-    let source: NavigationProgressSnapshot['source'];
+    let source: NavigationProgressSnapshot["source"];
 
-    if (
-      routeRemainingMeters == null &&
-      state.route?.distanceMeters != null
-    ) {
+    if (routeRemainingMeters == null && state.route?.distanceMeters != null) {
       routeRemainingMeters = Math.max(
         0,
         state.route.distanceMeters - routeTraveledMeters,
@@ -5318,7 +6256,7 @@ export class MapApp {
 
     if (state.routeSimulating || this.liveRouteTracking) {
       // Snapped map progress is venue authority for AR, not raw outdoor GPS.
-      source = 'pwa';
+      source = "pwa";
     }
 
     const lastPos = this.blueDotService?.getLastPosition();
@@ -5371,21 +6309,23 @@ export class MapApp {
   }): void {
     const state = this.store.get();
     if (!state.route?.pathCoordinates?.length) {
-      this.showToast('Generate a route before starting navigation.');
-      console.warn('[PWA Bridge] startRouteMovement skipped - no route path');
+      this.showToast("Generate a route before starting navigation.");
+      console.warn("[PWA Bridge] startRouteMovement skipped - no route path");
       return;
     }
 
     if (state.isCalculatingRoute) {
-      this.showToast('Route is still calculating…');
+      this.showToast("Route is still calculating…");
       return;
     }
 
     const targetAlong =
-      typeof options?.alongPathMeters === 'number' ? options.alongPathMeters : 0;
+      typeof options?.alongPathMeters === "number"
+        ? options.alongPathMeters
+        : 0;
 
-    if (this.store.get().locationPermission !== 'granted') {
-      this.showToast('Turn on location to track as you walk.');
+    if (this.store.get().locationPermission !== "granted") {
+      this.showToast("Turn on location to track as you walk.");
       return;
     }
     this.alongPathStabilizer.reset(targetAlong);
@@ -5395,7 +6335,7 @@ export class MapApp {
       alongPathMeters: targetAlong,
     });
     this.lastProgressUiAt = 0;
-    appLog('Position', 'Live IPS route tracking armed', {
+    appLog("Position", "Live IPS route tracking armed", {
       alongPathMeters: targetAlong,
       pathPoints: state.route.pathCoordinates.length,
       source: this.resolveNavigationSource(),
@@ -5429,11 +6369,21 @@ export class MapApp {
   private syncRouteProgress(force = false): void {
     const state = this.store.get();
     if (!state.route) return;
-    if (!force && !state.routeSimulating && !this.liveRouteTracking && !state.routeSimulationComplete) {
+    if (
+      !force &&
+      !state.routeSimulating &&
+      !this.liveRouteTracking &&
+      !state.routeSimulationComplete
+    ) {
       return;
     }
     const now = performance.now();
-    if (!force && !state.routeSimulationComplete && now - this.lastProgressUiAt < 200) return;
+    if (
+      !force &&
+      !state.routeSimulationComplete &&
+      now - this.lastProgressUiAt < 200
+    )
+      return;
     this.lastProgressUiAt = now;
     // Live progress is patched in handleProviderFrame from snapped meters.
   }
@@ -5449,11 +6399,14 @@ export class MapApp {
     const state = this.store.get();
     if (!state.route) return null;
     const force = options?.force === true;
-    if (!this.liveRouteTracking && !state.routeSimulating && !force) return null;
+    if (!this.liveRouteTracking && !state.routeSimulating && !force)
+      return null;
 
     const total =
       state.route.distanceMeters ??
-      coordinateTransformationService.totalPathLengthMeters(state.route.pathCoordinates);
+      coordinateTransformationService.totalPathLengthMeters(
+        state.route.pathCoordinates,
+      );
     const stabilizedAlong = this.alongPathStabilizer.update({
       nextAlongMeters: alongPathMeters,
       offRouteMeters: options?.offRouteMeters,
@@ -5487,7 +6440,7 @@ export class MapApp {
     if (!atEnd) return;
     const state = this.store.get();
     if (state.arrivalDialogHandled || state.arrivalDialogOpen) return;
-    if (state.arPresentation === 'fullscreen') return;
+    if (state.arPresentation === "fullscreen") return;
     this.store.patch({ arrivalDialogOpen: true });
   }
 
@@ -5496,41 +6449,58 @@ export class MapApp {
       this.mapView as { BlueDot?: { disable?: () => void } } | null
     )?.BlueDot;
     nativeBlueDot?.disable?.();
-    appLog('Map', 'Native BlueDot suppressed at boot');
+    appLog("Map", "Native BlueDot suppressed at boot");
   }
 
   private wireMapEvents(): void {
     if (!this.mapView) return;
 
-    this.mapView.on('click', async (event) => {
+    this.mapView.on("click", async (event) => {
+      if (this.mapGestureGuard?.shouldIgnoreMapClick()) return;
+
+      const pointer = this.mapGestureGuard?.getLastPointerClient();
+      if (
+        pointer &&
+        this.socialMapMarkers?.trySelectAtClientPoint(pointer.x, pointer.y)
+      ) {
+        return;
+      }
+
       if (!this.routePlanner || this.routePlanner.isRoutePlanningPaused) return;
+      const tapCoordinate =
+        this.resolveTapCoordinateFromPointer(pointer) ?? event?.coordinate;
+      if (!tapCoordinate) return;
       try {
-        await this.routePlanner.handleMapClick(event.coordinate);
+        await this.routePlanner.handleMapClick(tapCoordinate);
         this.store.patch({ markers: this.routePlanner.markersState });
         this.scheduleAutoRoute();
       } catch (error) {
         this.showToast(
-          toUserFacingRouteError(error, 'Could not set route point.'),
+          toUserFacingRouteError(error, "Could not set route point."),
         );
       }
     });
 
-    this.mapView.on('floor-change', (event) => {
+    this.mapView.on("user-interaction-start", () => {
+      this.releaseCameraFollowFromUserPan();
+    });
+
+    this.mapView.on("floor-change", (event) => {
       const floorId =
         (event as { floor?: { id?: string } }).floor?.id ??
         this.mapView?.currentFloor?.id;
       if (floorId) this.store.patch({ currentFloorId: floorId });
     });
 
-    this.mapView.on('camera-change', () => {
+    this.mapView.on("camera-change", () => {
       if (this.restoringVenueView) return;
       if (isWorldScaleZoom(this.mapView?.Camera?.zoomLevel)) {
         this.restoreVenueMapView();
       }
     });
 
-    this.mapData?.on('language-change', ({ code, name }) => {
-      appLog('Map', `Language changed to ${name} (${code})`);
+    this.mapData?.on("language-change", ({ code, name }) => {
+      appLog("Map", `Language changed to ${name} (${code})`);
       savePreferredMapLanguage(code);
       this.handleMapLanguageChanged(code, name);
     });
@@ -5562,7 +6532,7 @@ export class MapApp {
   private publishFloors(): void {
     if (!this.mapData) return;
     const floors: FloorInfo[] = this.mapData
-      .getByType('floor')
+      .getByType("floor")
       .map((floor, index) => ({
         id: floor.id,
         name: floor.name ?? `Floor ${index + 1}`,
@@ -5602,7 +6572,7 @@ export class MapApp {
     } catch (error) {
       const message = toUserFacingRouteError(
         error,
-        'Could not build a route. Try different points.',
+        "Could not build a route. Try different points.",
       );
       this.showToast(message);
       // Keep the sheet open with Reset available so the user can start over.
@@ -5614,7 +6584,7 @@ export class MapApp {
         routeNotFound: true,
         showRouteSheet: true,
         markers: this.routePlanner.markersState,
-        routeInstructions: '',
+        routeInstructions: "",
         routeTraveledMeters: 0,
         routeRemainingMeters: null,
         routeSimulating: false,
@@ -5631,7 +6601,7 @@ export class MapApp {
     const instructions = legInstructions(route.legs[0]);
     const wasArOpen = isArSessionActive(this.store.get().arPresentation);
 
-    routeLifecycleManager.transition('recalculating');
+    routeLifecycleManager.transition("recalculating");
     this.liveRouteTracking = false;
     const progress = this.seedRouteProgressFromUser(route);
     this.alongPathStabilizer.reset(progress.traveled);
@@ -5663,7 +6633,7 @@ export class MapApp {
         instructions,
         floors: this.store.get().floors,
         navigationProgress: this.getNavigationProgressSnapshot(),
-        reason: 'reroute',
+        reason: "reroute",
       });
     }
   }
@@ -5685,17 +6655,20 @@ export class MapApp {
         instructions: legInstructions(leg),
         floors: state.floors,
         navigationProgress: this.getNavigationProgressSnapshot(),
-        reason: 'leg_change',
+        reason: "leg_change",
       });
     }
   }
 
-  private streamPositionToAr(position: {
-    coordinate: { latitude: number; longitude: number; floorId?: string };
-    accuracy?: number;
-    heading?: number;
-    floorId?: string;
-  }, animated = false): void {
+  private streamPositionToAr(
+    position: {
+      coordinate: { latitude: number; longitude: number; floorId?: string };
+      accuracy?: number;
+      heading?: number;
+      floorId?: string;
+    },
+    animated = false,
+  ): void {
     if (!isArSessionActive(this.store.get().arPresentation)) return;
 
     if (this.positionProvider?.isRunning) return;
@@ -5726,7 +6699,9 @@ export class MapApp {
       longitude: position.coordinate.longitude,
       heading: position.heading ?? 0,
       accuracy: position.accuracy ?? 15,
-      source: this.positionProvider?.isRunning ? this.activePositionSource : 'gps',
+      source: this.positionProvider?.isRunning
+        ? this.activePositionSource
+        : "gps",
       floorId: position.floorId ?? position.coordinate.floorId,
       timestamp: Date.now(),
     });
@@ -5735,7 +6710,7 @@ export class MapApp {
 
   private handleBlueDotAnimatedPosition(position: {
     coordinate: { latitude: number; longitude: number; floorId?: string };
-    mapCoordinate?: import('@mappedin/mappedin-js').Coordinate;
+    mapCoordinate?: import("@mappedin/mappedin-js").Coordinate;
     accuracy?: number;
     heading?: number;
     floorId?: string;
@@ -5743,8 +6718,8 @@ export class MapApp {
     const coordinate = position.mapCoordinate;
     if (coordinate && this.store.get().route) {
       this.mapView?.Navigation?.trackCoordinate?.(coordinate, {
-        mode: 'travelled',
-        color: '#64748b',
+        mode: "travelled",
+        color: "#64748b",
       });
     }
 
@@ -5756,7 +6731,7 @@ export class MapApp {
         accuracy: position.accuracy ?? 15,
         source: this.positionProvider?.isRunning
           ? this.activePositionSource
-          : 'gps',
+          : "gps",
         floorId: position.floorId ?? position.coordinate.floorId,
         timestamp: Date.now(),
       });
@@ -5764,7 +6739,7 @@ export class MapApp {
     }
   }
 
-  private startPositionProvider(path: RoutePayload['pathCoordinates']): void {
+  private startPositionProvider(path: RoutePayload["pathCoordinates"]): void {
     this.stopPositionProvider({ preserveProgress: true });
     this.activePositionSource = this.resolveNavigationSource();
     positionTelemetry.setActiveSource(this.activePositionSource);
@@ -5781,8 +6756,11 @@ export class MapApp {
       this.applyOrchestratedFloor(originFloorId);
     }
 
-    if (this.store.get().locationPermission !== 'granted') {
-      appLog('Position', 'Skipping live GPS - location permission is not granted');
+    if (this.store.get().locationPermission !== "granted") {
+      appLog(
+        "Position",
+        "Skipping live GPS - location permission is not granted",
+      );
       this.positionProvider = null;
       this.blueDotService?.setSimulatorParallelMode(false);
       return;
@@ -5791,17 +6769,14 @@ export class MapApp {
     this.positionProvider = PositionProviderRegistry.getProvider(
       this.activePositionSource,
     );
-    this.positionProvider.start(
-      (frame) => this.handleProviderFrame(frame),
-      {
-        path,
-        floorId: originFloorId,
-        expectedFloorId: originFloorId,
-        venueMapId: appConfig.mappedin.mapId,
-      },
-    );
+    this.positionProvider.start((frame) => this.handleProviderFrame(frame), {
+      path,
+      floorId: originFloorId,
+      expectedFloorId: originFloorId,
+      venueMapId: appConfig.mappedin.mapId,
+    });
 
-    appLog('Position', 'Provider started', {
+    appLog("Position", "Provider started", {
       source: this.activePositionSource,
       pathPoints: path.length,
       originFloorId,
@@ -5817,7 +6792,7 @@ export class MapApp {
     this.lastProviderFix = null;
     this.floorOrchestrator.reset();
     positionTelemetry.setOrchestratorState(this.floorOrchestrator.getState());
-    positionTelemetry.setActiveSource('none');
+    positionTelemetry.setActiveSource("none");
     if (!options?.preserveProgress) {
       this.liveRouteTracking = false;
       this.alongPathStabilizer.reset(0);
@@ -5835,18 +6810,26 @@ export class MapApp {
     }
   }
 
-  private ingestPositionFrame(frame: FplacesPositionFrame, meta?: { bleUuid?: string; bleMajor?: number; bleMinor?: number; bleRssi?: number }): void {
+  private ingestPositionFrame(
+    frame: FplacesPositionFrame,
+    meta?: {
+      bleUuid?: string;
+      bleMajor?: number;
+      bleMinor?: number;
+      bleRssi?: number;
+    },
+  ): void {
     const currentFloorId = this.store.get().currentFloorId;
-    if (
-      frame.floorId &&
-      currentFloorId &&
-      frame.floorId !== currentFloorId
-    ) {
-      appLog('Position', 'Floor ID mismatch - frame floor differs from map view', {
-        frameFloorId: frame.floorId,
-        currentFloorId,
-        source: frame.source,
-      });
+    if (frame.floorId && currentFloorId && frame.floorId !== currentFloorId) {
+      appLog(
+        "Position",
+        "Floor ID mismatch - frame floor differs from map view",
+        {
+          frameFloorId: frame.floorId,
+          currentFloorId,
+          source: frame.source,
+        },
+      );
     }
 
     positionTelemetry.recordFrame(frame, meta);
@@ -5855,14 +6838,16 @@ export class MapApp {
     if (frame.floorId) {
       const route = this.store.get().route;
       const transitions = route?.floorTransitions ?? [];
-      const alongM = frame.alongPathMeters ?? this.store.get().routeTraveledMeters ?? 0;
+      const alongM =
+        frame.alongPathMeters ?? this.store.get().routeTraveledMeters ?? 0;
       const upcoming = transitions.find((t) => {
         const path = route?.pathCoordinates ?? [];
         return path[t.pathIndex] != null;
       });
       const result = this.floorOrchestrator.propose(frame.floorId, {
         headingDegrees: frame.heading,
-        confidence: frame.accuracy != null ? Math.max(0.3, 1 - frame.accuracy / 30) : 0.6,
+        confidence:
+          frame.accuracy != null ? Math.max(0.3, 1 - frame.accuracy / 30) : 0.6,
         distanceToTransitionM: upcoming ? Math.max(0, alongM) : undefined,
         transitionKind: upcoming?.kind,
       });
@@ -5885,10 +6870,42 @@ export class MapApp {
     this.store.patch({ blueDotFollowing: false });
   }
 
+  /**
+   * Prefer projecting the real finger position through the map canvas.
+   * SDK click raycasts can land on the wrong 3D surface and place the pin
+   * across the venue from where the guest tapped.
+   */
+  private resolveTapCoordinateFromPointer(
+    pointer: { x: number; y: number } | null | undefined,
+  ): unknown | null {
+    if (!pointer || !this.mapView || !this.mapContainer) return null;
+    const canvasPoint = clientPointToCanvasPoint(
+      pointer.x,
+      pointer.y,
+      resolveMapCanvasRect(this.mapContainer),
+    );
+    if (!canvasPoint) return null;
+    try {
+      return (
+        this.mapView.createCoordinateFromScreenCoordinate?.(
+          canvasPoint.x,
+          canvasPoint.y,
+          this.mapView.currentFloor ?? undefined,
+        ) ?? null
+      );
+    } catch (error) {
+      appWarn("Map", "Screen tap projection failed", error);
+      return null;
+    }
+  }
+
   private handleProviderFrame(frame: FplacesPositionFrame): void {
     if (isHeadingOnlyPositionFix(this.lastProviderFix, frame)) {
       this.blueDotService?.applyHeadingOnly(frame.heading);
-      if (isArFrameVisible() || isArSessionActive(this.store.get().arPresentation)) {
+      if (
+        isArFrameVisible() ||
+        isArSessionActive(this.store.get().arPresentation)
+      ) {
         const now = performance.now();
         if (now - this.lastArProviderStreamAt >= 90) {
           this.lastArProviderStreamAt = now;
@@ -5915,7 +6932,7 @@ export class MapApp {
     const projected = this.projectFrameOntoRoute(frame);
 
     let display = projected;
-    if (typeof projected.alongPathMeters === 'number') {
+    if (typeof projected.alongPathMeters === "number") {
       const traveled = this.syncLiveRouteProgress(projected.alongPathMeters, {
         offRouteMeters: projected.offRouteMeters,
         accuracyMeters: projected.accuracy,
@@ -5936,11 +6953,14 @@ export class MapApp {
       this.routePlanner?.updateTravelledPath({
         latitude: display.latitude,
         longitude: display.longitude,
-        floorId: display.floorId ?? 'unknown',
+        floorId: display.floorId ?? "unknown",
       });
     }
 
-    if (isArFrameVisible() || isArSessionActive(this.store.get().arPresentation)) {
+    if (
+      isArFrameVisible() ||
+      isArSessionActive(this.store.get().arPresentation)
+    ) {
       const now = performance.now();
       if (now - this.lastArProviderStreamAt >= 90) {
         this.lastArProviderStreamAt = now;
@@ -5964,19 +6984,19 @@ export class MapApp {
     if (
       !this.blueDotService ||
       !navigator.permissions?.query ||
-      this.store.get().locationPermission !== 'granted'
+      this.store.get().locationPermission !== "granted"
     ) {
       return;
     }
 
     try {
-      const status = await navigator.permissions.query({ name: 'geolocation' });
-      if (status.state !== 'granted') return;
+      const status = await navigator.permissions.query({ name: "geolocation" });
+      if (status.state !== "granted") return;
       if (this.positionProvider?.isRunning) return;
       await this.blueDotService.startTracking();
-      appLog('BlueDot', 'Auto-started (permission already granted)');
+      appLog("BlueDot", "Auto-started (permission already granted)");
     } catch (error) {
-      appWarn('BlueDot', 'Could not query geolocation permission', error);
+      appWarn("BlueDot", "Could not query geolocation permission", error);
     }
   }
 
@@ -5984,14 +7004,14 @@ export class MapApp {
     // Location is requested explicitly during the post-auth location gate.
     if (!this.store.get().onboardingComplete) return;
     if (this.locationPromptShown || !navigator.geolocation) return;
-    if (permissionChoiceLocalDatasource.loadLocation() === 'denied') return;
+    if (permissionChoiceLocalDatasource.loadLocation() === "denied") return;
     this.locationPromptShown = true;
     if (navigator.permissions?.query) {
       navigator.permissions
-        .query({ name: 'geolocation' })
+        .query({ name: "geolocation" })
         .then((status) => {
-          if (status.state === 'prompt') {
-            this.showToast('Tap ⊕ for live blue-dot tracking and routing.');
+          if (status.state === "prompt") {
+            this.showToast("Tap ⊕ for live blue-dot tracking and routing.");
           }
         })
         .catch(() => undefined);
@@ -6010,7 +7030,7 @@ export class MapApp {
     const permanentlyDenied = await this.locationService.isPermanentlyDenied();
     if (permanentlyDenied) {
       this.store.patch({
-        authStep: 'location-required',
+        authStep: "location-required",
         locationPermanentlyDenied: true,
         locationGateLoading: false,
         locationGateError: null,
@@ -6038,10 +7058,10 @@ export class MapApp {
       // (authStepBeforeLocation) before any async permission / GPS work.
       this.store.patch({
         authStep: options.fromPermissionRequired
-          ? 'location-required'
-          : currentStep === 'location-error'
-            ? 'location-error'
-            : 'location-permission',
+          ? "location-required"
+          : currentStep === "location-error"
+            ? "location-error"
+            : "location-permission",
         locationGateLoading: true,
         locationPermanentlyDenied: false,
         locationGateError: null,
@@ -6054,30 +7074,30 @@ export class MapApp {
       const permission = await this.locationService.queryPermission();
       const preflight = resolveLocationGatePreflight(permission);
 
-      if (preflight.action === 'error-unsupported') {
+      if (preflight.action === "error-unsupported") {
         if (silent) {
           this.store.patch({ locationGateLoading: false });
           await this.continueAfterLocationGranted();
           return;
         }
         this.store.patch({
-          authStep: 'location-error',
+          authStep: "location-error",
           locationGateLoading: false,
           locationGateError:
-            'Geolocation is not supported in this browser. Try another browser or device.',
+            "Geolocation is not supported in this browser. Try another browser or device.",
         });
         return;
       }
 
-      if (preflight.action === 'required-permanent') {
-        this.persistLocationChoice('denied');
+      if (preflight.action === "required-permanent") {
+        this.persistLocationChoice("denied");
         if (silent) {
           this.store.patch({ locationGateLoading: false });
           await this.continueAfterLocationGranted();
           return;
         }
         this.store.patch({
-          authStep: 'location-required',
+          authStep: "location-required",
           locationPermanentlyDenied: true,
           locationGateLoading: false,
           locationGateError: null,
@@ -6086,7 +7106,7 @@ export class MapApp {
       }
 
       const coords = await this.locationService.requestLocation();
-      this.persistLocationChoice('granted');
+      this.persistLocationChoice("granted");
       // Keep the dialog + underlying screen until continueAfterLocationGranted
       // swaps authStep in one patch (avoids flashing Find places behind).
       this.store.patch({
@@ -6097,37 +7117,38 @@ export class MapApp {
       await this.continueAfterLocationGranted();
       void this.maybeAutoStartBlueDot();
     } catch (error) {
-      const permanentlyDenied =
-        this.locationService.isPermissionDeniedError(error)
-          ? await this.locationService.isPermanentlyDenied()
-          : false;
+      const permanentlyDenied = this.locationService.isPermissionDeniedError(
+        error,
+      )
+        ? await this.locationService.isPermanentlyDenied()
+        : false;
       const failure = resolveLocationGateFailure(
         error,
         permanentlyDenied,
         (err) =>
           err instanceof Error ||
-          (typeof err === 'object' &&
+          (typeof err === "object" &&
             err !== null &&
-            'code' in err &&
-            typeof (err as GeolocationPositionError).code === 'number')
+            "code" in err &&
+            typeof (err as GeolocationPositionError).code === "number")
             ? this.locationService.geolocationErrorMessage(
                 err as GeolocationPositionError | Error,
               )
-            : 'Could not get your location.',
+            : "Could not get your location.",
       );
 
-      if (failure.action === 'required') {
-        this.persistLocationChoice('denied');
+      if (failure.action === "required") {
+        this.persistLocationChoice("denied");
         this.store.patch({ locationGateLoading: false });
         if (silent || !options.fromPermissionRequired) {
           this.showToast(
-            'Location is off. Tap ⊕ anytime if you want to turn it on.',
+            "Location is off. Tap ⊕ anytime if you want to turn it on.",
           );
           await this.continueAfterLocationGranted();
           return;
         }
         this.store.patch({
-          authStep: 'location-required',
+          authStep: "location-required",
           locationPermanentlyDenied: failure.permanentlyDenied,
           locationGateError: null,
         });
@@ -6141,7 +7162,7 @@ export class MapApp {
       }
 
       this.store.patch({
-        authStep: 'location-error',
+        authStep: "location-error",
         locationGateLoading: false,
         locationGateError: failure.message,
       });
@@ -6173,9 +7194,7 @@ function mapNotificationToItem(
   };
 }
 
-function notificationItemToDomain(
-  item: NotificationItem,
-): AppNotification {
+function notificationItemToDomain(item: NotificationItem): AppNotification {
   return {
     id: item.id,
     title: item.title,

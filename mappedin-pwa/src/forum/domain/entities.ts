@@ -18,6 +18,8 @@ export interface ForumSection {
   name: string;
   code: string;
   is_active: boolean;
+  /** Mappedin location id this section is attached to. */
+  mappedin_location_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -29,6 +31,17 @@ export interface ForumCategory {
   slug: string;
   description: string;
   disclaimer: string;
+  order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Curated profile-picker tag from GET /api/forum/interests/. */
+export interface ForumInterest {
+  id: number;
+  name: string;
+  slug: string;
   order: number;
   is_active: boolean;
   created_at: string;
@@ -75,6 +88,45 @@ export interface ListPostsParams {
 }
 
 /** Body for POST /api/forum/posts/. `content` max 140 chars. */
+export const FORUM_POST_CONTENT_MAX_LENGTH = 140;
+
+/** Body for POST /api/forum/conversations/. `content` max 500 chars. */
+export const LOCATION_MESSAGE_CONTENT_MAX_LENGTH = 500;
+
+/** Chat message in a map-location conversation (`GET /api/forum/conversations/`). */
+export interface LocationMessage {
+  id: number;
+  venue: number;
+  location_id: string;
+  location_name: string;
+  user: ForumPublicUser;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListLocationMessagesParams {
+  venue: number;
+  location_id: string;
+  page?: number;
+  ordering?: string;
+  created_after?: string;
+  created_before?: string;
+}
+
+/** Body for POST /api/forum/conversations/. Find-or-create on `(venue, location_id)`. */
+export interface CreateLocationMessagePayload {
+  venue: number;
+  location_id: string;
+  content: string;
+  location_name?: string;
+}
+
+/** Body for PUT/PATCH /api/forum/conversations/<id>/. */
+export interface UpdateLocationMessagePayload {
+  content: string;
+}
+
 export interface CreatePostPayload {
   venue: number;
   category: number;
@@ -162,3 +214,13 @@ export type VenueLiveStatusHandler = (status: VenueLiveConnectionStatus) => void
 export interface VenueLiveSubscription {
   disconnect(): void;
 }
+
+/** Receive-only broadcasts on `ws/venues/<venue_id>/locations/<location_id>/`. */
+export type LocationLiveEvent = {
+  type: 'new_location_message';
+  message: LocationMessage;
+};
+
+export type LocationLiveEventHandler = (event: LocationLiveEvent) => void;
+export type LocationLiveStatusHandler = VenueLiveStatusHandler;
+export type LocationLiveSubscription = VenueLiveSubscription;

@@ -65,9 +65,48 @@ describe('API-backed screens (widget)', () => {
       comments: 0,
     });
     expect(html).toContain('Comments');
+    expect(html).toContain('0 comment(s)');
     expect(html).toContain('id="post-comments-back-btn"');
     expect(html).toContain('id="post-comments-form"');
     expect(html).toContain('Hello section');
+  });
+
+  it('lets remote visitors read comments but not add one', () => {
+    const state = initialAppState();
+    state.postCommentsOpen = true;
+    state.postCommentsPostId = '12';
+    state.selectedVenueId = '1';
+    state.forumVenues = [
+      {
+        id: 1,
+        name: 'Riverside',
+        location: 'Lagos',
+        latitude: 6.45,
+        longitude: 3.4,
+      },
+    ];
+    state.locationPermission = 'granted';
+    state.userLocation = { latitude: 43.64, longitude: -79.38, accuracy: 8 };
+    const html = renderPostCommentsScreen(state, {
+      id: '12',
+      author: 'Fan',
+      authorId: 1,
+      initials: 'FA',
+      avatarColor: '#3b5998',
+      location: 'North',
+      locationId: '3',
+      timeAgo: '1m',
+      feedType: 'fan-vibe',
+      categoryId: '1',
+      content: 'Hello section',
+      upvotes: 2,
+      comments: 0,
+    });
+    expect(html).toContain('Hello section');
+    expect(html).toContain("You're not at Riverside");
+    expect(html).toContain('You can still browse the map and posts');
+    expect(html).toMatch(/id="post-comments-input"[\s\S]*?disabled/);
+    expect(html).toMatch(/id="post-comments-send-btn"[\s\S]*?disabled/);
   });
 
   it('renders notification detail title', () => {
@@ -134,6 +173,33 @@ describe('API-backed screens (widget)', () => {
     expect(html).not.toContain('No notifications yet');
   });
 
+  it('renders backend catalog venues without a local sandbox card', () => {
+    const html = renderVenueSelectScreen({
+      venueSearchQuery: '',
+      selectedVenueId: null,
+      selectedGateId: null,
+      forumVenues: [
+        { id: 1, name: 'Riverside', location: 'Lagos' },
+        {
+          id: 8,
+          name: 'LTV 8',
+          location: 'Agidigbi',
+          mappedinMapId: 'ltv-8',
+        },
+      ],
+      forumSections: [],
+      authLoading: false,
+      authFieldErrors: {},
+      locationPermission: 'undecided',
+      userLocation: null,
+    });
+    expect(html).toContain('data-venue-id="1"');
+    expect(html).toContain('data-venue-id="8"');
+    expect(html).toContain('LTV 8');
+    expect(html).not.toContain('venue-select-card--sandbox');
+    expect(html).not.toContain('TEST');
+  });
+
   it('shows a circular overlay while venues have not arrived yet', () => {
     const html = renderVenueSelectScreen({
       venueSearchQuery: '',
@@ -149,5 +215,7 @@ describe('API-backed screens (widget)', () => {
     expect(html).toContain('screen-loading-overlay');
     expect(html).toContain('aria-label="Loading venues"');
     expect(html).not.toContain('Loading venues…');
+    expect(html).not.toContain('Entering venue…');
+    expect(html).not.toContain('busy-indicator');
   });
 });

@@ -1,43 +1,10 @@
 import { buildReturningHomeViewModel } from '../home/presentation/returning-home-data';
 import type { ReturningHomeContent } from '../home/domain/entities';
 import { resolveDisplayName, type AppState } from '../types';
+import { nounS } from '../auth/domain/user-stats';
 import { renderContentLoadingOverlay } from './content-loading-overlay';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
-
-function recentVenueIcon(kind: 'pin' | 'globe'): string {
-  if (kind === 'globe') {
-    return `
-      <span class="returning-home-venue-icon returning-home-venue-icon--globe" aria-hidden="true">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-          <circle cx="12" cy="12" r="8.25" stroke="currentColor" stroke-width="1.75"></circle>
-          <path d="M3.75 12h16.5M12 3.75c2.4 2.6 3.6 5.3 3.6 8.25S14.4 17.65 12 20.25C9.6 17.65 8.4 14.95 8.4 12S9.6 6.35 12 3.75z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
-        </svg>
-      </span>
-    `;
-  }
-
-  return `
-    <span class="returning-home-venue-icon returning-home-venue-icon--pin" aria-hidden="true">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <path d="M12 21s6.25-4.35 6.25-10a6.25 6.25 0 10-12.5 0c0 5.65 6.25 10 6.25 10z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
-        <circle cx="12" cy="11" r="2.15" stroke="currentColor" stroke-width="1.75"></circle>
-      </svg>
-    </span>
-  `;
-}
-
-const chevronIcon = `
-  <svg class="returning-home-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path>
-  </svg>
-`;
+import { renderHomeVenueSections } from './home-venue-list';
+import { escapeHtml } from './escape-html';
 
 export function renderReturningHomeScreen(
   state: Pick<
@@ -51,6 +18,7 @@ export function renderReturningHomeScreen(
   const homeLoading = state.homeContent == null;
   const content: ReturningHomeContent = state.homeContent ?? {
     recentlyVisited: [],
+    otherVenues: [],
     stats: { venues: 0, upvotesLabel: '0', posts: 0 },
   };
   const displayName = state.authUser
@@ -61,33 +29,19 @@ export function renderReturningHomeScreen(
     displayName,
     searchQuery: state.homeVenueSearchQuery,
     content,
+    profileStat: state.authUser?.stat,
   });
 
-  const recentRows = homeLoading
-    ? ''
-    : view.recentlyVisited.length
-    ? view.recentlyVisited
-        .map(
-          (venue) => `
-          <button
-            type="button"
-            class="returning-home-venue-card"
-            data-home-venue-id="${escapeHtml(venue.id)}"
-          >
-            ${recentVenueIcon(venue.icon)}
-            <span class="returning-home-venue-copy">
-              <span class="returning-home-venue-name">${escapeHtml(venue.name)}</span>
-              <span class="returning-home-venue-meta">${escapeHtml(venue.visitedLabel)} · ${venue.postCount} posts</span>
-            </span>
-            ${chevronIcon}
-          </button>
-        `,
-        )
-        .join('')
-    : `<p class="returning-home-empty" role="status">No matching venues</p>`;
+  const searching = Boolean(view.searchQuery.trim());
+  const venueSections = renderHomeVenueSections({
+    recentlyVisited: view.recentlyVisited,
+    otherVenues: view.otherVenues,
+    searching,
+    loading: homeLoading,
+  });
 
   return `
-    <section class="returning-home-screen" aria-label="Home">
+    <section class="returning-home-screen screen-loading-host" aria-label="Home">
       <header class="returning-home-header">
         <p class="returning-home-greeting">${escapeHtml(view.greeting)}</p>
         <h1 class="returning-home-username">${escapeHtml(view.displayName)}</h1>
@@ -109,27 +63,22 @@ export function renderReturningHomeScreen(
         />
       </label>
 
-      <div class="returning-home-section" data-tour-id="returning-recent">
-        <h2 class="returning-home-section-title">Recently visited</h2>
-        <div class="returning-home-venue-list">
-          ${recentRows}
-        </div>
-      </div>
+      <div class="returning-home-venues">${venueSections}</div>
 
       <div class="returning-home-section">
         <h2 class="returning-home-section-title">Your fplaces</h2>
         <div class="returning-home-stats" role="group" aria-label="Your fplaces stats">
           <div class="returning-home-stat-card">
             <div class="returning-home-stat-value">${view.stats.venues}</div>
-            <div class="returning-home-stat-label">Venues</div>
+            <div class="returning-home-stat-label">${nounS('Venue')}</div>
           </div>
           <div class="returning-home-stat-card">
             <div class="returning-home-stat-value returning-home-stat-value--accent">${escapeHtml(view.stats.upvotesLabel)}</div>
-            <div class="returning-home-stat-label">Upvotes</div>
+            <div class="returning-home-stat-label">${nounS('Upvote')}</div>
           </div>
           <div class="returning-home-stat-card">
             <div class="returning-home-stat-value">${view.stats.posts}</div>
-            <div class="returning-home-stat-label">Posts</div>
+            <div class="returning-home-stat-label">${nounS('Post')}</div>
           </div>
         </div>
       </div>

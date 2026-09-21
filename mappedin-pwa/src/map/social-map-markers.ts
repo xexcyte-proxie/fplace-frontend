@@ -1,31 +1,32 @@
-import type { MapData, MapView } from '@mappedin/mappedin-js';
+import type { MapData, MapView } from "@mappedin/mappedin-js";
 
-import type { AppState, SectionHeatEntry, SocialPost } from '../types';
-import { appLog } from '../utils/logger';
-import {
-  INITIAL_SOCIAL_POSTS,
-  SOCIAL_LOCATIONS,
-  SOCIAL_LOCATIONS_BY_ID,
-} from '../ui/social-data';
-import { buildSectionLocationIndex } from '../forum/domain/section-locations';
+import type { AppState, SectionHeatEntry } from "../types";
+import { appLog } from "../utils/logger";
+import { buildSectionLocationIndex } from "../forum/domain/section-locations";
 import {
   collectLocationAnchors,
   slugifyLocationName,
   type LocationAnchor,
-} from './location-anchors';
+} from "./location-anchors";
 import {
   heatVisualState,
   renderSocialMapMarkerHtml,
   type SocialMarkerCategory,
   type SocialMarkerModel,
   type SocialMarkerVisualState,
-} from './social-map-marker-html';
-import { resolveSocialMarkerLiveSource } from './social-marker-live-source';
+} from "./social-map-marker-html";
+import { resolveSocialMarkerLiveSource } from "./social-marker-live-source";
+import {
+  clientPointToCanvasPoint,
+  pickNearestScreenAnchorId,
+  resolveMapCanvasRect,
+} from "./map-tap-screen";
 import {
   socialMarkerSyncInputsFromState,
   socialMarkerSyncInputsUnchanged,
   type SocialMarkerSyncInputs,
-} from './social-marker-sync-inputs';
+} from "./social-marker-sync-inputs";
+import { serializeCoordinate } from "../utils/route-helpers";
 
 type MarkerHandle = { remove?: () => void };
 
@@ -40,7 +41,9 @@ export type LocationCardSelection = {
   anchor: unknown;
 };
 
-export type LocationCardSelectHandler = (selection: LocationCardSelection) => void;
+export type LocationCardSelectHandler = (
+  selection: LocationCardSelection,
+) => void;
 
 export class SocialMapMarkerService {
   private markers: InstalledMarker[] = [];
@@ -48,10 +51,10 @@ export class SocialMapMarkerService {
   private anchorById = new Map<string, LocationAnchor>();
   private viewedLocationIds = new Set<string>();
   private mapContainer: HTMLElement | null = null;
-  private cardClickHandler: ((event: Event) => void) | null = null;
-  private lastMarkerSyncKey = '';
+  private lastMarkerSyncKey = "";
   private lastMarkerInputs: SocialMarkerSyncInputs | null = null;
   private installed = false;
+  private disposed = false;
 
   constructor(
     private readonly mapView: MapView,
@@ -60,20 +63,19 @@ export class SocialMapMarkerService {
   ) {}
 
   install(mapContainer: HTMLElement): number {
+    if (this.disposed) return 0;
     this.mapContainer = mapContainer;
     this.anchors = collectLocationAnchors(this.mapData);
     this.anchorById = new Map(this.anchors.map((entry) => [entry.id, entry]));
-    this.wireCardClickDelegation(mapContainer);
     this.installed = true;
     const count = this.renderAll(null);
     this.lastMarkerSyncKey = this.markerSyncKey(
       null,
       [],
-      [],
       false,
       [],
       [],
-      'idle',
+      "idle",
       null,
     );
     this.lastMarkerInputs = null;
@@ -91,7 +93,6 @@ export class SocialMapMarkerService {
 
     const syncKey = this.markerSyncKey(
       state.socialLocation,
-      state.socialPosts,
       state.sectionHeatmap,
       state.sectionHeatmapActive,
       state.forumSections,
@@ -110,83 +111,112 @@ export class SocialMapMarkerService {
     if (!this.installed || !this.mapContainer) return;
     this.anchors = collectLocationAnchors(this.mapData);
     this.anchorById = new Map(this.anchors.map((entry) => [entry.id, entry]));
-    this.lastMarkerSyncKey = '';
+    this.lastMarkerSyncKey = "";
     this.lastMarkerInputs = null;
     this.renderAll(state);
   }
 
   destroy(): void {
+    this.disposed = true;
     this.clearMarkers();
-    if (this.mapContainer && this.cardClickHandler) {
-      this.mapContainer.removeEventListener('click', this.cardClickHandler, true);
-    }
-    this.cardClickHandler = null;
     this.mapContainer = null;
     this.installed = false;
-    this.lastMarkerSyncKey = '';
+    this.lastMarkerSyncKey = "";
     this.lastMarkerInputs = null;
+  }
+
+  /**
+   * Open a location when the tap is near a pill's map anchor on screen.
+   * Uses Mappedin screen projection (not DOM boxes) so HTML transforms cannot
+   * send a left-edge tap to a right-edge location.
+   */
+  trySelectAtClientPoint(clientX: number, clientY: number): boolean {
+    if (!this.installed || !this.mapContainer) return false;
+
+    const canvasPoint = clientPointToCanvasPoint(
+      clientX,
+      clientY,
+      resolveMapCanvasRect(this.mapContainer),
+    );
+    if (!canvasPoint) return false;
+
+    const projected = this.anchors.map((entry) => ({
+      id: entry.id,
+      screen: this.screenPointForAnchor(entry),
+    }));
+    const anchorId = pickNearestScreenAnchorId(
+      projected,
+      canvasPoint.x,
+      canvasPoint.y,
+    );
+    if (!anchorId) return false;
+
+    const entry = this.anchorById.get(anchorId);
+    if (!entry) return false;
+
+    this.viewedLocationIds.add(entry.locationId);
+    this.onLocationSelect({
+      locationId: entry.locationId,
+      name: entry.name,
+      anchor: entry.anchor,
+    });
+    return true;
+  }
+
+  private screenPointForAnchor(
+    entry: LocationAnchor,
+  ): { x: number; y: number } | null {
+    try {
+      const anchor = entry.anchor;
+      if (anchor && typeof anchor === "object" && "center" in anchor) {
+        const center = (anchor as { center?: unknown }).center;
+        if (center) {
+          return (
+            this.mapView.getScreenCoordinateFromCoordinate?.(center as never) ??
+            null
+          );
+        }
+      }
+
+      const serialized = serializeCoordinate(anchor);
+      if (!serialized || !this.mapView.createCoordinate) return null;
+      const floor =
+        serialized.floorId && serialized.floorId !== "unknown"
+          ? this.mapData.getById("floor", serialized.floorId)
+          : this.mapView.currentFloor;
+      const coordinate = this.mapView.createCoordinate(
+        serialized.latitude,
+        serialized.longitude,
+        floor ?? undefined,
+      );
+      if (!coordinate) return null;
+      return (
+        this.mapView.getScreenCoordinateFromCoordinate?.(coordinate) ?? null
+      );
+    } catch {
+      return null;
+    }
   }
 
   private markerSyncKey(
     socialLocation: string | null,
-    socialPosts: SocialPost[],
     sectionHeatmap: SectionHeatEntry[],
     sectionHeatmapActive: boolean,
-    forumSections: AppState['forumSections'],
-    venueFeedPosts: AppState['venueFeedPosts'],
-    venueLiveStatus: AppState['venueLiveStatus'],
-    selectedVenueId: AppState['selectedVenueId'],
+    forumSections: AppState["forumSections"],
+    venueFeedPosts: AppState["venueFeedPosts"],
+    venueLiveStatus: AppState["venueLiveStatus"],
+    selectedVenueId: AppState["selectedVenueId"],
   ): string {
-    const posts = socialPosts.length ? socialPosts : INITIAL_SOCIAL_POSTS;
-    const live = resolveSocialMarkerLiveSource({
-      socialPosts,
-      sectionHeatmapActive,
-      venueFeedPosts,
-      venueLiveStatus,
-      selectedVenueId,
-    });
-    const postKey = live.useMockSocial
-      ? posts.map((post) => `${post.id}:${post.upvotes}`).join('|')
-      : '';
     const feedKey = venueFeedPosts
       .map((post) => `${post.id}:${post.upvotes}`)
-      .join('|');
+      .join("|");
     const heatKey = sectionHeatmap
       .map((entry) => `${entry.sectionId}:${entry.postCount}:${entry.priority}`)
-      .join('|');
-    const sectionKey = forumSections.map((section) => section.id).join(',');
-    return `${socialLocation ?? ''}::${postKey}::${feedKey}::${sectionHeatmapActive}:${heatKey}::${sectionKey}::${venueLiveStatus}::${selectedVenueId ?? ''}`;
-  }
-
-  private wireCardClickDelegation(mapContainer: HTMLElement): void {
-    if (this.cardClickHandler) return;
-
-    this.cardClickHandler = (event: Event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-
-      const card = target.closest<HTMLElement>('.social-map-marker__card[data-anchor-id]');
-      if (!card) return;
-
-      event.stopPropagation();
-      event.preventDefault();
-
-      const anchorId = card.dataset.anchorId;
-      if (!anchorId) return;
-
-      const entry = this.anchorById.get(anchorId);
-      if (!entry) return;
-
-      const locationId = this.resolveLocationId(entry.name);
-      this.viewedLocationIds.add(locationId);
-      this.onLocationSelect({
-        locationId,
-        name: entry.name,
-        anchor: entry.anchor,
-      });
-    };
-
-    mapContainer.addEventListener('click', this.cardClickHandler, true);
+      .join("|");
+    const sectionKey = forumSections
+      .map((section) => `${section.id}:${section.mappedinLocationId ?? ""}`)
+      .join(",");
+    return `${socialLocation ?? ""}::${feedKey}::${sectionHeatmapActive}:${heatKey}::${sectionKey}::${venueLiveStatus}::${selectedVenueId ?? ""}`;
   }
 
   private renderAll(state: AppState | null): number {
@@ -194,12 +224,6 @@ export class SocialMapMarkerService {
     if (!this.mapView.Markers?.add) return 0;
 
     const live = resolveSocialMarkerLiveSource(state);
-    const socialPosts =
-      live.useMockSocial
-        ? state?.socialPosts?.length
-          ? state.socialPosts
-          : INITIAL_SOCIAL_POSTS
-        : [];
     const selectedLocationId = state?.socialLocation ?? null;
     const heatmapBySectionId = new Map(
       (state?.sectionHeatmap ?? []).map((entry) => [entry.sectionId, entry]),
@@ -213,18 +237,18 @@ export class SocialMapMarkerService {
     for (const entry of this.anchors) {
       const model = this.buildModel(
         entry,
-        socialPosts,
         selectedLocationId,
         heatmapBySectionId,
         hasLiveHeatmap,
         sectionByLocationId,
         feedPosts,
-        live.useMockSocial,
         live.socketLive,
       );
       const html = renderSocialMapMarkerHtml(model);
 
       try {
+        // Non-interactive + CSS pointer-events:none: Mappedin keeps full pan
+        // control. Pill taps use trySelectAtClientPoint screen hit-testing.
         const handle = this.mapView.Markers.add(
           entry.anchor as never,
           html,
@@ -234,101 +258,75 @@ export class SocialMapMarkerService {
         }
       } catch (error) {
         appLog(
-          'SocialMarkers',
+          "SocialMarkers",
           `Failed: ${entry.name}`,
           error instanceof Error ? error.message : error,
         );
       }
     }
 
-    appLog('SocialMarkers', `Placed ${this.markers.length} marker(s)`);
+    appLog("SocialMarkers", `Placed ${this.markers.length} marker(s)`);
     return this.markers.length;
   }
 
   private indexSectionsByLocation(
-    sections: AppState['forumSections'],
+    sections: AppState["forumSections"],
   ): Map<string, number> {
     return buildSectionLocationIndex(sections);
   }
 
   private buildModel(
     entry: LocationAnchor,
-    socialPosts: SocialPost[],
     selectedLocationId: string | null,
     heatmapBySectionId: Map<number, SectionHeatEntry>,
     hasLiveHeatmap: boolean,
     sectionByLocationId: Map<string, number>,
-    feedPosts: AppState['venueFeedPosts'],
-    useMockSocial: boolean,
+    feedPosts: AppState["venueFeedPosts"],
     socketLive: boolean,
   ): SocialMarkerModel {
-    const locationId = this.resolveLocationId(entry.name);
-    const sectionId =
-      sectionByLocationId.get(locationId) ??
-      sectionByLocationId.get(slugifyLocationName(entry.name)) ??
-      null;
-    const heat = sectionId != null ? heatmapBySectionId.get(sectionId) : undefined;
+    const locationId = entry.locationId;
+    const sectionId = sectionByLocationId.get(locationId) ?? null;
+    const heat =
+      sectionId != null ? heatmapBySectionId.get(sectionId) : undefined;
 
     const locationFeedPosts = feedPosts.filter(
       (post) =>
-        post.locationId === locationId ||
-        (sectionId != null && post.locationId === String(sectionId)),
+        post.kind !== "conversation" &&
+        (post.locationId === locationId ||
+          (sectionId != null && post.locationId === String(sectionId))),
     );
-    const locationSocialPosts = socialPosts.filter(
-      (post) => post.locationId === locationId,
-    );
-    const knownLocation = SOCIAL_LOCATIONS_BY_ID[locationId];
     const count = hasLiveHeatmap
       ? (heat?.postCount ?? 0)
-      : useMockSocial
-        ? locationSocialPosts.length ||
-          knownLocation?.postCount ||
-          this.syntheticCount(entry.name)
-        : locationFeedPosts.length;
+      : locationFeedPosts.length;
 
-    const category = this.resolveCategory(
-      locationSocialPosts,
-      locationFeedPosts,
-      entry.name,
-    );
+    const category = this.resolveCategory(locationFeedPosts, entry.name);
     // "live" is only claimed for real venue-feed data: either the venue
     // WebSocket is connected right now, or a post landed within ~5 minutes.
-    // Demo/mock markers can never present themselves as live.
     const visualState = hasLiveHeatmap
       ? heatVisualState(heat?.priority ?? null)
-      : useMockSocial
-        ? this.resolveVisualState(
-            locationId,
-            locationSocialPosts.length ? locationSocialPosts : locationFeedPosts,
-            knownLocation?.postCount,
-            { allowLive: false },
-          )
-        : this.resolveVisualState(
-            locationId,
-            locationFeedPosts,
-            locationFeedPosts.length,
-            { allowLive: true, socketLive },
-          );
+      : this.resolveVisualState(
+          locationId,
+          locationFeedPosts,
+          locationFeedPosts.length,
+          { allowLive: true, socketLive },
+        );
     const selected = selectedLocationId === locationId;
-    const previewPost =
-      locationFeedPosts[0]
-        ? {
-            id: locationFeedPosts[0].id,
-            author: locationFeedPosts[0].author,
-            initials: locationFeedPosts[0].initials,
-            avatarColor: locationFeedPosts[0].avatarColor,
-            location: locationFeedPosts[0].location,
-            locationId: locationFeedPosts[0].locationId,
-            timeAgo: locationFeedPosts[0].timeAgo,
-            category: 'vibe' as const,
-            categoryLabel: locationFeedPosts[0].feedType,
-            content: locationFeedPosts[0].content,
-            upvotes: locationFeedPosts[0].upvotes,
-            comments: locationFeedPosts[0].comments,
-          }
-        : useMockSocial
-          ? locationSocialPosts[0]
-          : undefined;
+    const previewPost = locationFeedPosts[0]
+      ? {
+          id: locationFeedPosts[0].id,
+          author: locationFeedPosts[0].author,
+          initials: locationFeedPosts[0].initials,
+          avatarColor: locationFeedPosts[0].avatarColor,
+          location: locationFeedPosts[0].location,
+          locationId: locationFeedPosts[0].locationId,
+          timeAgo: locationFeedPosts[0].timeAgo,
+          category: "vibe" as const,
+          categoryLabel: locationFeedPosts[0].feedType,
+          content: locationFeedPosts[0].content,
+          upvotes: locationFeedPosts[0].upvotes,
+          comments: locationFeedPosts[0].comments,
+        }
+      : undefined;
 
     return {
       anchorId: entry.id,
@@ -337,49 +335,46 @@ export class SocialMapMarkerService {
       count,
       category,
       visualState,
-      secondary: this.resolveSecondary(
-        visualState,
-        locationSocialPosts,
-        category,
-      ),
+      secondary: this.resolveSecondary(visualState, locationFeedPosts),
       selected,
       previewPost,
     };
   }
 
-  private resolveLocationId(name: string): string {
-    const slug = slugifyLocationName(name);
-    if (SOCIAL_LOCATIONS_BY_ID[slug]) return slug;
-
-    const matched = SOCIAL_LOCATIONS.find(
-      (location) => slugifyLocationName(location.label) === slug,
-    );
-    return matched?.id ?? slug;
-  }
-
   private resolveCategory(
-    socialPosts: SocialPost[],
-    feedPosts: AppState['venueFeedPosts'],
+    feedPosts: AppState["venueFeedPosts"],
     name: string,
   ): SocialMarkerCategory | null {
     if (feedPosts.length) {
-      const feedSlug = feedPosts[0]?.feedType ?? '';
-      if (feedSlug.includes('food')) return 'food';
-      if (feedSlug.includes('lines')) return 'lines';
-      if (feedSlug.includes('vibe') || feedSlug.includes('hype')) return 'vibe';
-      if (feedSlug === 'help') return 'lines';
+      const feedSlug = feedPosts[0]?.feedType ?? "";
+      if (feedSlug === "conversation") {
+        // Section chat has no post category; fall through to name heuristics.
+      } else {
+        if (feedSlug.includes("food")) return "food";
+        if (feedSlug.includes("lines")) return "lines";
+        if (feedSlug.includes("vibe") || feedSlug.includes("hype"))
+          return "vibe";
+        if (feedSlug === "help") return "lines";
+      }
     }
-    if (socialPosts.length) return socialPosts[0].category;
 
     const slug = slugifyLocationName(name);
-    if (slug.includes('food') || slug.includes('restaurant') || slug.includes('stall')) {
-      return 'food';
+    if (
+      slug.includes("food") ||
+      slug.includes("restaurant") ||
+      slug.includes("stall")
+    ) {
+      return "food";
     }
-    if (slug.includes('gate') || slug.includes('entrance') || slug.includes('washroom')) {
-      return 'lines';
+    if (
+      slug.includes("gate") ||
+      slug.includes("entrance") ||
+      slug.includes("washroom")
+    ) {
+      return "lines";
     }
-    if (slug.includes('section') || slug.includes('store')) {
-      return 'vibe';
+    if (slug.includes("section") || slug.includes("store")) {
+      return "vibe";
     }
     return null;
   }
@@ -396,7 +391,7 @@ export class SocialMapMarkerService {
     liveness: { allowLive: boolean; socketLive?: boolean },
   ): SocialMarkerVisualState {
     if (this.viewedLocationIds.has(locationId) && !posts.length) {
-      return 'viewed';
+      return "viewed";
     }
 
     if (
@@ -404,7 +399,7 @@ export class SocialMapMarkerService {
       posts.length &&
       (liveness.socketLive || posts.some((post) => this.isRecent(post)))
     ) {
-      return 'live';
+      return "live";
     }
 
     const totalEngagement = posts.reduce(
@@ -412,44 +407,43 @@ export class SocialMapMarkerService {
       0,
     );
     if (totalEngagement >= 40 || (knownCount ?? 0) >= 30) {
-      return 'trending';
+      return "trending";
     }
 
     if (posts.length && !this.viewedLocationIds.has(locationId)) {
-      return 'new';
+      return "new";
     }
 
     if (this.viewedLocationIds.has(locationId)) {
-      return 'viewed';
+      return "viewed";
     }
 
-    return 'default';
+    return "default";
   }
 
   private resolveSecondary(
     visualState: SocialMarkerVisualState,
-    posts: SocialPost[],
-    _category: SocialMarkerCategory | null,
+    posts: Array<{ timeAgo: string }>,
   ): string {
     switch (visualState) {
-      case 'heat-high':
-        return 'hot';
-      case 'heat-medium':
-        return 'warm';
-      case 'heat-low':
-        return 'mild';
-      case 'heat-neutral':
-        return 'quiet';
-      case 'live':
-        return 'live';
-      case 'trending':
-        return 'trending';
-      case 'new':
-        return 'new';
-      case 'viewed':
-        return posts[0]?.timeAgo ?? '';
+      case "heat-high":
+        return "hot";
+      case "heat-medium":
+        return "warm";
+      case "heat-low":
+        return "mild";
+      case "heat-neutral":
+        return "quiet";
+      case "live":
+        return "live";
+      case "trending":
+        return "trending";
+      case "new":
+        return "new";
+      case "viewed":
+        return posts[0]?.timeAgo ?? "";
       default:
-        return '';
+        return "";
     }
   }
 
@@ -465,14 +459,6 @@ export class SocialMapMarkerService {
     const match = post.timeAgo.match(/^(\d+)\s*m/i);
     if (!match) return false;
     return Number(match[1]) <= 5;
-  }
-
-  private syntheticCount(name: string): number {
-    let hash = 0;
-    for (let i = 0; i < name.length; i += 1) {
-      hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-    }
-    return (hash % 12) + 1;
   }
 
   private clearMarkers(): void {
@@ -493,12 +479,16 @@ export function scheduleSocialMapMarkers(
   mapContainer: HTMLElement,
   onLocationSelect: LocationCardSelectHandler,
 ): SocialMapMarkerService {
-  const service = new SocialMapMarkerService(mapView, mapData, onLocationSelect);
+  const service = new SocialMapMarkerService(
+    mapView,
+    mapData,
+    onLocationSelect,
+  );
   window.setTimeout(() => {
     try {
       service.install(mapContainer);
     } catch (error) {
-      appLog('SocialMarkers', 'Install failed', error);
+      appLog("SocialMarkers", "Install failed", error);
     }
   }, 0);
   return service;

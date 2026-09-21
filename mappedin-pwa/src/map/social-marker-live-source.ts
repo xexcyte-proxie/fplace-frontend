@@ -1,4 +1,4 @@
-import type { AppState, VenueLiveConnectionStatus } from '../types';
+import type { AppState } from '../types';
 
 export interface SocialMarkerLiveSource {
   /** Heatmap rows from `section_heat_update` drive marker intensity. */
@@ -7,45 +7,21 @@ export interface SocialMarkerLiveSource {
   useLiveFeed: boolean;
   /** True while the venue WebSocket is actually delivering live updates. */
   socketLive: boolean;
-  /** Legacy mock posts: only in pure demo mode (no venue session at all). */
-  useMockSocial: boolean;
-}
-
-function isLiveVenueStatus(
-  status: VenueLiveConnectionStatus | undefined,
-): boolean {
-  return (
-    status === 'connected' ||
-    status === 'connecting' ||
-    status === 'reconnecting'
-  );
 }
 
 /**
- * Prefer venue WebSocket / REST social data over demo map markers.
- * Once a venue is selected (a real backend session), demo markers are never
- * shown again: an empty feed renders as genuinely quiet locations instead
- * of fake counts.
+ * Map markers only reflect live heatmap / venue-feed data.
+ * An empty feed is a quiet venue — never fabricated post counts.
  */
 export function resolveSocialMarkerLiveSource(
   state: Pick<
     AppState,
-    | 'sectionHeatmapActive'
-    | 'venueFeedPosts'
-    | 'socialPosts'
-    | 'venueLiveStatus'
-    | 'selectedVenueId'
+    'sectionHeatmapActive' | 'venueFeedPosts' | 'venueLiveStatus'
   > | null,
 ): SocialMarkerLiveSource {
-  const useLiveHeatmap = Boolean(state?.sectionHeatmapActive);
-  const useLiveFeed = (state?.venueFeedPosts?.length ?? 0) > 0;
-  const hasVenueSession = Boolean(state?.selectedVenueId);
-  const liveSession =
-    useLiveHeatmap || useLiveFeed || isLiveVenueStatus(state?.venueLiveStatus);
   return {
-    useLiveHeatmap,
-    useLiveFeed,
+    useLiveHeatmap: Boolean(state?.sectionHeatmapActive),
+    useLiveFeed: (state?.venueFeedPosts?.length ?? 0) > 0,
     socketLive: state?.venueLiveStatus === 'connected',
-    useMockSocial: !liveSession && !hasVenueSession,
   };
 }

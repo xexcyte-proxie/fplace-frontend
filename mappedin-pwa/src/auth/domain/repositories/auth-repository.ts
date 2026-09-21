@@ -25,8 +25,6 @@ export interface AuthRepository {
   /** Full replace via PUT /api/users/me/. */
   replaceProfile(payload: UpdateProfilePayload): Promise<AuthUser>;
   getProfile(): Promise<AuthUser>;
-  /** Catalog of interest chips: GET /api/users/interests/. */
-  listInterestOptions(): Promise<string[]>;
   refreshTokens(refresh: string): Promise<AuthTokens>;
   logout(refresh: string): Promise<void>;
   deleteAccount(): Promise<void>;

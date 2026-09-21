@@ -1,12 +1,12 @@
+import type { AuthUser } from "./auth/domain/entities";
 import type {
   HomeExperience,
   ReturningHomeContent,
-} from './home/domain/entities';
-import type { PermissionChoice } from './permissions/domain/permission-choice';
-import type { CreateAccountPrompt } from './auth/domain/invalid-access-token';
-import { DEFAULT_INTEREST_OPTIONS } from './auth/domain/interest-options';
+} from "./home/domain/entities";
+import type { PermissionChoice } from "./permissions/domain/permission-choice";
+import type { CreateAccountPrompt } from "./auth/domain/invalid-access-token";
 
-export type MapStatus = 'initial' | 'loading' | 'ready' | 'error';
+export type MapStatus = "initial" | "loading" | "ready" | "error";
 
 export interface FloorInfo {
   id: string;
@@ -40,14 +40,14 @@ export interface RouteCoordinate {
 }
 
 export type TransitionKind =
-  | 'stairs'
-  | 'elevator'
-  | 'escalator'
-  | 'ramp'
-  | 'doorway'
-  | 'floor_connector'
-  | 'connection'
-  | 'unknown';
+  | "stairs"
+  | "elevator"
+  | "escalator"
+  | "ramp"
+  | "doorway"
+  | "floor_connector"
+  | "connection"
+  | "unknown";
 
 export interface TransitionMetadata {
   kind: TransitionKind;
@@ -61,22 +61,29 @@ export interface FloorTransition {
   pathIndex: number;
   fromFloorId: string;
   toFloorId: string;
-  kind: 'elevator' | 'stairs' | 'escalator' | 'ramp' | 'doorway' | 'connection' | 'unknown';
+  kind:
+    | "elevator"
+    | "stairs"
+    | "escalator"
+    | "ramp"
+    | "doorway"
+    | "connection"
+    | "unknown";
   instruction?: string;
 }
 
 export type RouteLifecycleState =
-  | 'generating'
-  | 'generated'
-  | 'ready'
-  | 'sentToAR'
-  | 'accepted'
-  | 'navigating'
-  | 'paused'
-  | 'recalculating'
-  | 'completed'
-  | 'cancelled'
-  | 'expired';
+  | "generating"
+  | "generated"
+  | "ready"
+  | "sentToAR"
+  | "accepted"
+  | "navigating"
+  | "paused"
+  | "recalculating"
+  | "completed"
+  | "cancelled"
+  | "expired";
 
 export interface RouteLifecycleMetadata {
   state: RouteLifecycleState;
@@ -103,7 +110,7 @@ export interface RouteLeg {
   steps: RouteStep[];
   distanceMeters: number;
   durationSeconds: number | null;
-  transitionType: TransitionKind | 'walk' | null;
+  transitionType: TransitionKind | "walk" | null;
   transitionMetadata: TransitionMetadata | null;
 }
 
@@ -130,7 +137,7 @@ export interface RoutePayload {
   routingEngineVersion: string;
   floorTransitions?: FloorTransition[];
   lifecycle: RouteLifecycleMetadata;
-  navigationMode?: 'walk' | 'accessible';
+  navigationMode?: "walk" | "accessible";
 }
 
 export interface RouteMarkers {
@@ -141,21 +148,26 @@ export interface RouteMarkers {
   destinationAreaHint?: string;
 }
 
-export type BlueDotStatus = 'off' | 'starting' | 'active' | 'inactive' | 'error';
+export type BlueDotStatus =
+  | "off"
+  | "starting"
+  | "active"
+  | "inactive"
+  | "error";
 
-export type AppTab = 'map' | 'social' | 'profile';
+export type AppTab = "map" | "social" | "profile";
 
 /** Navigate tab: venue home dashboard vs indoor map. */
-export type NavigateView = 'home' | 'map';
+export type NavigateView = "home" | "map";
 
 export type ProfileView =
-  | 'main'
-  | 'settings'
-  | 'language'
-  | 'edit-profile'
-  | 'change-password'
-  | 'about'
-  | 'privacy';
+  | "main"
+  | "settings"
+  | "language"
+  | "edit-profile"
+  | "change-password"
+  | "about"
+  | "privacy";
 
 /** Comment row on a venue-feed post thread. */
 export interface PostCommentItem {
@@ -171,13 +183,13 @@ export interface PostCommentItem {
 }
 
 /** Destructive confirm dialog shown over Settings. */
-export type SettingsConfirm = null | 'logout' | 'delete-account';
+export type SettingsConfirm = null | "logout" | "delete-account";
 
 /** Guest AR one-time trial dialog (null when closed). */
-export type GuestArGatePrompt = null | 'one-time-info' | 'already-used';
+export type GuestArGatePrompt = null | "one-time-info" | "already-used";
 
 /** In-app legal WebView bottom sheet (Terms). */
-export type LegalWebViewDocument = 'terms';
+export type LegalWebViewDocument = "terms";
 
 /** Personal notification list row (mapped from domain for UI). */
 export interface NotificationItem {
@@ -197,21 +209,21 @@ export interface MapLanguageOption {
 }
 
 export type AuthStep =
-  | 'none'
-  | 'ar-teaser'
-  | 'introduction'
-  | 'features'
-  | 'create'
-  | 'login'
-  | 'forgot-password'
-  | 'reset-password-confirm'
-  | 'check-email'
-  | 'verify'
-  | 'pseudo-name'
-  | 'venue-select'
-  | 'location-permission'
-  | 'location-required'
-  | 'location-error';
+  | "none"
+  | "ar-teaser"
+  | "introduction"
+  | "features"
+  | "create"
+  | "login"
+  | "forgot-password"
+  | "reset-password-confirm"
+  | "check-email"
+  | "verify"
+  | "pseudo-name"
+  | "venue-select"
+  | "location-permission"
+  | "location-required"
+  | "location-error";
 
 /** GPS fix captured during the location permission gate. */
 export interface UserLocationCoords {
@@ -220,28 +232,17 @@ export interface UserLocationCoords {
   accuracy: number | null;
 }
 
-export interface RegisteredUser {
-  id: number;
-  email: string;
-  pseudo_name: string | null;
-  first_name?: string;
-  last_name?: string;
-  bio?: string;
-  avatar_url?: string | null;
-  user_type?: 'regular_user' | 'admin';
-  is_email_verified: boolean;
-  interests?: string[] | null;
-  created_at: string;
-  updated_at: string;
-}
+export type RegisteredUser = AuthUser;
 
-export type SocialCategory = 'all' | 'lines' | 'food' | 'vibe';
+export type SocialCategory = "all" | "lines" | "food" | "vibe";
 
 /** `'all'` or a forum category id string from GET /api/forum/categories/. */
-export type VenueFeedFilter = 'all' | (string & {});
+export type VenueFeedFilter = "all" | (string & {});
 
 export interface VenueFeedPost {
   id: string;
+  /** Venue feed post vs per-section conversation message. */
+  kind?: "post" | "conversation";
   author: string;
   /** Forum user id - used for distinct “fans live”, not post volume. */
   authorId: number;
@@ -268,6 +269,8 @@ export interface ForumVenueSummary {
   location: string;
   latitude?: number | null;
   longitude?: number | null;
+  /** Mappedin map to load for this venue (`Venue.mappedin_map_id`). */
+  mappedinMapId?: string | null;
 }
 
 export interface ForumSectionSummary {
@@ -276,6 +279,8 @@ export interface ForumSectionSummary {
   name: string;
   code: string;
   is_active: boolean;
+  /** Mappedin location id (`Section.mappedin_location_id`). */
+  mappedinLocationId?: string | null;
 }
 
 export interface ForumCategorySummary {
@@ -288,7 +293,7 @@ export interface ForumCategorySummary {
   is_active: boolean;
 }
 
-export type SectionHeatPriority = 'high' | 'medium' | 'low';
+export type SectionHeatPriority = "high" | "medium" | "low";
 
 /** Live section heatmap row from `section_heat_update`. */
 export interface SectionHeatEntry {
@@ -299,13 +304,13 @@ export interface SectionHeatEntry {
 
 /** Venue-room WebSocket lifecycle for live feed + heatmap. */
 export type VenueLiveConnectionStatus =
-  | 'idle'
-  | 'connecting'
-  | 'connected'
-  | 'reconnecting'
-  | 'disconnected'
-  | 'auth_missing'
-  | 'unavailable';
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "disconnected"
+  | "auth_missing"
+  | "unavailable";
 
 export interface SocialPost {
   id: string;
@@ -315,14 +320,14 @@ export interface SocialPost {
   location: string;
   locationId: string;
   timeAgo: string;
-  category: Exclude<SocialCategory, 'all'>;
+  category: Exclude<SocialCategory, "all">;
   categoryLabel: string;
   content: string;
   upvotes: number;
   comments: number;
 }
 
-const AUTH_USER_KEY = 'fplaces_auth_user';
+const AUTH_USER_KEY = "fplaces_auth_user";
 
 export function loadStoredUser(): RegisteredUser | null {
   try {
@@ -354,12 +359,12 @@ export {
   DEFAULT_DISPLAY_NAME,
   resolveDisplayName,
   userNeedsPseudoName,
-} from './auth/domain/entities';
+} from "./auth/domain/entities";
 
-export type AuthLegalDocument = 'terms' | 'privacy';
+export type AuthLegalDocument = "terms" | "privacy";
 
 /** Why the check-email screen is shown (registration verify vs password reset). */
-export type AuthCheckEmailPurpose = 'verify' | 'password-reset';
+export type AuthCheckEmailPurpose = "verify" | "password-reset";
 
 export interface AppState {
   onboardingComplete: boolean;
@@ -381,6 +386,8 @@ export interface AppState {
   /** token from the password-reset email deep link. */
   passwordResetToken: string;
   authLoading: boolean;
+  /** True only while Edit profile is submitting, not during session/venue load. */
+  profileEditSaving: boolean;
   authFieldErrors: Record<string, string>;
   authUser: RegisteredUser | null;
   /** FingerprintJS visitorId for the current browser (null until resolved). */
@@ -409,7 +416,7 @@ export interface AppState {
   /** Placeholder suggestion for the pseudo-name field (not the committed value). */
   pseudoNameHint: string;
   selectedInterests: string[];
-  /** Interest chips from GET /api/users/interests/ (defaults until loaded). */
+  /** Interest chips from GET /api/forum/interests/ (defaults until loaded). */
   interestOptions: string[];
   venueSearchQuery: string;
   selectedVenueId: string | null;
@@ -426,6 +433,8 @@ export interface AppState {
   sectionHeatmapActive: boolean;
   /** Venue-room WebSocket lifecycle for live feed + heatmap. */
   venueLiveStatus: VenueLiveConnectionStatus;
+  /** Location conversation WebSocket lifecycle (`ws/venues/<id>/locations/<id>/`). */
+  locationLiveStatus: VenueLiveConnectionStatus;
   /**
    * True once the cold-start destination is known (onboarding, sign-in, or app).
    * The 3D map may still be loading in the background.
@@ -479,6 +488,10 @@ export interface AppState {
    * Try AR dialog on the first-visit venue home (before leaving for the map).
    */
   arRoutePromptOpen: boolean;
+  /**
+   * Try AR tapped while GPS is away from the selected venue.
+   */
+  arNotAtVenuePromptOpen: boolean;
   toast?: string;
   activeTab: AppTab;
   /** Navigate tab content: venue home vs indoor map. */
@@ -537,6 +550,8 @@ export interface AppState {
   venueFeedLoading: boolean;
   /** True while an older page of the venue feed is being fetched. */
   venueFeedLoadingMore: boolean;
+  /** True while creating a venue post or location message. */
+  venueFeedSubmitting: boolean;
   upvotedPostIds: string[];
   /**
    * Posts the viewer reported, hydrated from per-viewer local storage on feed
@@ -562,24 +577,25 @@ export type LocationActionPrompt = {
   anchor: unknown;
 };
 
-export type ArPresentation = 'closed' | 'fullscreen' | 'minimized';
+export type ArPresentation = "closed" | "fullscreen" | "minimized";
 
 export function isArSessionActive(presentation: ArPresentation): boolean {
-  return presentation !== 'closed';
+  return presentation !== "closed";
 }
 
 export const initialAppState = (): AppState => ({
   /** Resolved after session restore from profile + venue preference. */
   onboardingComplete: false,
-  authStep: 'none',
+  authStep: "none",
   authStepBeforeLocation: null,
-  passwordResetUid: '',
-  passwordResetToken: '',
+  passwordResetUid: "",
+  passwordResetToken: "",
   checkEmailPurpose: null,
   authLegalDocument: null,
   legalWebView: null,
-  authEmail: '',
+  authEmail: "",
   authLoading: false,
+  profileEditSaving: false,
   authFieldErrors: {},
   authUser: loadStoredUser(),
   visitorId: null,
@@ -593,11 +609,11 @@ export const initialAppState = (): AppState => ({
   guestArGateLoading: false,
   guestContinueLoading: false,
   createAccountPrompt: null,
-  pseudoNameDraft: '',
-  pseudoNameHint: '',
+  pseudoNameDraft: "",
+  pseudoNameHint: "",
   selectedInterests: [],
-  interestOptions: [...DEFAULT_INTEREST_OPTIONS],
-  venueSearchQuery: '',
+  interestOptions: [],
+  venueSearchQuery: "",
   selectedVenueId: null,
   selectedGateId: null,
   forumVenues: [],
@@ -607,17 +623,18 @@ export const initialAppState = (): AppState => ({
   forumFeedCount: 0,
   sectionHeatmap: [],
   sectionHeatmapActive: false,
-  venueLiveStatus: 'idle',
+  venueLiveStatus: "idle",
+  locationLiveStatus: "idle",
   startupReady: false,
-  mapStatus: 'initial',
-  loadingMessage: 'Loading map SDK…',
+  mapStatus: "initial",
+  loadingMessage: "Loading map SDK…",
   loadingProgress: 12,
   userLocation: null,
-  locationPermission: 'undecided',
+  locationPermission: "undecided",
   locationGateLoading: false,
   locationPermanentlyDenied: false,
   locationGateError: null,
-  blueDotStatus: 'off',
+  blueDotStatus: "off",
   blueDotFollowing: false,
   routeSimulating: false,
   routeSimulationComplete: false,
@@ -627,7 +644,7 @@ export const initialAppState = (): AppState => ({
   routeTraveledMeters: 0,
   routeRemainingMeters: null,
   floors: [],
-  searchQuery: '',
+  searchQuery: "",
   searchResults: [],
   isSearching: false,
   searchChips: [],
@@ -637,16 +654,17 @@ export const initialAppState = (): AppState => ({
   showRouteSheet: false,
   route: null,
   currentLegIndex: 0,
-  routeInstructions: '',
-  arPresentation: 'closed',
+  routeInstructions: "",
+  arPresentation: "closed",
   arRouteSetupActive: false,
   arRoutePromptOpen: false,
-  activeTab: 'map',
-  navigateView: 'home',
-  homeExperience: 'returning',
-  homeVenueSearchQuery: '',
+  arNotAtVenuePromptOpen: false,
+  activeTab: "map",
+  navigateView: "home",
+  homeExperience: "returning",
+  homeVenueSearchQuery: "",
   homeContent: null,
-  profileView: 'main',
+  profileView: "main",
   settingsConfirm: null,
   notificationsEnabled: true,
   notificationsOpen: false,
@@ -661,7 +679,7 @@ export const initialAppState = (): AppState => ({
   postCommentsOpen: false,
   postCommentsPostId: null,
   postComments: [],
-  postCommentsDraft: '',
+  postCommentsDraft: "",
   postCommentsLoading: false,
   postCommentsSubmitting: false,
   postCommentsEditing: false,
@@ -671,17 +689,18 @@ export const initialAppState = (): AppState => ({
   mapLanguageCode: null,
   mapLanguageName: null,
   mapLanguageChanging: false,
-  socialCategory: 'all',
+  socialCategory: "all",
   socialLocation: null,
   socialLocationName: null,
   socialTag: null,
-  socialDraft: '',
+  socialDraft: "",
   socialPosts: [],
-  venueFeedFilter: 'all',
-  venueFeedDraft: '',
+  venueFeedFilter: "all",
+  venueFeedDraft: "",
   venueFeedPosts: [],
   venueFeedLoading: false,
   venueFeedLoadingMore: false,
+  venueFeedSubmitting: false,
   upvotedPostIds: [],
   flaggedPostIds: [],
   locationActionPrompt: null,

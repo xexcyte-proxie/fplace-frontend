@@ -19,6 +19,7 @@ export interface HomeStats {
 
 export interface ReturningHomeContent {
   recentlyVisited: RecentVenueVisit[];
+  otherVenues: RecentVenueVisit[];
   stats: HomeStats;
 }
 
@@ -53,6 +54,8 @@ export interface FirstVisitCrowdPost {
   content: string;
   upvotes: number;
   upvoted: boolean;
+  /** False for location-conversation rows that have no post upvote API. */
+  upvoteable: boolean;
 }
 
 export interface FirstVisitVenueHomeContent {
@@ -70,7 +73,8 @@ export function greetingForHour(hour: number): string {
 }
 
 export function formatFansHereLabel(count: number): string {
-  return `${count.toLocaleString('en-US')} fans here right now`;
+  const n = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+  return `${n.toLocaleString('en-US')} fan(s) here right now`;
 }
 
 export function countDistinctFans(

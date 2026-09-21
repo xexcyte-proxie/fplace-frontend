@@ -2,8 +2,8 @@
  * Catalog of interest chips for onboarding / profile.
  * Labels must match strings stored on `User.interests`.
  *
- * Source of truth: GET /api/users/interests/.
- * This list is only used when that catalog has not loaded yet.
+ * Source of truth: GET /api/forum/interests/?is_active=true.
+ * Use only after that fetch fails or returns no active labels.
  */
 export const DEFAULT_INTEREST_OPTIONS = [
   'Home team',
@@ -44,6 +44,19 @@ function uniqueLabels(labels: string[]): string[] {
     out.push(label);
   }
   return out;
+}
+
+/**
+ * Prefer the fetched catalog. Fall back only when the response is empty
+ * (or the fetch never produced labels).
+ */
+export function interestOptionsAfterFetch(
+  catalog: readonly string[] | null | undefined,
+): string[] {
+  const options = uniqueLabels(
+    (catalog ?? []).map((item) => item.trim()).filter(Boolean),
+  );
+  return options.length ? options : [...DEFAULT_INTEREST_OPTIONS];
 }
 
 /**

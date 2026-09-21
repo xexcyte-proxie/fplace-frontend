@@ -415,6 +415,10 @@
 }
 
 .settings-confirm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   flex: 1;
   min-height: 44px;
   border: 0;

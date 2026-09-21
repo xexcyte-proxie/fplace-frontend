@@ -1,7 +1,10 @@
 import type { MapData } from '@mappedin/mappedin-js';
 
 export interface LocationAnchor {
+  /** Space/anchor id used to place a unique marker. */
   id: string;
+  /** Mappedin location id joined to `Section.mappedin_location_id`. */
+  locationId: string;
   name: string;
   anchor: unknown;
 }
@@ -42,12 +45,22 @@ export function collectLocationAnchors(mapData: MapData): LocationAnchor[] {
   const entries: LocationAnchor[] = [];
   const seenSpaceIds = new Set<string>();
 
-  const push = (target: unknown, name: string | undefined, idHint: string): void => {
+  const push = (
+    target: unknown,
+    name: string | undefined,
+    idHint: string,
+    locationId: string,
+  ): void => {
     if (!target || !name?.trim()) return;
     const spaceId = anchorId(target, idHint);
     if (seenSpaceIds.has(spaceId)) return;
     seenSpaceIds.add(spaceId);
-    entries.push({ id: spaceId, name: name.trim(), anchor: target });
+    entries.push({
+      id: spaceId,
+      locationId: locationId.trim() || spaceId,
+      name: name.trim(),
+      anchor: target,
+    });
   };
 
   for (const profile of mapData.getByType('location-profile')) {
@@ -59,7 +72,7 @@ export function collectLocationAnchors(mapData: MapData): LocationAnchor[] {
       mapObjects?: unknown[];
     };
     const anchor = profileAnchor(mapData, typed);
-    if (anchor) push(anchor, typed.name, typed.id);
+    if (anchor) push(anchor, typed.name, typed.id, typed.id);
   }
 
   if ((mapData as { isEnterpriseMode?: boolean }).isEnterpriseMode) {
@@ -69,13 +82,13 @@ export function collectLocationAnchors(mapData: MapData): LocationAnchor[] {
       const anchor =
         spaces.map((entry) => resolveSpaceRef(mapData, entry)).find(Boolean) ??
         location;
-      push(anchor, typed.name, typed.id);
+      push(anchor, typed.name, typed.id, typed.id);
     }
   }
 
   for (const space of mapData.getByType('space')) {
     if (!space.name || seenSpaceIds.has(space.id)) continue;
-    push(space, space.name, space.id);
+    push(space, space.name, space.id, space.id);
   }
 
   return entries;

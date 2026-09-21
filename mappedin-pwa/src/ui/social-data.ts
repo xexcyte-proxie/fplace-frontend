@@ -47,51 +47,6 @@ export const SOCIAL_CATEGORY_LABELS: Record<
   vibe: 'Fan Vibe',
 };
 
-export const INITIAL_SOCIAL_POSTS: SocialPost[] = [
-  {
-    id: 'post-1',
-    author: 'JagTifosi',
-    initials: 'JT',
-    avatarColor: '#ef4444',
-    location: 'Section 114',
-    locationId: 'section-114',
-    timeAgo: '2m ago',
-    category: 'vibe',
-    categoryLabel: 'Fan Vibe',
-    content: 'Atmosphere in 114 right now is unreal',
-    upvotes: 47,
-    comments: 6,
-  },
-  {
-    id: 'post-2',
-    author: 'MapleNine',
-    initials: 'M9',
-    avatarColor: '#3b82f6',
-    location: 'Gate A',
-    locationId: 'gate-a',
-    timeAgo: '4m ago',
-    category: 'lines',
-    categoryLabel: 'Lines & Crowds',
-    content: 'Long line at Gate A, moving slow. Gate C looks clearer.',
-    upvotes: 22,
-    comments: 2,
-  },
-  {
-    id: 'post-3',
-    author: 'RedKestrel',
-    initials: 'RK',
-    avatarColor: '#f97316',
-    location: 'Food Court',
-    locationId: 'food-court',
-    timeAgo: '8m ago',
-    category: 'food',
-    categoryLabel: 'Food & Drinks',
-    content: 'Free samples at the popcorn stand near Food Court',
-    upvotes: 31,
-    comments: 4,
-  },
-];
-
 export function filterSocialPosts(
   posts: SocialPost[],
   category: SocialCategory,

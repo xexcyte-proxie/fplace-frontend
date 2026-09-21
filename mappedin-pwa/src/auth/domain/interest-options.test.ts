@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DEFAULT_INTEREST_OPTIONS,
+  interestOptionsAfterFetch,
   interestOptionsForPicker,
   parseInterestOptionsPayload,
 } from './interest-options';
@@ -37,6 +39,27 @@ describe('parseInterestOptionsPayload', () => {
   it('ignores empty payloads', () => {
     expect(parseInterestOptionsPayload({})).toEqual([]);
     expect(parseInterestOptionsPayload(null)).toEqual([]);
+  });
+});
+
+describe('interestOptionsAfterFetch', () => {
+  it('keeps a non-empty backend catalog', () => {
+    expect(interestOptionsAfterFetch(['Live music', 'Merch'])).toEqual([
+      'Live music',
+      'Merch',
+    ]);
+  });
+
+  it('uses the static fallback when the catalog is empty or missing', () => {
+    expect(interestOptionsAfterFetch([])).toEqual([
+      ...DEFAULT_INTEREST_OPTIONS,
+    ]);
+    expect(interestOptionsAfterFetch(null)).toEqual([
+      ...DEFAULT_INTEREST_OPTIONS,
+    ]);
+    expect(interestOptionsAfterFetch(undefined)).toEqual([
+      ...DEFAULT_INTEREST_OPTIONS,
+    ]);
   });
 });
 

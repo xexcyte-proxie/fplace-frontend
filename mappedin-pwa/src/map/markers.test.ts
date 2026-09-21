@@ -78,7 +78,7 @@ describe('MapMarkerService live navigation', () => {
     });
   });
 
-  it('restores the visible dot and directional glow after ambient boot', () => {
+  it('keeps ambient boot invisible so GPS does not look like a start pin', () => {
     const service = new MapMarkerService({} as never);
     const blueDot = blueDotMock.instances[0];
 
@@ -86,7 +86,9 @@ describe('MapMarkerService live navigation', () => {
     expect(blueDot.enable).toHaveBeenCalledWith(
       expect.objectContaining({
         color: 'transparent',
-        heading: expect.objectContaining({ visible: true, opacity: 0.85 }),
+        visible: false,
+        heading: expect.objectContaining({ visible: false }),
+        accuracyRing: expect.objectContaining({ visible: false }),
       }),
     );
 

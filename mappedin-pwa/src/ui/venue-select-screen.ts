@@ -1,13 +1,10 @@
 import type { AppState } from '../types';
-import { renderContentLoadingOverlay } from './content-loading-overlay';
+import { renderBusyLabel, renderContentLoadingOverlay } from './content-loading-overlay';
+import { escapeHtml } from './escape-html';
 import {
   sectionToOption,
   venuesForPicker,
 } from './venue-select-data';
-
-const AUTH_ASSETS = {
-  back: '/auth/back-chevron.svg',
-} as const;
 
 function selectedCheckIcon(): string {
   return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor"/><path d="M8 12.5l2.5 2.5L16 9.5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -15,6 +12,49 @@ function selectedCheckIcon(): string {
 
 function idleCheckIcon(): string {
   return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9.25" stroke="currentColor" stroke-width="1.5"/></svg>`;
+}
+
+function backChevronIcon(): string {
+  return `<svg class="auth-back-icon" width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true"><path d="M13.75 16.5L8.25 11L13.75 5.5" stroke="currentColor" stroke-width="1.83333" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+/**
+ * Gate taps only change selection chrome. Patch in place so the back button
+ * and scroll host are not torn down on every click.
+ */
+export function applyVenueSelectGatePatch(
+  root: ParentNode,
+  state: Pick<
+    AppState,
+    'selectedGateId' | 'selectedVenueId' | 'authLoading' | 'authFieldErrors'
+  >,
+): void {
+  const screen = root.querySelector('.venue-select-screen');
+  if (!screen) return;
+
+  if (!state.authFieldErrors._form) {
+    screen.querySelector('.auth-form-error')?.remove();
+  }
+
+  for (const button of screen.querySelectorAll<HTMLButtonElement>(
+    '[data-gate-id]',
+  )) {
+    const selected = button.dataset.gateId === state.selectedGateId;
+    button.classList.toggle('venue-select-card--selected', selected);
+    button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    const check = button.querySelector('.venue-select-card-check');
+    if (check) {
+      check.innerHTML = selected ? selectedCheckIcon() : idleCheckIcon();
+    }
+  }
+
+  const enter = screen.querySelector<HTMLButtonElement>(
+    '#venue-select-enter-btn',
+  );
+  if (enter) {
+    enter.disabled =
+      state.authLoading || !state.selectedVenueId || !state.selectedGateId;
+  }
 }
 
 function pinIcon(): string {
@@ -107,7 +147,9 @@ export function renderVenueSelectScreen(
   const gatesLoading =
     Boolean(state.selectedVenueId) &&
     state.authLoading &&
-    sections.length === 0;
+    sections.length === 0 &&
+    !venuesLoading;
+  const enteringVenue = state.authLoading && !venuesLoading && !gatesLoading;
 
   const venuesEmpty = venuesLoading
     ? ''
@@ -120,14 +162,7 @@ export function renderVenueSelectScreen(
   return `
     <div class="auth-screen venue-select-screen">
       <button type="button" id="venue-select-back-btn" class="auth-back-btn" aria-label="Back">
-        <img
-          class="auth-back-icon"
-          src="${AUTH_ASSETS.back}"
-          alt=""
-          width="22"
-          height="22"
-          decoding="async"
-        />
+        ${backChevronIcon()}
       </button>
 
       <div class="auth-header">
@@ -168,7 +203,7 @@ export function renderVenueSelectScreen(
         </section>
 
         ${
-          state.selectedVenueId
+          state.selectedVenueId && !venuesLoading
             ? `
         <section class="venue-select-section" aria-labelledby="venue-select-gates-heading">
           <h2 id="venue-select-gates-heading" class="venue-select-section-label">Select your entry gate</h2>
@@ -191,20 +226,13 @@ export function renderVenueSelectScreen(
         <button
           type="button"
           id="venue-select-enter-btn"
-          class="auth-cta-primary auth-submit-btn"
+          class="auth-cta-primary auth-submit-btn${enteringVenue ? ' is-loading' : ''}"
           ${state.authLoading || !state.selectedVenueId || !state.selectedGateId ? 'disabled' : ''}
+          aria-busy="${enteringVenue ? 'true' : 'false'}"
         >
-          ${state.authLoading ? 'Loading…' : 'Enter venue'}
+          ${enteringVenue ? renderBusyLabel('Entering venue…') : 'Enter venue'}
         </button>
       </div>
     </div>
   `;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
 }

@@ -4,7 +4,6 @@ import type { AppState } from '../types';
 export type SocialMarkerSyncInputs = Pick<
   AppState,
   | 'socialLocation'
-  | 'socialPosts'
   | 'sectionHeatmap'
   | 'sectionHeatmapActive'
   | 'forumSections'
@@ -18,7 +17,6 @@ export function socialMarkerSyncInputsFromState(
 ): SocialMarkerSyncInputs {
   return {
     socialLocation: state.socialLocation,
-    socialPosts: state.socialPosts,
     sectionHeatmap: state.sectionHeatmap,
     sectionHeatmapActive: state.sectionHeatmapActive,
     forumSections: state.forumSections,
@@ -39,7 +37,6 @@ export function socialMarkerSyncInputsUnchanged(
   if (!previous) return false;
   return (
     Object.is(previous.socialLocation, next.socialLocation) &&
-    Object.is(previous.socialPosts, next.socialPosts) &&
     Object.is(previous.sectionHeatmap, next.sectionHeatmap) &&
     Object.is(previous.sectionHeatmapActive, next.sectionHeatmapActive) &&
     Object.is(previous.forumSections, next.forumSections) &&

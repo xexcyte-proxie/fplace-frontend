@@ -3,28 +3,20 @@ import {
   formatResendCountdown,
   RESEND_OTP_COOLDOWN_SECONDS,
 } from '../auth/domain/resend-countdown';
+import { AUTH_AUTOCOMPLETE } from './auth-autofill';
+import { authFieldError } from './auth-field-error';
+import { renderBusyLabel } from './content-loading-overlay';
+import { escapeHtml } from './escape-html';
 
 const AUTH_ASSETS = {
   back: '/auth/back-chevron.svg',
 } as const;
 
-function fieldError(errors: Record<string, string>, key: string): string {
-  return errors[key] ?? '';
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
-
 export function renderVerifyEmailScreen(
   state: Pick<AppState, 'authEmail' | 'authLoading' | 'authFieldErrors'>,
 ): string {
-  const otpError = fieldError(state.authFieldErrors, 'otp');
-  const generalError = fieldError(state.authFieldErrors, '_form');
+  const otpError = authFieldError(state.authFieldErrors, 'otp');
+  const generalError = authFieldError(state.authFieldErrors, '_form');
   const digits = Array.from({ length: 6 }, (_, index) => index);
 
   return `
@@ -47,7 +39,7 @@ export function renderVerifyEmailScreen(
         </p>
       </div>
 
-      <form id="verify-email-form" class="auth-form" autocomplete="off" novalidate>
+      <form id="verify-email-form" class="auth-form" method="post" autocomplete="on" novalidate>
         ${
           generalError
             ? `<p class="auth-form-error" role="alert">${escapeHtml(generalError)}</p>`
@@ -63,11 +55,11 @@ export function renderVerifyEmailScreen(
                 id="otp-digit-${index}"
                 class="otp-digit${otpError ? ' otp-digit--error' : ''}"
                 type="text"
-                name="${index === 0 ? 'one-time-code' : `otp-digit-${index}`}"
+                name="${index === 0 ? AUTH_AUTOCOMPLETE.oneTimeCode : `otp-digit-${index}`}"
                 inputmode="numeric"
                 pattern="[0-9]*"
                 maxlength="${index === 0 ? 6 : 1}"
-                autocomplete="${index === 0 ? 'one-time-code' : 'off'}"
+                autocomplete="${index === 0 ? AUTH_AUTOCOMPLETE.oneTimeCode : 'off'}"
                 autocapitalize="off"
                 autocorrect="off"
                 spellcheck="false"
@@ -104,10 +96,11 @@ export function renderVerifyEmailScreen(
           <button
             type="submit"
             id="verify-submit-btn"
-            class="auth-cta-primary auth-submit-btn"
+            class="auth-cta-primary auth-submit-btn${state.authLoading ? ' is-loading' : ''}"
             ${state.authLoading ? 'disabled' : ''}
+            aria-busy="${state.authLoading ? 'true' : 'false'}"
           >
-            ${state.authLoading ? 'Verifying…' : 'Verify'}
+            ${state.authLoading ? renderBusyLabel('Verifying…') : 'Verify'}
           </button>
         </div>
       </form>

@@ -1,34 +1,50 @@
+import { formatCountNoun } from '../auth/domain/user-stats';
 import type { AppState, VenueLiveConnectionStatus } from '../types';
-import { formatUnreadBadge } from './notifications-data';
-import { renderContentLoadingOverlay } from './content-loading-overlay';
 import {
-  categoryFiltersFromApi,
+  FORUM_POST_CONTENT_MAX_LENGTH,
+  LOCATION_MESSAGE_CONTENT_MAX_LENGTH,
+} from '../forum/domain/entities';
+import {
+  canCreateVenuePost,
+  postingNotAtVenueComposerHint,
+  postingNotAtVenueCopy,
+} from '../forum/domain/venue-posting';
+import { userVenuePresence } from '../location/domain/venue-presence';
+import { formatUnreadBadge } from './notifications-data';
+import {
+  renderBusyIndicator,
+  renderBusyLabel,
+  renderContentLoadingOverlay,
+} from './content-loading-overlay';
+import {
   estimateFansLive,
   filterVenueFeedPosts,
   helpDisclaimer,
+  isConversationFeedItem,
   resolveVenueFeedAreaName,
   scopeVenueFeedPostsToLocation,
+  venueFeedSectionChips,
   VENUE_FEED_QUICK_REPLIES,
   venueFeedTimeAgo,
 } from './venue-feed-data';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
+import { escapeHtml } from './escape-html';
 
 function formatLiveCount(count: number): string {
   return count.toLocaleString('en-US');
 }
 
-function venueLiveStatusMeta(status: VenueLiveConnectionStatus): {
+function venueLiveStatusMeta(
+  status: VenueLiveConnectionStatus,
+  conversation: boolean,
+): {
   dotClass: string;
   subtitle: string;
   banner: string | null;
 } {
+  const recentSource = conversation
+    ? 'this conversation'
+    : 'the venue';
+  const recentNoun = conversation ? 'messages' : 'posts';
   switch (status) {
     case 'idle':
       return { dotClass: 'venue-feed-live-dot--pending', subtitle: '', banner: null };
@@ -38,33 +54,33 @@ function venueLiveStatusMeta(status: VenueLiveConnectionStatus): {
       return {
         dotClass: 'venue-feed-live-dot--pending',
         subtitle: 'Connecting live updates…',
-        banner: 'Connecting live updates. Recent posts below already come from the venue.',
+        banner: `Connecting live updates. Recent ${recentNoun} below already come from ${recentSource}.`,
       };
     case 'reconnecting':
       return {
         dotClass: 'venue-feed-live-dot--pending',
         subtitle: 'Reconnecting live updates…',
-        banner: 'Live connection dropped. Retrying. Recent posts below still come from the venue.',
+        banner: `Live connection dropped. Retrying. Recent ${recentNoun} below still come from ${recentSource}.`,
       };
     case 'auth_missing':
       return {
         dotClass: 'venue-feed-live-dot--offline',
         subtitle: 'Live updates paused',
-        banner: 'Sign in required for live updates. Recent posts below still come from the venue.',
+        banner: `Sign in required for live updates. Recent ${recentNoun} below still come from ${recentSource}.`,
       };
     case 'unavailable':
       return {
         dotClass: 'venue-feed-live-dot--offline',
         subtitle: 'Live updates unavailable',
-        banner:
-          'This page is HTTPS but the live server is not (ws://). Recent posts still load. Heatmap needs a secure wss host.',
+        banner: conversation
+          ? 'This page is HTTPS but the live server is not (ws://). Recent messages still load.'
+          : 'This page is HTTPS but the live server is not (ws://). Recent posts still load. Heatmap needs a secure wss host.',
       };
     case 'disconnected':
       return {
         dotClass: 'venue-feed-live-dot--offline',
         subtitle: 'Live updates offline',
-        banner:
-          'Live updates are offline. Recent posts below still come from the venue.',
+        banner: `Live updates are offline. Recent ${recentNoun} below still come from ${recentSource}.`,
       };
     default:
       return { dotClass: 'venue-feed-live-dot--offline', subtitle: 'Live updates offline', banner: null };
@@ -118,62 +134,95 @@ export function renderVenueFeedScreen(state: AppState): string {
   );
   const posts = filterVenueFeedPosts(
     scope.posts,
-    state.venueFeedFilter,
+    scope.scoped ? 'all' : state.venueFeedFilter,
     null,
   );
-  const draftLength = state.venueFeedDraft.length;
-  const venueName =
-    state.forumVenues.find((venue) => String(venue.id) === state.selectedVenueId)
-      ?.name ?? 'Venue';
+  const isConversation = scope.scoped;
+  const isConversationList =
+    isConversation ||
+    posts.some(isConversationFeedItem) ||
+    posts.length === 0;
+  const selectedVenue = state.forumVenues.find(
+    (venue) => String(venue.id) === state.selectedVenueId,
+  );
+  const canPostHere = canCreateVenuePost(
+    userVenuePresence(
+      state.locationPermission,
+      state.userLocation,
+      selectedVenue,
+    ),
+  );
+  const canCompose = isConversation && canPostHere;
+  const composerMax = isConversationList
+    ? LOCATION_MESSAGE_CONTENT_MAX_LENGTH
+    : FORUM_POST_CONTENT_MAX_LENGTH;
+  const draftLength = Math.min(state.venueFeedDraft.length, composerMax);
+  const venueName = selectedVenue?.name ?? 'Venue';
   const areaName = resolveVenueFeedAreaName(scope, state.socialLocationName);
   const scopeLabel = areaName
     ?? (scope.scoped ? state.socialLocation : null)
     ?? venueName;
-  const feedTitle = areaName ?? 'Venue feed';
+  const feedTitle = areaName ?? 'Conversations';
   const liveCount = estimateFansLive(
     scope.posts,
     state.authUser?.id ?? null,
   );
-  const liveStatus = venueLiveStatusMeta(state.venueLiveStatus);
-  // Only claim "fans live" while the venue socket is actually connected;
-  // otherwise describe the feed as recent posts (idle) or show the status.
+  const liveStatus = venueLiveStatusMeta(
+    isConversation ? state.locationLiveStatus : state.venueLiveStatus,
+    isConversationList,
+  );
+  // Only claim "fans live" while the matching socket is actually connected;
+  // otherwise describe the feed as recent posts/messages (idle) or show the status.
+  const liveConnection = isConversation
+    ? state.locationLiveStatus
+    : state.venueLiveStatus;
   const liveSubtitle = liveStatus.subtitle
     ? liveStatus.subtitle
-    : state.venueLiveStatus === 'connected'
+    : liveConnection === 'connected'
       ? `${scopeLabel} · ${formatLiveCount(liveCount)} fan(s) live`
-      : `${scopeLabel} · recent posts`;
-  const filters = categoryFiltersFromApi(state.forumCategories)
+      : `${scopeLabel} · recent ${isConversationList ? 'messages' : 'posts'}`;
+  const filters = venueFeedSectionChips(
+    state.forumSections,
+    state.socialLocation,
+  )
     .map(
       (filter) => `
       <button
         type="button"
-        class="venue-feed-filter ${state.venueFeedFilter === filter.id ? 'is-active' : ''} ${filter.helpIcon ? 'venue-feed-filter--help' : ''}"
-        data-venue-filter="${escapeHtml(filter.id)}"
-      >
+        class="venue-feed-filter ${filter.active ? 'is-active' : ''}"
+        data-venue-section="${escapeHtml(filter.locationId ?? '')}"
         ${
-          filter.helpIcon
-            ? `<svg class="venue-feed-filter-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 10v4M9 8v8M13 6v12M17 9v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>`
+          filter.locationId
+            ? `data-venue-section-name="${escapeHtml(filter.label)}"`
             : ''
         }
+      >
         ${escapeHtml(filter.label)}
       </button>
     `,
     )
     .join('');
 
-  const quickReplies = VENUE_FEED_QUICK_REPLIES.map(
-    (reply) => `
+  const quickReplies = canCompose
+    ? VENUE_FEED_QUICK_REPLIES.map(
+        (reply) => `
       <button type="button" class="venue-feed-quick-reply" data-venue-quick-reply="${escapeHtml(reply)}">
         ${escapeHtml(reply)}
       </button>
     `,
-  ).join('');
+      ).join('')
+    : '';
 
   const categoryNameById = new Map(
     state.forumCategories.map((category) => [String(category.id), category.name]),
   );
 
-  const feedLoading = state.venueFeedLoading && posts.length === 0;
+  const feedLoading =
+    state.venueFeedLoading &&
+    posts.length === 0 &&
+    !state.venueFeedSubmitting;
+  const sending = state.venueFeedSubmitting;
+  const loadingMore = state.venueFeedLoadingMore && !sending;
   const feed = posts.length
     ? posts
         .map((post) => {
@@ -181,6 +230,7 @@ export function renderVenueFeedScreen(state: AppState): string {
             state.upvotedPostIds.includes(post.id) || Boolean(post.hasUpvoted);
           const flagged = state.flaggedPostIds.includes(post.id);
           const isHelp = post.helpCard || post.feedType === 'help';
+          const isMessage = isConversationList || isConversationFeedItem(post);
           return `
         <article class="venue-feed-card ${isHelp ? 'venue-feed-card--help' : ''}">
           <div class="venue-feed-card-header">
@@ -193,10 +243,17 @@ export function renderVenueFeedScreen(state: AppState): string {
                 <div class="venue-feed-meta">${escapeHtml(post.location)} · ${escapeHtml(venueFeedTimeAgo(post))}</div>
               </div>
             </div>
-            <span class="venue-feed-badge ${badgeClass(post.feedType)}">${escapeHtml(badgeLabel(post.feedType, categoryNameById.get(post.categoryId)))}</span>
+            ${
+              isMessage
+                ? ''
+                : `<span class="venue-feed-badge ${badgeClass(post.feedType)}">${escapeHtml(badgeLabel(post.feedType, categoryNameById.get(post.categoryId)))}</span>`
+            }
           </div>
           <p class="venue-feed-card-content">${escapeHtml(post.content)}</p>
-          <div class="venue-feed-card-footer">
+          ${
+            isMessage
+              ? ''
+              : `<div class="venue-feed-card-footer">
             <div class="venue-feed-card-actions">
               <button
                 type="button"
@@ -214,7 +271,7 @@ export function renderVenueFeedScreen(state: AppState): string {
                 type="button"
                 class="venue-feed-comment"
                 data-comments-id="${escapeHtml(post.id)}"
-                aria-label="${post.comments} comments"
+                aria-label="${formatCountNoun(post.comments, 'comment')}"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
@@ -238,39 +295,63 @@ export function renderVenueFeedScreen(state: AppState): string {
                 }
               </svg>
             </button>
-          </div>
+          </div>`
+          }
         </article>
       `;
         })
         .join('')
     : feedLoading
       ? ''
-      : `<p class="venue-feed-empty">No posts yet for ${
+      : `<p class="venue-feed-empty">No ${
+        isConversationList ? 'messages' : 'posts'
+      } yet for ${
         scope.scoped ? escapeHtml(scopeLabel) : 'this venue'
-      }. Be the first to shout out.</p>`;
+      }. ${
+        isConversation
+          ? 'Be the first to say something.'
+          : isConversationList
+            ? 'Open a section to start chatting.'
+            : 'Be the first to shout out.'
+      }</p>`;
 
   const locationScopeChip = scope.scoped
     ? `
         <div class="venue-feed-location-scope" role="status">
-          <span class="venue-feed-location-scope-label">Posts for ${escapeHtml(scopeLabel)}</span>
+          <span class="venue-feed-location-scope-label">${
+            isConversation
+              ? `Conversation · ${escapeHtml(scopeLabel)}`
+              : `Posts for ${escapeHtml(scopeLabel)}`
+          }</span>
           <button
             type="button"
             id="venue-feed-clear-location-btn"
             class="venue-feed-location-scope-clear"
-            aria-label="Show all venue posts"
-          >All venue ✕</button>
+            aria-label="Show all conversations"
+          >All conversations ✕</button>
         </div>
       `
     : '';
 
-  const loadMore = state.forumFeedNext
+  const loadMore = state.forumFeedNext && !feedLoading
     ? `
         <button
           type="button"
           id="venue-feed-load-more-btn"
-          class="venue-feed-load-more"
-          ${state.venueFeedLoadingMore ? 'disabled' : ''}
-        >${state.venueFeedLoadingMore ? 'Loading older posts…' : 'Show older posts'}</button>
+          class="venue-feed-load-more${loadingMore ? ' is-loading' : ''}"
+          ${loadingMore || sending ? 'disabled' : ''}
+          aria-busy="${loadingMore ? 'true' : 'false'}"
+        >${
+          loadingMore
+            ? renderBusyLabel(
+                isConversationList
+                  ? 'Loading older messages…'
+                  : 'Loading older posts…',
+              )
+            : isConversationList
+              ? 'Show older messages'
+              : 'Show older posts'
+        }</button>
       `
     : '';
 
@@ -278,7 +359,9 @@ export function renderVenueFeedScreen(state: AppState): string {
     helpDisclaimer(state.forumCategories, state.venueFeedFilter) ??
     helpDisclaimer(state.forumCategories, 'all') ??
     'For medical or security emergencies, please contact stadium staff directly.';
-  const emergencyBanner = `
+  const emergencyBanner = isConversationList
+    ? ''
+    : `
         <div class="venue-feed-emergency" role="note">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.75"></circle>
@@ -329,42 +412,80 @@ export function renderVenueFeedScreen(state: AppState): string {
           </button>
         </header>
 
-        <div class="venue-feed-filters">${filters}</div>
+        <div class="venue-feed-filters" role="tablist" aria-label="Venue sections">${filters}</div>
         ${locationScopeChip}
         ${liveBanner}
         ${emergencyBanner}
         <div class="venue-feed-list screen-loading-host">
           ${feed}
-          ${feedLoading ? renderContentLoadingOverlay('Loading posts') : ''}
+          ${
+            feedLoading
+              ? renderContentLoadingOverlay(
+                  isConversation
+                    ? 'Loading conversation'
+                    : isConversationList
+                      ? 'Loading conversations'
+                      : 'Loading posts',
+                )
+              : ''
+          }
         </div>
         ${loadMore}
       </div>
 
       <div class="venue-feed-composer" data-tour-id="venue-composer">
-        <div class="venue-feed-quick-replies">${quickReplies}</div>
+        ${
+          !canPostHere
+            ? `<p class="venue-feed-composer-note" role="status">${escapeHtml(
+                postingNotAtVenueCopy(venueName).body,
+              )}</p>`
+            : `<div class="venue-feed-quick-replies">${quickReplies}</div>`
+        }
         <div class="venue-feed-input-row">
           <input
             id="venue-feed-input"
             class="venue-feed-input"
             type="text"
-            maxlength="140"
-            placeholder="${escapeHtml(scope.scoped ? `Shout out to ${scopeLabel}` : 'Shout out to your section')}"
+            maxlength="${composerMax}"
+            placeholder="${escapeHtml(
+              !canPostHere
+                ? postingNotAtVenueComposerHint()
+                : isConversation
+                  ? `Message ${scopeLabel}`
+                  : isConversationList
+                    ? 'Pick a section to chat'
+                    : 'Shout out to your section',
+            )}"
             value="${escapeHtml(state.venueFeedDraft)}"
+            ${sending || !canCompose ? 'disabled' : ''}
           />
           <button
             type="button"
             id="venue-feed-send-btn"
-            class="venue-feed-send-btn"
-            aria-label="Send"
-            ${state.venueFeedDraft.trim() ? '' : 'disabled'}
+            class="venue-feed-send-btn${sending ? ' is-loading' : ''}"
+            aria-label="${sending ? 'Sending' : 'Send'}"
+            aria-busy="${sending ? 'true' : 'false'}"
+            ${
+              sending || !canCompose || !state.venueFeedDraft.trim()
+                ? 'disabled'
+                : ''
+            }
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            ${
+              sending
+                ? renderBusyIndicator()
+                : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M22 2L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
               <path d="M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
-            </svg>
+            </svg>`
+            }
           </button>
         </div>
-        <div class="venue-feed-char-count">${draftLength} / 140</div>
+        ${
+          canPostHere
+            ? `<div class="venue-feed-char-count">${draftLength} / ${composerMax}</div>`
+            : ''
+        }
       </div>
     </div>
   `;

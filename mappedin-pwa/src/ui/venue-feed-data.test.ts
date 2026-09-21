@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ForumPost } from '../forum/domain/entities';
+import type { ForumPost, LocationMessage } from '../forum/domain/entities';
 import {
   appendOlderVenueFeedPosts,
   applyCommentCounts,
   mapForumPostToVenueFeed,
+  mapLocationMessageToVenueFeed,
   nextFeedPageFromUrl,
   resolveVenueFeedAreaName,
   scopeVenueFeedPostsToLocation,
+  venueFeedSectionChips,
   venueFeedTimeAgo,
 } from './venue-feed-data';
 import type { ForumSectionSummary, VenueFeedPost } from '../types';
@@ -69,6 +71,47 @@ describe('mapForumPostToVenueFeed', () => {
     expect(mapped.comments).toBe(6);
     expect(mapped.upvotes).toBe(5);
     expect(mapped.location).toBe('North');
+    expect(mapped.kind).toBe('post');
+    expect(mapped.initials).toBe('JO');
+    expect(mapped.avatarColor).toBe('#16a085');
+  });
+
+  it('falls back to Guest when display_name is blank', () => {
+    const mapped = mapForumPostToVenueFeed(
+      { ...post, user: { id: 0, display_name: '   ' } },
+      new Map(),
+      new Map(),
+    );
+    expect(mapped.author).toBe('Guest');
+    expect(mapped.initials).toBe('GU');
+    expect(mapped.location).toBe('Venue');
+  });
+});
+
+describe('mapLocationMessageToVenueFeed', () => {
+  it('maps a location message without post-only fields', () => {
+    const mapped = mapLocationMessageToVenueFeed({
+      id: 21,
+      venue: 1,
+      location_id: 'loc-north',
+      location_name: 'North',
+      user: { id: 4, display_name: 'Jordan' },
+      content: 'See you at the gate',
+      created_at: '2026-09-02T10:00:00.000Z',
+      updated_at: '2026-09-02T10:00:00.000Z',
+    } satisfies LocationMessage);
+
+    expect(mapped).toMatchObject({
+      id: '21',
+      kind: 'conversation',
+      author: 'Jordan',
+      location: 'North',
+      locationId: 'loc-north',
+      content: 'See you at the gate',
+      feedType: 'conversation',
+      upvotes: 0,
+      comments: 0,
+    });
   });
 });
 
@@ -164,26 +207,40 @@ describe('applyCommentCounts', () => {
 
   describe('scopeVenueFeedPostsToLocation', () => {
     const sections: ForumSectionSummary[] = [
-      { id: 8, venue: 1, name: 'North Stand', code: 'N', is_active: true },
-      { id: 9, venue: 1, name: 'Church', code: '', is_active: true },
+      {
+        id: 8,
+        venue: 1,
+        name: 'North Stand',
+        code: 'N',
+        is_active: true,
+        mappedinLocationId: 'loc-north',
+      },
+      {
+        id: 9,
+        venue: 1,
+        name: 'Church',
+        code: '',
+        is_active: true,
+        mappedinLocationId: 'loc-church',
+      },
     ];
     const posts = [
-      { ...feedPost('21', 0), locationId: '8' },
-      { ...feedPost('22', 0), locationId: '9' },
+      { ...feedPost('21', 0), locationId: 'loc-north' },
+      { ...feedPost('22', 0), locationId: 'loc-church' },
     ];
 
-    it('strictly scopes the feed to the section behind a tapped location slug', () => {
-      const scope = scopeVenueFeedPostsToLocation(posts, 'church', sections);
+    it('strictly scopes the feed to the tapped Mappedin location id', () => {
+      const scope = scopeVenueFeedPostsToLocation(posts, 'loc-church', sections);
       expect(scope.scoped).toBe(true);
       expect(scope.sectionId).toBe(9);
       expect(scope.sectionName).toBe('Church');
       expect(scope.posts.map((post) => post.id)).toEqual(['22']);
     });
 
-    it('returns an empty scoped feed when the section has no posts yet', () => {
+    it('returns an empty scoped feed when the location has no messages yet', () => {
       const scope = scopeVenueFeedPostsToLocation(
-        [{ ...feedPost('21', 0), locationId: '8' }],
-        'church',
+        [{ ...feedPost('21', 0), locationId: 'loc-north' }],
+        'loc-church',
         sections,
       );
       expect(scope.scoped).toBe(true);
@@ -205,13 +262,13 @@ describe('applyCommentCounts', () => {
   });
 
   describe('resolveVenueFeedAreaName', () => {
-    it('prefers the matched section name over the map card name', () => {
+    it('prefers the map card name over the matched section name', () => {
       expect(
         resolveVenueFeedAreaName(
           { posts: [], scoped: true, sectionId: 9, sectionName: 'Church' },
           'The Church',
         ),
-      ).toBe('Church');
+      ).toBe('The Church');
     });
 
     it('uses the map card name when the location has no section', () => {
@@ -230,6 +287,48 @@ describe('applyCommentCounts', () => {
           null,
         ),
       ).toBeNull();
+    });
+  });
+
+  describe('venueFeedSectionChips', () => {
+    const sections: ForumSectionSummary[] = [
+      {
+        id: 8,
+        venue: 1,
+        name: 'North Stand',
+        code: 'N',
+        is_active: true,
+        mappedinLocationId: 'loc-north',
+      },
+      {
+        id: 9,
+        venue: 1,
+        name: 'Church',
+        code: '',
+        is_active: true,
+        mappedinLocationId: 'loc-church',
+      },
+    ];
+
+    it('lists All plus each active section', () => {
+      expect(venueFeedSectionChips(sections, null).map((chip) => chip.label)).toEqual(
+        ['All', 'North Stand', 'Church'],
+      );
+    });
+
+    it('marks All while the venue-wide feed is open', () => {
+      const chips = venueFeedSectionChips(sections, null);
+      expect(chips[0]?.active).toBe(true);
+      expect(chips.slice(1).every((chip) => !chip.active)).toBe(true);
+    });
+
+    it('marks the section that owns the open conversation', () => {
+      const chips = venueFeedSectionChips(sections, 'loc-church');
+      expect(chips.find((chip) => chip.label === 'All')?.active).toBe(false);
+      expect(chips.find((chip) => chip.label === 'Church')?.active).toBe(true);
+      expect(chips.find((chip) => chip.label === 'North Stand')?.active).toBe(
+        false,
+      );
     });
   });
 

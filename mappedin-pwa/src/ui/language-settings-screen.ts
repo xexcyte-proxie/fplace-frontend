@@ -1,13 +1,6 @@
 import type { AppState } from '../types';
 import { renderContentLoadingOverlay } from './content-loading-overlay';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
+import { escapeHtml } from './escape-html';
 
 export function renderLanguageSettingsScreen(state: AppState): string {
   const languages = state.mapLanguages;
@@ -73,13 +66,14 @@ export function renderLanguageSettingsScreen(state: AppState): string {
           <div class="settings-card">
             ${languageRows}
           </div>
-          ${
-            changing
-              ? `<p class="settings-language-status" role="status">Updating map language…</p>`
-              : ''
-          }
         </section>
-        ${languagesLoading ? renderContentLoadingOverlay('Loading languages') : ''}
+        ${
+          changing
+            ? renderContentLoadingOverlay('Updating map language')
+            : languagesLoading
+              ? renderContentLoadingOverlay('Loading languages')
+              : ''
+        }
       </div>
     </div>
   `;

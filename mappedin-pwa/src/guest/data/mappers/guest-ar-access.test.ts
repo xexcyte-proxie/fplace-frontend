@@ -37,4 +37,11 @@ describe('guest AR eligibility', () => {
     expect(html).toContain(guestArAlreadyUsedMessage());
     expect(html).toContain('id="guest-ar-gate-dismiss-btn"');
   });
+
+  it('shows a circular spinner while opening the AR trial', () => {
+    const html = renderGuestArGateDialog('one-time-info', { loading: true });
+    expect(html).toContain('busy-indicator');
+    expect(html).toContain('Opening…');
+    expect(html).toContain('is-loading');
+  });
 });

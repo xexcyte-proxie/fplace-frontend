@@ -16,6 +16,10 @@ import {
   serializeCoordinate,
 } from '../utils/route-helpers';
 import { inferAreaHint, normalizeLevelName } from '../ui/route-summary';
+import {
+  MAP_TAP_SNAP_MAX_METERS,
+  pickNearestSnapFeature,
+} from '../routing/snap-map-tap';
 
 type MarkerHandle = { remove?: () => void } | null;
 
@@ -125,13 +129,16 @@ export class RoutePlanner {
   async handleMapClick(coordinate: unknown): Promise<void> {
     if (this.routePlanningPaused) return;
 
+    // Clicks often land on 3D booth roofs; snap onto the walkable node graph.
+    const snapped = await this.snapMapTapCoordinate(coordinate);
+
     if (this.markerMode === 'start' || !this.originCoord) {
-      this.setOrigin(coordinate, 'map tap');
+      this.setOrigin(snapped, 'map tap');
       this.markerMode = 'end';
       return;
     }
 
-    this.setDestination(coordinate, 'map tap', 'End point');
+    this.setDestination(snapped, 'map tap', 'End point');
   }
 
   setOrigin(coordinate: unknown, source = 'map tap'): void {
@@ -450,6 +457,48 @@ export class RoutePlanner {
     return canonical;
   }
 
+  /**
+   * Project a raw map click onto the nearest path-network node so pins sit in
+   * corridors instead of on extruded furniture the raycast hit first.
+   */
+  private async snapMapTapCoordinate(coordinate: unknown): Promise<unknown> {
+    const canonical = this.requireRoutableCoordinate(coordinate);
+    try {
+      const nearest = this.mapData.Query?.nearest;
+      if (typeof nearest !== 'function') return canonical;
+
+      // Same shape as other Query.nearest call sites: type filters, not entity lists.
+      const results = (await nearest.call(
+        this.mapData.Query,
+        canonical as never,
+        ['node'] as never,
+        {
+          limit: 'same-floor',
+          maxResults: 1,
+          maxDistance: MAP_TAP_SNAP_MAX_METERS,
+          mode: 'absolute-distance',
+        },
+      )) as Array<{ distance: number; feature: unknown }> | undefined;
+
+      const feature = pickNearestSnapFeature(results, MAP_TAP_SNAP_MAX_METERS);
+      if (!feature) return canonical;
+
+      const nodeCoordinate =
+        feature &&
+        typeof feature === 'object' &&
+        'coordinate' in feature &&
+        (feature as { coordinate?: unknown }).coordinate != null
+          ? (feature as { coordinate: unknown }).coordinate
+          : feature;
+
+      const snapped = this.canonicalCoordinate(nodeCoordinate);
+      return snapped ?? canonical;
+    } catch (error) {
+      appLog('Route', 'Map-tap snap to node failed; using raw click', error);
+      return canonical;
+    }
+  }
+
   private canonicalCoordinate(target: unknown): unknown {
     if (!target) return null;
     const serialized = serializeCoordinate(target);
@@ -482,19 +531,35 @@ export class RoutePlanner {
     const targets: unknown[] = [normalized];
 
     try {
-      const query = this.mapData.Query as {
-        nearest?: (...args: unknown[]) => Promise<unknown[]>;
-      };
-      if (query?.nearest) {
-        const nearest = await query.nearest(normalized, ['space'], {
+      const nearest = this.mapData.Query?.nearest;
+      if (typeof nearest !== 'function') return targets;
+
+      const nodeHits = (await nearest.call(
+        this.mapData.Query,
+        normalized as never,
+        ['node'] as never,
+        {
           limit: 'same-floor',
-        });
-        if (Array.isArray(nearest)) {
-          for (const entry of nearest) {
-            const feature = (entry as { feature?: unknown }).feature ?? entry;
-            if (feature) targets.push(feature);
-          }
-        }
+          maxResults: 3,
+          maxDistance: MAP_TAP_SNAP_MAX_METERS,
+        },
+      )) as Array<{ distance: number; feature: unknown }> | undefined;
+      for (const entry of nodeHits ?? []) {
+        if (entry?.feature) targets.push(entry.feature);
+      }
+
+      const spaceHits = (await nearest.call(
+        this.mapData.Query,
+        normalized as never,
+        ['space'] as never,
+        {
+          limit: 'same-floor',
+          maxResults: 2,
+          maxDistance: MAP_TAP_SNAP_MAX_METERS,
+        },
+      )) as Array<{ distance: number; feature: unknown }> | undefined;
+      for (const entry of spaceHits ?? []) {
+        if (entry?.feature) targets.push(entry.feature);
       }
     } catch {
       /* use coordinate only */

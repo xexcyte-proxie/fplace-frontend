@@ -11,6 +11,8 @@ describe('invalid token dialog', () => {
     expect(html).toContain(copy.title);
     expect(html).toContain(copy.body);
     expect(html).toContain('id="invalid-token-dialog-dismiss-btn"');
+    expect(html).toContain('id="invalid-token-dialog-title"');
+    expect(html).toContain('id="invalid-token-dialog-desc"');
     expect(html).toContain('Got it');
   });
 });

@@ -1,5 +1,9 @@
 import type { AppState } from '../types';
 import { isGoogleSignInConfigured } from '../services/auth-service';
+import { AUTH_AUTOCOMPLETE } from './auth-autofill';
+import { authFieldError } from './auth-field-error';
+import { renderBusyLabel } from './content-loading-overlay';
+import { escapeHtml } from './escape-html';
 
 const AUTH_ASSETS = {
   back: '/auth/back-chevron.svg',
@@ -9,34 +13,28 @@ const AUTH_ASSETS = {
   google: '/auth/google.svg',
 } as const;
 
-function fieldError(errors: Record<string, string>, key: string): string {
-  return errors[key] ?? '';
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
-
 export function renderCreateAccountScreen(
   state: Pick<
     AppState,
-    'authEmail' | 'authLoading' | 'authFieldErrors' | 'guestAccessAllowed'
+    | 'authEmail'
+    | 'authLoading'
+    | 'authFieldErrors'
+    | 'guestAccessAllowed'
+    | 'guestContinueLoading'
   >,
 ): string {
-  const emailError = fieldError(state.authFieldErrors, 'email');
-  const passwordError = fieldError(state.authFieldErrors, 'password');
-  const passwordConfirmError = fieldError(
+  const emailError = authFieldError(state.authFieldErrors, 'email');
+  const passwordError = authFieldError(state.authFieldErrors, 'password');
+  const passwordConfirmError = authFieldError(
     state.authFieldErrors,
     'password_confirm',
   );
-  const termsError = fieldError(state.authFieldErrors, 'terms');
-  const generalError = fieldError(state.authFieldErrors, '_form');
+  const termsError = authFieldError(state.authFieldErrors, 'terms');
+  const generalError = authFieldError(state.authFieldErrors, '_form');
   const googleEnabled = isGoogleSignInConfigured();
   const guestEnabled = state.guestAccessAllowed !== false;
+  const guestLoading = Boolean(state.guestContinueLoading);
+  const formLoading = state.authLoading && !guestLoading;
 
   return `
     <div class="auth-screen auth-screen--create">
@@ -58,7 +56,7 @@ export function renderCreateAccountScreen(
         </p>
       </div>
 
-      <form id="create-account-form" class="auth-form" novalidate>
+      <form id="create-account-form" class="auth-form" method="post" autocomplete="on" novalidate>
         ${
           generalError
             ? `<p class="auth-form-error" role="alert">${escapeHtml(generalError)}</p>`
@@ -69,12 +67,15 @@ export function renderCreateAccountScreen(
           <span class="auth-label">Email</span>
           <input
             id="auth-email"
-            name="email"
+            name="username"
             type="email"
             class="auth-input${emailError ? ' auth-input--error' : ''}"
             placeholder="fan@email.com"
-            autocomplete="email"
+            autocomplete="${AUTH_AUTOCOMPLETE.username}"
             inputmode="email"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
             value="${escapeHtml(state.authEmail)}"
             ${state.authLoading ? 'disabled' : ''}
             required
@@ -91,7 +92,7 @@ export function renderCreateAccountScreen(
               type="password"
               class="auth-input auth-input--with-toggle${passwordError ? ' auth-input--error' : ''}"
               placeholder="••••••••"
-              autocomplete="new-password"
+              autocomplete="${AUTH_AUTOCOMPLETE.newPassword}"
               ${state.authLoading ? 'disabled' : ''}
               required
             />
@@ -124,7 +125,7 @@ export function renderCreateAccountScreen(
               type="password"
               class="auth-input auth-input--with-toggle${passwordConfirmError ? ' auth-input--error' : ''}"
               placeholder="••••••••"
-              autocomplete="new-password"
+              autocomplete="${AUTH_AUTOCOMPLETE.newPassword}"
               ${state.authLoading ? 'disabled' : ''}
               required
             />
@@ -195,10 +196,11 @@ export function renderCreateAccountScreen(
           <button
             type="submit"
             id="auth-continue-btn"
-            class="auth-cta-primary auth-submit-btn"
+            class="auth-cta-primary auth-submit-btn${formLoading ? ' is-loading' : ''}"
             ${state.authLoading ? 'disabled' : ''}
+            aria-busy="${formLoading ? 'true' : 'false'}"
           >
-            ${state.authLoading ? 'Creating account…' : 'Continue'}
+            ${formLoading ? renderBusyLabel('Creating account…') : 'Continue'}
           </button>
 
           ${
@@ -226,10 +228,11 @@ export function renderCreateAccountScreen(
             <button
               type="button"
               id="auth-guest-btn"
-              class="auth-guest-btn"
+              class="auth-guest-btn${guestLoading ? ' is-loading' : ''}"
               ${state.authLoading ? 'disabled' : ''}
+              aria-busy="${guestLoading ? 'true' : 'false'}"
             >
-              Continue as guest
+              ${guestLoading ? renderBusyLabel('Continuing…') : 'Continue as guest'}
             </button>
           `
               : ''

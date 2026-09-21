@@ -69,10 +69,6 @@ export class AuthRepositoryImpl implements AuthRepository {
     return authRemoteDatasource.getProfile();
   }
 
-  listInterestOptions(): Promise<string[]> {
-    return authRemoteDatasource.listInterestOptions();
-  }
-
   async refreshTokens(refresh: string): Promise<AuthTokens> {
     const tokens = await authRemoteDatasource.refreshTokens(refresh);
     tokenLocalDatasource.save({

@@ -1,5 +1,9 @@
 import type { AppState } from '../types';
 import { isGoogleSignInConfigured } from '../services/auth-service';
+import { AUTH_AUTOCOMPLETE } from './auth-autofill';
+import { authFieldError } from './auth-field-error';
+import { renderBusyLabel } from './content-loading-overlay';
+import { escapeHtml } from './escape-html';
 
 const AUTH_ASSETS = {
   back: '/auth/back-chevron.svg',
@@ -7,24 +11,12 @@ const AUTH_ASSETS = {
   google: '/auth/google.svg',
 } as const;
 
-function fieldError(errors: Record<string, string>, key: string): string {
-  return errors[key] ?? '';
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
-
 export function renderLoginScreen(
   state: Pick<AppState, 'authEmail' | 'authLoading' | 'authFieldErrors'>,
 ): string {
-  const emailError = fieldError(state.authFieldErrors, 'email');
-  const passwordError = fieldError(state.authFieldErrors, 'password');
-  const generalError = fieldError(state.authFieldErrors, '_form');
+  const emailError = authFieldError(state.authFieldErrors, 'email');
+  const passwordError = authFieldError(state.authFieldErrors, 'password');
+  const generalError = authFieldError(state.authFieldErrors, '_form');
   const googleEnabled = isGoogleSignInConfigured();
 
   return `
@@ -47,7 +39,7 @@ export function renderLoginScreen(
         </p>
       </div>
 
-      <form id="login-form" class="auth-form" autocomplete="on" novalidate>
+      <form id="login-form" class="auth-form" method="post" autocomplete="on" novalidate>
         ${
           generalError
             ? `<p class="auth-form-error" role="alert">${escapeHtml(generalError)}</p>`
@@ -62,7 +54,7 @@ export function renderLoginScreen(
             type="email"
             class="auth-input${emailError ? ' auth-input--error' : ''}"
             placeholder="fan@email.com"
-            autocomplete="username"
+            autocomplete="${AUTH_AUTOCOMPLETE.username}"
             inputmode="email"
             autocapitalize="off"
             autocorrect="off"
@@ -83,7 +75,7 @@ export function renderLoginScreen(
               type="password"
               class="auth-input auth-input--with-toggle${passwordError ? ' auth-input--error' : ''}"
               placeholder="••••••••"
-              autocomplete="current-password"
+              autocomplete="${AUTH_AUTOCOMPLETE.currentPassword}"
               ${state.authLoading ? 'disabled' : ''}
               required
             />
@@ -122,10 +114,11 @@ export function renderLoginScreen(
           <button
             type="submit"
             id="login-submit-btn"
-            class="onboarding-primary-btn auth-submit-btn"
+            class="onboarding-primary-btn auth-submit-btn${state.authLoading ? ' is-loading' : ''}"
             ${state.authLoading ? 'disabled' : ''}
+            aria-busy="${state.authLoading ? 'true' : 'false'}"
           >
-            ${state.authLoading ? 'Logging in…' : 'Log in'}
+            ${state.authLoading ? renderBusyLabel('Logging in…') : 'Log in'}
           </button>
 
           ${

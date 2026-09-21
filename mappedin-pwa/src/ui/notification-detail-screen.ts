@@ -1,13 +1,6 @@
 import type { NotificationItem } from '../types';
 import { renderContentLoadingOverlay } from './content-loading-overlay';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
+import { escapeHtml } from './escape-html';
 
 function formatWhen(iso: string): string {
   const ms = Date.parse(iso);

@@ -27,8 +27,7 @@ export class VenueVisitLocalDatasource {
   mark(venueId: string): void {
     const id = venueId.trim();
     if (!id) return;
-    const existing = this.list();
-    if (existing.includes(id)) return;
+    const existing = this.list().filter((item) => item !== id);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify([...existing, id]));
     } catch {

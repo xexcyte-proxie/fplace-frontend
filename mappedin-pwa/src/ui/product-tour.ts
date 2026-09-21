@@ -1,13 +1,6 @@
 import { buildProductTourCardView } from '../tour/presentation/product-tour-view';
 import type { ProductTourStep } from '../tour/domain/entities';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
+import { escapeHtml } from './escape-html';
 
 export function renderProductTour(options: {
   step: ProductTourStep;

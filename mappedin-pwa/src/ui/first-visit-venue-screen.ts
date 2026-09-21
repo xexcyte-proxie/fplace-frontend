@@ -2,16 +2,12 @@ import {
   buildFirstVisitVenueHomeViewModel,
   buildFirstVisitVenueHomeContent,
 } from '../home/presentation/first-visit-venue-home-data';
+import type { ReturningHomeContent } from '../home/domain/entities';
+import { arNotAtVenueCopy } from '../location/domain/venue-presence';
 import { resolveDisplayName, type AppState } from '../types';
 import { renderContentLoadingOverlay } from './content-loading-overlay';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
+import { renderHomeVenueSections } from './home-venue-list';
+import { escapeHtml } from './escape-html';
 
 /** Inline SVGs so action chrome paints without waiting on PNG downloads. */
 const locationIcon = `
@@ -46,7 +42,10 @@ export function renderFirstVisitVenueScreen(
     | 'forumSections'
     | 'venueFeedPosts'
     | 'venueFeedLoading'
+    | 'upvotedPostIds'
     | 'arRoutePromptOpen'
+    | 'arNotAtVenuePromptOpen'
+    | 'homeContent'
   >,
 ): string {
   const displayName = state.authUser
@@ -65,32 +64,80 @@ export function renderFirstVisitVenueScreen(
     venueName: venue?.name ?? '',
     sectionLabel: section?.name ?? 'Entry zone',
     posts: state.venueFeedPosts,
+    upvotedPostIds: state.upvotedPostIds,
   });
   const view = buildFirstVisitVenueHomeViewModel({ displayName, content });
   const feedLoading = state.venueFeedLoading && state.venueFeedPosts.length === 0;
+  const homeContent: ReturningHomeContent | null = state.homeContent;
+  const venueSections = homeContent
+    ? renderHomeVenueSections({
+        recentlyVisited: homeContent.recentlyVisited,
+        otherVenues: homeContent.otherVenues,
+      })
+    : '';
 
   const postsMarkup = feedLoading
     ? ''
-    : view.previewPosts
-        .map(
-          (post) => `
+    : view.previewPosts.length
+      ? view.previewPosts
+          .map(
+            (post) => `
       <article class="first-visit-post">
         <div class="first-visit-post-top">
           <span class="first-visit-post-author">${escapeHtml(post.author)}</span>
           <span class="first-visit-post-tag first-visit-post-tag--${escapeHtml(post.categoryTone)}">${escapeHtml(post.categoryLabel)}</span>
         </div>
         <p class="first-visit-post-body">${escapeHtml(post.content)}</p>
-        <div class="first-visit-post-meta ${post.upvoted ? 'is-upvoted' : ''}">
+        ${
+          post.upvoteable
+            ? `<button
+          type="button"
+          class="first-visit-post-meta ${post.upvoted ? 'is-upvoted' : ''}"
+          data-upvote-id="${escapeHtml(post.id)}"
+          aria-pressed="${post.upvoted ? 'true' : 'false'}"
+          aria-label="${post.upvoted ? 'Remove upvote' : 'Upvote'}"
+        >
           ${upvoteIcon}
           <span>${post.upvotes}</span>
-        </div>
+        </button>`
+            : `<div class="first-visit-post-meta">
+          ${upvoteIcon}
+          <span>${post.upvotes}</span>
+        </div>`
+        }
       </article>
     `,
-        )
-        .join('');
+          )
+          .join('')
+      : `<p class="first-visit-empty" role="status">No posts yet. Be the first to shout out.</p>`;
 
-  const arPrompt = state.arRoutePromptOpen
+  const awayCopy = arNotAtVenueCopy(venue?.name);
+  const arPrompt = state.arNotAtVenuePromptOpen
     ? `
+    <div class="location-dialog-backdrop first-visit-ar-prompt" role="presentation">
+      <div
+        class="location-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="first-visit-ar-away-title"
+        aria-describedby="first-visit-ar-away-desc"
+      >
+        <h2 id="first-visit-ar-away-title" class="location-dialog-title">${escapeHtml(awayCopy.title)}</h2>
+        <p id="first-visit-ar-away-desc" class="location-dialog-body">
+          ${escapeHtml(awayCopy.body)}
+        </p>
+        <button
+          type="button"
+          id="first-visit-ar-away-dismiss-btn"
+          class="location-dialog-primary"
+        >
+          Got it
+        </button>
+      </div>
+    </div>
+  `
+    : state.arRoutePromptOpen
+      ? `
     <div class="location-dialog-backdrop first-visit-ar-prompt" role="presentation">
       <div
         class="location-dialog"
@@ -121,7 +168,7 @@ export function renderFirstVisitVenueScreen(
       </div>
     </div>
   `
-    : '';
+      : '';
 
   return `
     <section class="first-visit-venue-screen" aria-label="Venue home">
@@ -133,10 +180,14 @@ export function renderFirstVisitVenueScreen(
             : ''
         }
         <p class="first-visit-section">${escapeHtml(view.sectionLabel)}</p>
-        <div class="first-visit-fans" role="status">
+        ${
+          view.fansHereLabel
+            ? `<div class="first-visit-fans" role="status">
           <span class="first-visit-fans-dot" aria-hidden="true"></span>
           <span>${escapeHtml(view.fansHereLabel)}</span>
-        </div>
+        </div>`
+            : ''
+        }
       </header>
 
       <div class="first-visit-sheet">
@@ -167,6 +218,7 @@ export function renderFirstVisitVenueScreen(
             See all posts
           </button>
         </div>
+        ${venueSections}
       </div>
       ${arPrompt}
     </section>

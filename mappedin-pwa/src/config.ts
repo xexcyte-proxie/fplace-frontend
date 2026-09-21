@@ -1,17 +1,13 @@
-/** Venue map defaults. Tokens come from the backend unless local key/secret is set. */
+import { DEFAULT_MAPPEDIN_MAP_ID } from './forum/domain/venue-map-source';
+
+/** Venue map defaults. Catalog venues load via backend token + `mappedin_map_id`. */
 export const appConfig = {
   mappedin: {
     /**
-     * Optional local testing override. When both are set, getMapData uses
-     * key/secret instead of the backend Mappedin token.
+     * Fallback map id when a venue has no `mappedin_map_id`.
+     * Catalog venues use each venue's backend map id.
      */
-    key: (import.meta.env.VITE_MAPPEDIN_KEY ?? '').trim(),
-    secret: (import.meta.env.VITE_MAPPEDIN_SECRET ?? '').trim(),
-    /**
-     * Default map until a venue's `mappedin_map_id` is selected.
-     * Not a secret; override with VITE_MAPPEDIN_MAP_ID.
-     */
-    mapId: import.meta.env.VITE_MAPPEDIN_MAP_ID ?? '65c0ff7430b94e3fabd5bb8c',
+    mapId: import.meta.env.VITE_MAPPEDIN_MAP_ID ?? DEFAULT_MAPPEDIN_MAP_ID,
     venueName: 'Demo Mall',
   },
   /**
@@ -20,7 +16,8 @@ export const appConfig = {
    */
   apiUrl: (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, ''),
   /**
-   * WebSocket origin for venue rooms (`/ws/venues/<id>/`).
+   * WebSocket origin for live rooms (`/ws/venues/<id>/`,
+   * `/ws/venues/<id>/locations/<location_id>/`, `/ws/notifications/`).
    * Required in production (Netlify cannot proxy WebSocket upgrades).
    * Local dev: leave unset to use Vite's `/ws` proxy, or set to bypass proxy issues.
    * `http://` values are converted to `ws://`.

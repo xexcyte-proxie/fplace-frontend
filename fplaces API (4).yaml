@@ -1,0 +1,4631 @@
+openapi: 3.0.3
+info:
+  title: fplaces API
+  version: 1.0.0
+  description: "Real-time, venue-based social platform API.\n\nFans inside the same
+    stadium/venue share a live feed tied to physical sections: posts, comments, upvotes,
+    and flags, plus live crowd-sourced section heatmaps.\n\n## Authentication\nMost
+    endpoints require a JWT access token. Obtain one via `POST /api/users/login/`,
+    then send it as `Authorization: Bearer <access_token>`. Access tokens expire after
+    30 minutes; use `POST /api/users/token/refresh/` with the refresh token to renew.\n\nWebSocket
+    connections (venue rooms, location conversation rooms, personal notifications)
+    authenticate via a `?token=<access_token>` query parameter instead of a header.\n\n##
+    Error format\nAll error responses (validation, auth, permission, not-found, server
+    errors) share a single envelope:\n\n```json\n{\n  \"status\": \"error\",\n  \"message\":
+    \"Human-readable summary\",\n  \"details\": { \"field\": [\"...\"] }\n}\n```\n\n##
+    Soft delete\nNothing is hard-deleted. `DELETE` on any resource archives it (`is_archived=True`)
+    instead of removing the row; archived records are excluded from normal querysets.
+    Most resources expose a `POST /{id}/restore/` action to bring them back.\n\n<br/><a
+    href=\"/api/guide.html\" target=\"_blank\" style=\"display:inline-block; padding:10px
+    20px; background-color:#00e096; color:#08090c; text-decoration:none; border-radius:8px;
+    font-weight:bold;\">\U0001F4D6 View Frontend Integration Guide</a>"
+  contact:
+    name: fplaces
+    email: support@fplaces.app
+  license:
+    name: Proprietary
+paths:
+  /api/admin/stats/:
+    get:
+      operationId: admin_stats_retrieve
+      description: 'Aggregate counts for the admin dashboard: total/verified user
+        counts, total posts/comments, how many posts currently have at least one flag
+        (see `GET /api/admin/posts/flagged/` to review them), how many venues are
+        active, plus a per-category and per-venue breakdown of post counts. Counts
+        include archived/soft-deleted rows (uses `all_objects`), since this is an
+        internal operational view, not a public-facing feed.'
+      summary: Get system-wide dashboard stats
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminStats'
+          description: ''
+  /api/admin/users/:
+    get:
+      operationId: admin_users_list
+      description: Unlike `users.objects` (which excludes archived users), this queries
+        `User.all_objects` so moderators can see the complete picture, including unverified
+        signups and previously archived accounts.
+      summary: List all users (including archived/unverified)
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAdminUserList'
+          description: ''
+    post:
+      operationId: admin_users_create
+      description: Creates a user with no usable password (`set_unusable_password()`)
+        since this endpoint doesn't accept one — the account holder sets their own
+        password via `POST /api/users/password-reset/` once notified. Mainly intended
+        for seeding staff/admin accounts outside of self-service registration.
+      summary: Create a user manually
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminUserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminUserRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+  /api/admin/users/{id}/:
+    put:
+      operationId: admin_users_update
+      summary: Replace a user's admin-editable fields
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminUserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminUserRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+    get:
+      operationId: admin_users_retrieve
+      summary: Retrieve a single user's full admin details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+    delete:
+      operationId: admin_users_destroy
+      description: Equivalent to `POST /{id}/archive/` — sets `is_archived=True` rather
+        than permanently deleting the row, consistent with every other resource in
+        this API. Use `POST /{id}/restore/` to undo.
+      summary: Archive a user (soft delete)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+    patch:
+      operationId: admin_users_partial_update
+      summary: Update a user's admin-editable fields
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminUserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminUserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminUserRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+  /api/admin/users/{id}/archive/:
+    post:
+      operationId: admin_users_archive_create
+      description: Sets `is_archived=True` on the user so they can no longer log in
+        (`UserManager.get_queryset` excludes archived users) and disappear from non-admin
+        listings. Their posts/comments are untouched and remain visible.
+      summary: Archive a user (soft delete)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+  /api/admin/users/{id}/restore/:
+    post:
+      operationId: admin_users_restore_create
+      description: Reverses `archive`, setting `is_archived=False` so the user can
+        log in again and reappears in non-admin listings.
+      summary: Restore an archived user
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+  /api/admin/users/{id}/toggle-staff/:
+    post:
+      operationId: admin_users_toggle_staff_create
+      description: Flips `is_staff` to its opposite value, granting or revoking Django
+        admin + this Admin API's access in one call. There's no separate grant/revoke
+        endpoint — call this again to toggle back.
+      summary: Toggle a user's staff status
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+  /api/admin/posts/:
+    get:
+      operationId: admin_posts_list
+      description: Queries `Post.all_objects`, unlike the public `PostViewSet` (which
+        excludes archived posts and hides `status=hidden` posts from non-staff). Use
+        this for full moderation visibility, or `GET /flagged/` to focus specifically
+        on posts awaiting review.
+      summary: List all posts (including hidden/archived)
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAdminPostList'
+          description: ''
+    post:
+      operationId: admin_posts_create
+      description: Unlike the public `PostViewSet.create` (which always sets `user`
+        from the authenticated requester), `user` is a writable field here so admins
+        can create posts attributed to any account, e.g. for seeding demo content.
+      summary: Create a post on a user's behalf
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminPostRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminPostRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminPostRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPost'
+          description: ''
+  /api/admin/posts/flagged/:
+    get:
+      operationId: admin_posts_flagged_list
+      description: Returns posts with `flags_count > 0`, sorted by flag count descending
+        (most-flagged first), then newest first. This is the moderation queue — review
+        each post and either `POST /{id}/clear-flags/` once resolved, or `POST /{id}/hide/`
+        to remove it from public feeds.
+      summary: List posts flagged for moderation
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAdminPostList'
+          description: ''
+  /api/admin/posts/{id}/:
+    put:
+      operationId: admin_posts_update
+      summary: Replace a post's admin-editable fields
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminPostRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminPostRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminPostRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPost'
+          description: ''
+    get:
+      operationId: admin_posts_retrieve
+      summary: Retrieve a single post's full admin details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPost'
+          description: ''
+    delete:
+      operationId: admin_posts_destroy
+      description: Sets `is_archived=True` rather than permanently deleting the row.
+        Use `POST /{id}/restore/` to undo.
+      summary: Archive a post (soft delete)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+    patch:
+      operationId: admin_posts_partial_update
+      summary: Update a post's admin-editable fields
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminPostRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminPostRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminPostRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPost'
+          description: ''
+  /api/admin/posts/{id}/clear-flags/:
+    post:
+      operationId: admin_posts_clear_flags_create
+      description: Resets `flags_count` to `0` and soft-archives every active `PostFlag`
+        row for this post (preserving them for audit history rather than deleting).
+        Use once a moderator has reviewed a flagged post and decided it doesn't need
+        hiding.
+      summary: Clear all flags on a post
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPost'
+          description: ''
+  /api/admin/posts/{id}/hide/:
+    post:
+      operationId: admin_posts_hide_create
+      description: Sets `status=hidden`, removing the post from non-staff feeds (it's
+        a moderation state, not a soft-delete — the row stays active). Broadcasts
+        a `post_hidden` event to the venue's WebSocket room so clients currently viewing
+        the feed remove it immediately. Equivalent to the public `PostViewSet`'s own
+        `hide` action, exposed here for the admin dashboard's moderation queue workflow.
+      summary: Hide a post (moderation)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPost'
+          description: ''
+  /api/admin/posts/{id}/restore/:
+    post:
+      operationId: admin_posts_restore_create
+      description: Reverses soft-delete, setting `is_archived=False` so the post reappears
+        in normal queries.
+      summary: Restore an archived post
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPost'
+          description: ''
+  /api/admin/posts/{id}/show/:
+    post:
+      operationId: admin_posts_show_create
+      description: Reverses `hide`, setting `status=visible` so the post reappears
+        in non-staff feeds.
+      summary: Un-hide a post (moderation)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPost'
+          description: ''
+  /api/admin/notifications/:
+    post:
+      operationId: admin_notifications_create
+      description: |-
+        Sends an email, an in-app push (a `Notification` row with `verb=broadcast`, delivered live over `ws/notifications/`), or both, to active users matched by **any** of `venue`/`section`/`category` (users who have posted there) or explicit `users` ids — a union, not an intersection. At least one filter is required.
+
+        Delivery is best-effort per user/channel: a failure sending to one user (e.g. a bad email address) is swallowed and doesn't stop the rest of the broadcast; the response reports how many sends actually succeeded via `email_sent`/`push_sent` versus how many users were matched (`users_targeted`).
+      summary: Broadcast an admin notification to targeted users
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminNotificationRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminNotificationRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminNotificationRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminNotificationResponse'
+          description: ''
+  /api/users/register/:
+    post:
+      operationId: users_register_create
+      description: |-
+        Creates a new user with `email` + `password` and immediately sends a verification email (see `POST /api/users/verify-email/`).
+
+        The account is created with `is_email_verified=False` and no `pseudo_name`. Per the onboarding flow, the client should prompt the user to verify their email and then set a `pseudo_name` via `PATCH /api/users/me/` before letting them select a venue and post.
+      summary: Register a new account
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              RegisterRequest:
+                value:
+                  email: fan@example.com
+                  password: SuperSecret123!
+                  password_confirm: SuperSecret123!
+                summary: Register request
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              examples:
+                RegisterResponse:
+                  value:
+                    id: 1
+                    email: fan@example.com
+                    pseudo_name: null
+                    is_email_verified: false
+                    created_at: '2026-06-19T00:04:56.813191Z'
+                    updated_at: '2026-06-19T00:04:56.813210Z'
+                  summary: Register response
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+  /api/users/verify-email/:
+    post:
+      operationId: users_verify_email_create
+      description: Confirms the `email`/`otp` sent on registration (or resent via
+        `POST /api/users/resend-verification/`), and sets `is_email_verified=True`
+        on the matching account.
+      summary: Verify an email address
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailVerificationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EmailVerificationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EmailVerificationRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+  /api/users/resend-verification/:
+    post:
+      operationId: users_resend_verification_create
+      description: Re-sends the verification email for an account that hasn't verified
+        yet. Always returns `200` with a generic message, regardless of whether the
+        email exists or is already verified, to avoid leaking account existence.
+      summary: Resend the verification email
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendVerificationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResendVerificationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResendVerificationRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+  /api/users/login/:
+    post:
+      operationId: users_login_create
+      description: |-
+        Authenticates with `email` + `password` and returns an `access` token (send as `Authorization: Bearer <access>` on subsequent requests, expires after 30 minutes) and a `refresh` token (expires after 14 days, used with `POST /api/users/token/refresh/` to obtain a new access token, or `POST /api/users/logout/` to invalidate it).
+
+        The response also embeds the authenticated user's profile under `user`, so the client doesn't need a separate `GET /api/users/me/` call right after login.
+      summary: Log in and obtain a JWT pair
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailTokenObtainPairRequest'
+            examples:
+              LoginRequest:
+                value:
+                  email: fan@example.com
+                  password: SuperSecret123!
+                summary: Login request
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EmailTokenObtainPairRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EmailTokenObtainPairRequest'
+        required: true
+      responses:
+        '200':
+          description: No response body
+  /api/users/login/google/:
+    post:
+      operationId: users_login_google_create
+      description: Validates the provided Google `id_token`. If the email is new,
+        creates an account and marks it verified. Returns a standard JWT pair and
+        the user profile.
+      summary: Log in via Google
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleLoginRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GoogleLoginRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GoogleLoginRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+  /api/users/token/refresh/:
+    post:
+      operationId: users_token_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/users/logout/:
+    post:
+      operationId: users_logout_create
+      description: Blacklists the given `refresh` token so it can no longer be used
+        to obtain new access tokens. The current `access` token remains valid until
+        it naturally expires (up to 30 minutes) since access tokens aren't tracked
+        server-side; clients should discard it locally on logout.
+      summary: Log out (blacklist refresh token)
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '205':
+          description: No response body
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+  /api/users/password-reset/:
+    post:
+      operationId: users_password_reset_create
+      description: Sends a password reset email containing a `uid`/`token` pair to
+        be submitted to `POST /api/users/password-reset-confirm/`. Always returns
+        `200` with a generic message, regardless of whether the email exists, to avoid
+        leaking account existence.
+      summary: Request a password reset email
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+  /api/users/password-reset-confirm/:
+    post:
+      operationId: users_password_reset_confirm_create
+      description: Completes a password reset using the `uid`/`token` pair from the
+        reset email, setting `new_password` on the account. The token is single-use
+        and expires per Django's `PASSWORD_RESET_TIMEOUT` (default 3 days).
+      summary: Confirm a password reset
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+  /api/users/change-password/:
+    post:
+      operationId: users_change_password_create
+      description: Changes the authenticated user's password, requiring the current
+        `old_password` for re-authentication. Unlike the reset-password flow, this
+        doesn't require an email round-trip since the user is already logged in.
+      summary: Change the current user's password
+      tags:
+      - Users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+  /api/users/me/:
+    get:
+      operationId: users_me_retrieve
+      description: Returns the authenticated user's own profile, identified from the
+        JWT.
+      summary: Get the current user's profile
+      tags:
+      - Users
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    put:
+      operationId: users_me_update
+      description: Full update of the authenticated user's profile. In practice only
+        `pseudo_name` is writable; `email` and `is_email_verified` are read-only.
+      summary: Replace the current user's profile
+      tags:
+      - Users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    patch:
+      operationId: users_me_partial_update
+      description: Partial update of the authenticated user's profile — typically
+        used to set `pseudo_name` during onboarding, after email verification.
+      summary: Update the current user's profile
+      tags:
+      - Users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    delete:
+      operationId: users_me_destroy
+      description: Permanently deletes the authenticated user's account and all associated
+        data.
+      summary: Delete the current user's account
+      tags:
+      - Users
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/users/guest/:
+    post:
+      operationId: users_guest_create
+      description: |-
+        Accepts an `ip_address` and `device_fingerprint` and returns a short-lived guest JWT (lifetime controlled by `GUEST_TOKEN_EXPIRATION_MINUTES`, default 60 min) together with the MappedIn API keys needed to render the map.
+
+        The guest trial window is valid for the **same calendar day** of the first call for a given `device_fingerprint`. Subsequent calls on the same day re-issue a fresh JWT. If accessed on a subsequent day, the server returns `403`.
+
+        The returned `access` token can be used as `Authorization: Bearer <token>` on any endpoint that accepts `IsAuthenticatedOrGuest` permission. The token carries `token_type=guest` in its payload.
+      summary: Obtain a guest access token
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuestAccessRequest'
+            examples:
+              GuestAccessRequest:
+                value:
+                  ip_address: 1.2.3.4
+                  device_fingerprint: fp_abc123xyz
+                summary: Guest access request
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GuestAccessRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GuestAccessRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuestAccessResponse'
+              examples:
+                GuestAccessResponse:
+                  value:
+                    access: eyJhbGciOiJIUzI1NiIs...
+                    token_type: guest
+                    expires_in: 3600
+                    trial_expires_at: '2026-08-11T21:17:00Z'
+                    has_tried_ar_view: false
+                    has_tried_2d_view: false
+                    has_2d_trial_expired: false
+                    mappedin:
+                      token: <mappedin-access-token>
+                      expires_in: 3600
+                  summary: Guest access response
+          description: Guest token and MappedIn credentials issued.
+        '403':
+          description: Guest trial period has expired.
+        '400':
+          description: Validation error.
+        '502':
+          description: Failed to retrieve MappedIn token.
+  /api/users/guest/update/:
+    get:
+      operationId: users_guest_update_retrieve
+      description: Get or update guest session fields like has_tried_ar_view or has_tried_2d_view.
+      summary: Get guest session preferences
+      tags:
+      - Auth
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuestSessionResponse'
+          description: ''
+    patch:
+      operationId: users_guest_update_partial_update
+      description: Get or update guest session fields like has_tried_ar_view or has_tried_2d_view.
+      summary: Update guest session preferences
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedGuestSessionUpdateRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedGuestSessionUpdateRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedGuestSessionUpdateRequestRequest'
+      security:
+      - {}
+      responses:
+        '200':
+          description: Guest session updated successfully.
+  /api/forum/categories/:
+    get:
+      operationId: forum_categories_list
+      description: 'Returns the fixed set of categories fans pick from before posting:
+        Lines and Crowds, Food and Drinks, Fan Vibe, and Help. Public endpoint — no
+        authentication required, so a category picker can be shown before login. Filter
+        with `?is_active=true` to hide retired categories without affecting historical
+        posts that still reference them.'
+      summary: List post categories
+      parameters:
+      - in: query
+        name: created_after
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - in: query
+        name: name
+        schema:
+          type: string
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Categories
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCategoryList'
+          description: ''
+    post:
+      operationId: forum_categories_create
+      description: '`slug` is auto-derived from `name` if omitted. Admin-only since
+        the category list is meant to stay small and curated.'
+      summary: Create a category (admin only)
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CategoryRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CategoryRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+          description: ''
+  /api/forum/categories/{id}/:
+    put:
+      operationId: forum_categories_update
+      summary: Replace a category (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this category.
+        required: true
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CategoryRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CategoryRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+          description: ''
+    get:
+      operationId: forum_categories_retrieve
+      summary: Retrieve a category
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this category.
+        required: true
+      tags:
+      - Categories
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+          description: ''
+    delete:
+      operationId: forum_categories_destroy
+      description: Soft-delete only — existing posts keep their `category` reference
+        (`on_delete=PROTECT` at the DB level prevents hard deletion anyway).
+      summary: Archive a category (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this category.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+    patch:
+      operationId: forum_categories_partial_update
+      summary: Update a category (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this category.
+        required: true
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCategoryRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCategoryRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCategoryRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+          description: ''
+  /api/forum/categories/{id}/restore/:
+    post:
+      operationId: forum_categories_restore_create
+      description: Un-archives a record previously removed via `DELETE`, setting `is_archived`
+        back to `False` so it reappears in normal list/retrieve queries.
+      summary: Restore an archived category (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this category.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+          description: ''
+  /api/forum/interests/:
+    get:
+      operationId: forum_interests_list
+      description: Returns the curated catalog of interests fans can pick from on
+        their profile, replacing what was previously hardcoded on the frontend. Public
+        endpoint — no authentication required. Filter with `?is_active=true` to hide
+        retired interests without affecting users who already selected them.
+      summary: List interests
+      parameters:
+      - in: query
+        name: created_after
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - in: query
+        name: name
+        schema:
+          type: string
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Interests
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedInterestList'
+          description: ''
+    post:
+      operationId: forum_interests_create
+      description: '`slug` is auto-derived from `name` if omitted.'
+      summary: Create an interest (admin only)
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InterestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InterestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InterestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Interest'
+          description: ''
+  /api/forum/interests/{id}/:
+    put:
+      operationId: forum_interests_update
+      summary: Replace an interest (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this interest.
+        required: true
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InterestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InterestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InterestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Interest'
+          description: ''
+    get:
+      operationId: forum_interests_retrieve
+      summary: Retrieve an interest
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this interest.
+        required: true
+      tags:
+      - Interests
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Interest'
+          description: ''
+    delete:
+      operationId: forum_interests_destroy
+      summary: Archive an interest (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this interest.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+    patch:
+      operationId: forum_interests_partial_update
+      summary: Update an interest (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this interest.
+        required: true
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedInterestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedInterestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedInterestRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Interest'
+          description: ''
+  /api/forum/interests/{id}/restore/:
+    post:
+      operationId: forum_interests_restore_create
+      description: Un-archives a record previously removed via `DELETE`, setting `is_archived`
+        back to `False` so it reappears in normal list/retrieve queries.
+      summary: Restore an archived interest (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this interest.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Interest'
+          description: ''
+  /api/forum/venues/:
+    get:
+      operationId: forum_venues_list
+      description: Returns stadiums/arenas fans can select to join a live feed. Public
+        endpoint, so a venue picker can be shown before login. Selecting a venue is
+        a required onboarding step — the social feed (`/api/forum/posts/`) and its
+        WebSocket room (`ws/venues/<id>/`) are both scoped to a single venue.
+      summary: List venues
+      parameters:
+      - in: query
+        name: created_after
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: name
+        schema:
+          type: string
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Venues
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedVenueList'
+          description: ''
+    post:
+      operationId: forum_venues_create
+      description: Venue Admin / backend-operator action — venues aren't user-creatable.
+        `latitude`/`longitude` are optional and reserved for a future GPS auto-suggest
+        feature.
+      summary: Create a venue (admin only)
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VenueRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/VenueRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/VenueRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Venue'
+          description: ''
+  /api/forum/venues/{id}/:
+    put:
+      operationId: forum_venues_update
+      summary: Replace a venue (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this venue.
+        required: true
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VenueRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/VenueRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/VenueRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Venue'
+          description: ''
+    get:
+      operationId: forum_venues_retrieve
+      summary: Retrieve a venue
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this venue.
+        required: true
+      tags:
+      - Venues
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Venue'
+          description: ''
+    delete:
+      operationId: forum_venues_destroy
+      description: Soft-delete only — existing posts/sections keep their `venue` reference.
+      summary: Archive a venue (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this venue.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+    patch:
+      operationId: forum_venues_partial_update
+      summary: Update a venue (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this venue.
+        required: true
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedVenueRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedVenueRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedVenueRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Venue'
+          description: ''
+  /api/forum/venues/{id}/restore/:
+    post:
+      operationId: forum_venues_restore_create
+      description: Un-archives a record previously removed via `DELETE`, setting `is_archived`
+        back to `False` so it reappears in normal list/retrieve queries.
+      summary: Restore an archived venue (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this venue.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Venue'
+          description: ''
+  /api/forum/sections/:
+    get:
+      operationId: forum_sections_list
+      description: Physical zones within a venue (e.g. North Stand, South Stand, VIP).
+        Posts can optionally tag a section, which drives the live section heatmap
+        (`section_heat_update` events on the venue's WebSocket room). Public endpoint;
+        filter by venue with `?venue=<id>`.
+      summary: List sections
+      parameters:
+      - in: query
+        name: created_after
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: venue
+        schema:
+          type: integer
+        description: Filter to sections belonging to this venue id.
+      tags:
+      - Sections
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSectionList'
+          description: ''
+    post:
+      operationId: forum_sections_create
+      description: '`(venue, name)` must be unique.'
+      summary: Create a section (admin only)
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SectionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SectionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SectionRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Section'
+          description: ''
+  /api/forum/sections/{id}/:
+    put:
+      operationId: forum_sections_update
+      summary: Replace a section (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this section.
+        required: true
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SectionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SectionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SectionRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Section'
+          description: ''
+    get:
+      operationId: forum_sections_retrieve
+      summary: Retrieve a section
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this section.
+        required: true
+      tags:
+      - Sections
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Section'
+          description: ''
+    delete:
+      operationId: forum_sections_destroy
+      description: Soft-delete only. Posts referencing an archived section keep their
+        reference (`on_delete=SET_NULL` only applies if the section is hard deleted,
+        which this endpoint never does).
+      summary: Archive a section (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this section.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+    patch:
+      operationId: forum_sections_partial_update
+      description: Commonly used to toggle `is_active` for a section that's temporarily
+        closed for an event, without archiving its post history.
+      summary: Update a section (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this section.
+        required: true
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSectionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSectionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSectionRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Section'
+          description: ''
+  /api/forum/sections/{id}/restore/:
+    post:
+      operationId: forum_sections_restore_create
+      description: Un-archives a record previously removed via `DELETE`, setting `is_archived`
+        back to `False` so it reappears in normal list/retrieve queries.
+      summary: Restore an archived section (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this section.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Section'
+          description: ''
+  /api/forum/posts/:
+    get:
+      operationId: forum_posts_list
+      description: Requires authentication, since the feed is venue-scoped to logged-in
+        fans. By default excludes posts a moderator has hidden (`status=hidden`) unless
+        the requester is staff. The same `new_post`/`new_comment`/`upvote_update`/`section_heat_update`/`post_hidden`
+        events are pushed live on `ws/venues/<venue_id>/`, so clients typically paginate
+        this endpoint for the initial load and then rely on the socket for live updates.
+      summary: List posts in the live feed
+      parameters:
+      - in: query
+        name: category
+        schema:
+          type: integer
+        description: Filter to posts in this category.
+      - in: query
+        name: created_after
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: latest
+        schema:
+          type: boolean
+        description: If true, force ordering by newest first.
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: section
+        schema:
+          type: integer
+        description: Filter to posts in this section.
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - hidden
+          - visible
+        description: |-
+          * `visible` - Visible
+          * `hidden` - Hidden
+      - in: query
+        name: venue
+        schema:
+          type: integer
+        description: Filter to posts in this venue.
+      tags:
+      - Posts
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPostList'
+          description: ''
+    post:
+      operationId: forum_posts_create
+      description: '`content` is capped at 140 characters. `user` is set from the
+        authenticated requester and can''t be overridden. Creating a post broadcasts
+        a `new_post` event to the venue''s WebSocket room, and a `section_heat_update`
+        event if `section` is set.'
+      summary: Create a post
+      tags:
+      - Posts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PostRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PostRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+          description: ''
+  /api/forum/posts/{id}/:
+    put:
+      operationId: forum_posts_update
+      description: Only the post's own author or staff may edit it.
+      summary: Replace a post
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Posts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PostRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PostRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+          description: ''
+    get:
+      operationId: forum_posts_retrieve
+      summary: Retrieve a post
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Posts
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+          description: ''
+    delete:
+      operationId: forum_posts_destroy
+      description: Only the post's own author or staff may delete it. This sets `is_archived=True`;
+        the row and its comments/votes/flags are preserved.
+      summary: Archive a post (soft delete)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Posts
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+    patch:
+      operationId: forum_posts_partial_update
+      description: Only the post's own author or staff may edit it.
+      summary: Update a post
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Posts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPostRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPostRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPostRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+          description: ''
+  /api/forum/posts/{id}/flag/:
+    post:
+      operationId: forum_posts_flag_create
+      description: 'Idempotent: flagging the same post twice doesn''t double-count
+        `flags_count`. One `PostFlag` row per `(post, user)`; flagging again after
+        the flag was cleared by a moderator re-activates it. Doesn''t broadcast over
+        WebSocket — flags are moderator-facing, not part of the public feed.'
+      summary: Flag a post for moderation
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Posts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostFlagRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PostFlagRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PostFlagRequestRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+          description: ''
+  /api/forum/posts/{id}/restore/:
+    post:
+      operationId: forum_posts_restore_create
+      description: Un-archives a record previously removed via `DELETE`, setting `is_archived`
+        back to `False` so it reappears in normal list/retrieve queries.
+      summary: Restore an archived post
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Posts
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+          description: ''
+  /api/forum/posts/{id}/upvote/:
+    post:
+      operationId: forum_posts_upvote_create
+      description: 'Idempotent toggle: upvotes the post if the requester hasn''t upvoted
+        it yet, or removes their upvote if they have. Enforced one-vote-per-user via
+        a `PostVote` row (soft-archived rather than deleted when toggled off). Broadcasts
+        an `upvote_update` event to the venue''s WebSocket room either way.'
+      summary: Toggle my upvote
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this post.
+        required: true
+      tags:
+      - Posts
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+          description: ''
+  /api/forum/comments/:
+    get:
+      operationId: forum_comments_list
+      description: Filter to a single post's thread with `?post=<id>`. Comments are
+        a flat (1-level) thread per post, ordered oldest first.
+      summary: List comments
+      parameters:
+      - in: query
+        name: created_after
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        schema:
+          type: string
+          format: date-time
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: post
+        schema:
+          type: integer
+        description: Filter to comments on this post.
+      tags:
+      - Comments
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCommentList'
+          description: ''
+    post:
+      operationId: forum_comments_create
+      description: '`user` is set from the authenticated requester. Creating a comment
+        broadcasts a `new_comment` event to the post''s venue WebSocket room, and
+        creates a `comment` notification for the post''s author (pushed live to their
+        `ws/notifications/` socket) unless they''re commenting on their own post.'
+      summary: Create a comment
+      tags:
+      - Comments
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CommentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CommentRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+          description: ''
+  /api/forum/comments/{id}/:
+    put:
+      operationId: forum_comments_update
+      description: Only the comment's own author or staff may edit it.
+      summary: Replace a comment
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this comment.
+        required: true
+      tags:
+      - Comments
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CommentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CommentRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+          description: ''
+    get:
+      operationId: forum_comments_retrieve
+      summary: Retrieve a comment
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this comment.
+        required: true
+      tags:
+      - Comments
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+          description: ''
+    delete:
+      operationId: forum_comments_destroy
+      description: Only the comment's own author or staff may delete it.
+      summary: Archive a comment (soft delete)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this comment.
+        required: true
+      tags:
+      - Comments
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+    patch:
+      operationId: forum_comments_partial_update
+      description: Only the comment's own author or staff may edit it.
+      summary: Update a comment
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this comment.
+        required: true
+      tags:
+      - Comments
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+          description: ''
+  /api/forum/comments/{id}/restore/:
+    post:
+      operationId: forum_comments_restore_create
+      description: Un-archives a record previously removed via `DELETE`, setting `is_archived`
+        back to `False` so it reappears in normal list/retrieve queries.
+      summary: Restore an archived comment
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this comment.
+        required: true
+      tags:
+      - Comments
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+          description: ''
+  /api/forum/conversations/:
+    get:
+      operationId: forum_conversations_list
+      description: Chat scoped to `(venue, location_id)`, where `location_id` is the
+        opaque Mappedin location/place id the fan tapped on the map — no admin-created
+        Section required. Both `venue` and `location_id` are required query params.
+        Returns an empty paginated list (never a 404) if nobody has posted at that
+        location yet; a conversation is only created on the first `POST`. Newest first.
+      summary: List messages for a map location
+      parameters:
+      - in: query
+        name: created_after
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: location_id
+        schema:
+          type: string
+        description: Mappedin location id, exact match.
+        required: true
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: venue
+        schema:
+          type: integer
+        description: Venue id.
+        required: true
+      tags:
+      - Location Conversations
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedLocationMessageList'
+          description: ''
+    post:
+      operationId: forum_conversations_create
+      description: Finds the `(venue, location_id)` conversation, creating it on first
+        use, then stores the message on it — the client never creates or passes a
+        conversation id. `location_name` only sets the conversation's display name
+        on create (or backfills it if currently blank); it's ignored otherwise. Broadcasts
+        `new_location_message` to `ws/venues/<venue_id>/locations/<location_id>/`.
+      summary: Post a message to a map location (find-or-create)
+      tags:
+      - Location Conversations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationMessageCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LocationMessageCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LocationMessageCreateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationMessage'
+          description: ''
+  /api/forum/conversations/{id}/:
+    put:
+      operationId: forum_conversations_update
+      description: Only the message's own author or staff may edit it.
+      summary: Replace a location message
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this location message.
+        required: true
+      tags:
+      - Location Conversations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationMessageRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LocationMessageRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LocationMessageRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationMessage'
+          description: ''
+    get:
+      operationId: forum_conversations_retrieve
+      summary: Retrieve a location message
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this location message.
+        required: true
+      tags:
+      - Location Conversations
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationMessage'
+          description: ''
+    delete:
+      operationId: forum_conversations_destroy
+      description: Only the message's own author or staff may delete it.
+      summary: Archive a location message (soft delete)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this location message.
+        required: true
+      tags:
+      - Location Conversations
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+    patch:
+      operationId: forum_conversations_partial_update
+      description: Only the message's own author or staff may edit it.
+      summary: Update a location message
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this location message.
+        required: true
+      tags:
+      - Location Conversations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedLocationMessageRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedLocationMessageRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedLocationMessageRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationMessage'
+          description: ''
+  /api/forum/conversations/{id}/restore/:
+    post:
+      operationId: forum_conversations_restore_create
+      description: Un-archives a record previously removed via `DELETE`, setting `is_archived`
+        back to `False` so it reappears in normal list/retrieve queries.
+      summary: Restore an archived location message
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this location message.
+        required: true
+      tags:
+      - Location Conversations
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationMessage'
+          description: ''
+  /api/notifications/:
+    get:
+      operationId: notifications_list
+      description: Returns the authenticated user's notifications, newest first. The
+        same events are also pushed live over the `ws/notifications/` WebSocket as
+        they're created, so clients typically combine an initial fetch here with live
+        updates from the socket rather than polling.
+      summary: List my notifications
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Notifications
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedNotificationList'
+          description: ''
+  /api/notifications/mark_all_read/:
+    post:
+      operationId: notifications_mark_all_read_create
+      summary: Mark all my notifications as read
+      tags:
+      - Notifications
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+  /api/notifications/unread_count/:
+    get:
+      operationId: notifications_unread_count_retrieve
+      description: Lightweight count endpoint for rendering a notification badge without
+        paginating through the full list.
+      summary: Get my unread notification count
+      tags:
+      - Notifications
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnreadCount'
+          description: ''
+  /api/notifications/{id}/:
+    get:
+      operationId: notifications_retrieve
+      summary: Retrieve a single notification
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this notification.
+        required: true
+      tags:
+      - Notifications
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+          description: ''
+  /api/notifications/{id}/mark_read/:
+    post:
+      operationId: notifications_mark_read_create
+      summary: Mark one notification as read
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this notification.
+        required: true
+      tags:
+      - Notifications
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+          description: ''
+  /api/maps/token/:
+    get:
+      operationId: maps_token_retrieve
+      tags:
+      - Maps
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+components:
+  schemas:
+    AdminNotificationRequestRequest:
+      type: object
+      properties:
+        subject:
+          type: string
+          minLength: 1
+          description: Subject of the notification (required, especially for email
+            templates).
+          maxLength: 100
+        message:
+          type: string
+          minLength: 1
+          description: Body content of the notification.
+          maxLength: 1000
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelsEnum'
+          description: Delivery channels (email, push, or both).
+        venue:
+          type: integer
+          nullable: true
+          description: Filter users by venue they have posted in.
+        section:
+          type: integer
+          nullable: true
+          description: Filter users by section they have posted in.
+        category:
+          type: integer
+          nullable: true
+          description: Filter users by category they have posted in.
+        users:
+          type: array
+          items:
+            type: integer
+          description: List of specific user IDs to notify.
+      required:
+      - channels
+      - message
+      - subject
+    AdminNotificationResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        users_targeted:
+          type: integer
+        email_sent:
+          type: integer
+        push_sent:
+          type: integer
+      required:
+      - detail
+      - email_sent
+      - push_sent
+      - users_targeted
+    AdminPost:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        user:
+          type: integer
+          description: The post's author. Writable here (unlike the public PostSerializer)
+            so admins can create/reassign posts on a user's behalf.
+        user_detail:
+          allOf:
+          - $ref: '#/components/schemas/PublicUser'
+          readOnly: true
+        venue:
+          type: integer
+          description: The venue this post belongs to.
+        venue_name:
+          type: string
+          readOnly: true
+        section:
+          type: integer
+          nullable: true
+          description: Optional section within the venue.
+        section_name:
+          type: string
+          readOnly: true
+        category:
+          type: integer
+          description: One of the fixed post categories.
+        category_name:
+          type: string
+          readOnly: true
+        content:
+          type: string
+          maxLength: 140
+        upvotes_count:
+          type: integer
+          readOnly: true
+        flags_count:
+          type: integer
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          description: |-
+            `visible` or `hidden`. Prefer the `hide`/`show` actions over editing this directly so the `post_hidden` WebSocket event fires.
+
+            * `visible` - Visible
+            * `hidden` - Hidden
+        is_archived:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - category
+      - category_name
+      - content
+      - created_at
+      - flags_count
+      - id
+      - section_name
+      - updated_at
+      - upvotes_count
+      - user
+      - user_detail
+      - venue
+      - venue_name
+    AdminPostRequest:
+      type: object
+      properties:
+        user:
+          type: integer
+          description: The post's author. Writable here (unlike the public PostSerializer)
+            so admins can create/reassign posts on a user's behalf.
+        venue:
+          type: integer
+          description: The venue this post belongs to.
+        section:
+          type: integer
+          nullable: true
+          description: Optional section within the venue.
+        category:
+          type: integer
+          description: One of the fixed post categories.
+        content:
+          type: string
+          minLength: 1
+          maxLength: 140
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          description: |-
+            `visible` or `hidden`. Prefer the `hide`/`show` actions over editing this directly so the `post_hidden` WebSocket event fires.
+
+            * `visible` - Visible
+            * `hidden` - Hidden
+        is_archived:
+          type: boolean
+      required:
+      - category
+      - content
+      - user
+      - venue
+    AdminStats:
+      type: object
+      properties:
+        total_users:
+          type: integer
+        verified_users:
+          type: integer
+        total_posts:
+          type: integer
+        total_comments:
+          type: integer
+        flagged_posts_count:
+          type: integer
+        active_venues_count:
+          type: integer
+        posts_by_category:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategoryStat'
+        posts_by_venue:
+          type: array
+          items:
+            $ref: '#/components/schemas/VenueStat'
+      required:
+      - active_venues_count
+      - flagged_posts_count
+      - posts_by_category
+      - posts_by_venue
+      - total_comments
+      - total_posts
+      - total_users
+      - verified_users
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        pseudo_name:
+          type: string
+          nullable: true
+          maxLength: 50
+        is_email_verified:
+          type: boolean
+        is_staff:
+          type: boolean
+        is_active:
+          type: boolean
+        is_archived:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_login:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - created_at
+      - email
+      - id
+      - last_login
+    AdminUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+          maxLength: 254
+        pseudo_name:
+          type: string
+          nullable: true
+          maxLength: 50
+        is_email_verified:
+          type: boolean
+        is_staff:
+          type: boolean
+        is_active:
+          type: boolean
+        is_archived:
+          type: boolean
+      required:
+      - email
+    Category:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          description: Display name, must be unique.
+          maxLength: 50
+        slug:
+          type: string
+          readOnly: true
+          description: Auto-derived from `name` if not provided.
+          pattern: ^[-a-zA-Z0-9_]+$
+        description:
+          type: string
+          description: Short explanation shown under the category in pickers.
+          maxLength: 255
+        disclaimer:
+          type: string
+          description: Optional warning shown when this category is selected, e.g.
+            the Help category's medical/security disclaimer.
+          maxLength: 255
+        order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Sort order in category pickers, ascending.
+        is_active:
+          type: boolean
+          description: Toggle off to hide from new-post pickers without affecting
+            existing posts.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - name
+      - slug
+      - updated_at
+    CategoryRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Display name, must be unique.
+          maxLength: 50
+        description:
+          type: string
+          description: Short explanation shown under the category in pickers.
+          maxLength: 255
+        disclaimer:
+          type: string
+          description: Optional warning shown when this category is selected, e.g.
+            the Help category's medical/security disclaimer.
+          maxLength: 255
+        order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Sort order in category pickers, ascending.
+        is_active:
+          type: boolean
+          description: Toggle off to hide from new-post pickers without affecting
+            existing posts.
+      required:
+      - name
+    CategoryStat:
+      type: object
+      properties:
+        category_name:
+          type: string
+        post_count:
+          type: integer
+      required:
+      - category_name
+      - post_count
+    ChangePasswordRequest:
+      type: object
+      properties:
+        old_password:
+          type: string
+          writeOnly: true
+          minLength: 1
+          description: The account's current password, for re-authentication.
+        new_password:
+          type: string
+          writeOnly: true
+          minLength: 1
+          description: Must pass Django's password validators.
+      required:
+      - new_password
+      - old_password
+    ChannelsEnum:
+      enum:
+      - email
+      - push
+      type: string
+      description: |-
+        * `email` - Email
+        * `push` - Push
+    Comment:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        post:
+          type: integer
+          description: The post this comment replies to.
+        user:
+          allOf:
+          - $ref: '#/components/schemas/PublicUser'
+          readOnly: true
+        content:
+          type: string
+          description: Comment text, max 500 characters.
+          maxLength: 500
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - content
+      - created_at
+      - id
+      - post
+      - updated_at
+      - user
+    CommentRequest:
+      type: object
+      properties:
+        post:
+          type: integer
+          description: The post this comment replies to.
+        content:
+          type: string
+          minLength: 1
+          description: Comment text, max 500 characters.
+          maxLength: 500
+      required:
+      - content
+      - post
+    DetailResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    EmailTokenObtainPairRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - email
+      - password
+    EmailVerificationRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+          description: The email address of the account to verify.
+        otp:
+          type: string
+          minLength: 6
+          description: The 6-digit One-Time Password sent to your email.
+          maxLength: 6
+      required:
+      - email
+      - otp
+    GoogleLoginRequest:
+      type: object
+      properties:
+        id_token:
+          type: string
+          minLength: 1
+          description: The ID token returned by Google's OAuth2 frontend SDK.
+      required:
+      - id_token
+    GuestAccessRequest:
+      type: object
+      properties:
+        ip_address:
+          type: string
+          minLength: 1
+          description: The guest's current IP address.
+        device_fingerprint:
+          type: string
+          minLength: 1
+          description: An opaque, client-generated string that uniquely identifies
+            this device (e.g. a hash of browser/hardware attributes). The same fingerprint
+            across requests ties activity to one trial window.
+          maxLength: 512
+      required:
+      - device_fingerprint
+      - ip_address
+    GuestAccessResponse:
+      type: object
+      properties:
+        access:
+          type: string
+        token_type:
+          type: string
+        expires_in:
+          type: integer
+        trial_expires_at:
+          type: string
+          format: date-time
+        has_tried_ar_view:
+          type: boolean
+        has_tried_2d_view:
+          type: boolean
+        has_2d_trial_expired:
+          type: boolean
+        mappedin:
+          $ref: '#/components/schemas/GuestMappedInData'
+      required:
+      - access
+      - expires_in
+      - has_2d_trial_expired
+      - has_tried_2d_view
+      - has_tried_ar_view
+      - mappedin
+      - token_type
+      - trial_expires_at
+    GuestMappedInData:
+      type: object
+      properties:
+        token:
+          type: string
+        expires_in:
+          type: integer
+      required:
+      - expires_in
+      - token
+    GuestSessionResponse:
+      type: object
+      properties:
+        has_tried_ar_view:
+          type: boolean
+        has_tried_2d_view:
+          type: boolean
+        has_2d_trial_expired:
+          type: boolean
+      required:
+      - has_2d_trial_expired
+      - has_tried_2d_view
+      - has_tried_ar_view
+    Interest:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          description: Display name, must be unique.
+          maxLength: 50
+        slug:
+          type: string
+          readOnly: true
+          description: Auto-derived from `name` if not provided.
+          pattern: ^[-a-zA-Z0-9_]+$
+        order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Sort order in interest pickers, ascending.
+        is_active:
+          type: boolean
+          description: Toggle off to hide from interest pickers without affecting
+            users who already selected it.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - name
+      - slug
+      - updated_at
+    InterestRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Display name, must be unique.
+          maxLength: 50
+        order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Sort order in interest pickers, ascending.
+        is_active:
+          type: boolean
+          description: Toggle off to hide from interest pickers without affecting
+            users who already selected it.
+      required:
+      - name
+    LocationMessage:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        venue:
+          type: integer
+          readOnly: true
+        location_id:
+          type: string
+          readOnly: true
+        location_name:
+          type: string
+          readOnly: true
+        user:
+          allOf:
+          - $ref: '#/components/schemas/PublicUser'
+          readOnly: true
+        content:
+          type: string
+          description: Message text, max 500 characters.
+          maxLength: 500
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - content
+      - created_at
+      - id
+      - location_id
+      - location_name
+      - updated_at
+      - user
+      - venue
+    LocationMessageCreateRequest:
+      type: object
+      description: |-
+        Input-only shape for `POST /api/forum/conversations/`. `venue`/`location_id`/
+        `location_name` belong to the conversation (channel), not the message, so this isn't
+        a ModelSerializer over either model — the view resolves the channel (find-or-create)
+        before building the actual `LocationMessage` row.
+      properties:
+        venue:
+          type: integer
+          description: Venue id. Must exist (and not be archived) or a 404 is raised.
+        location_id:
+          type: string
+          minLength: 1
+          description: Opaque Mappedin location/place id, exact match. Never slugified
+            or rewritten.
+          maxLength: 255
+        location_name:
+          type: string
+          default: ''
+          description: Display name for the conversation. Only used on first create
+            (or to backfill a currently-blank name); ignored once the conversation
+            already has one.
+          maxLength: 100
+        content:
+          type: string
+          minLength: 1
+          description: Message text, 1-500 characters.
+          maxLength: 500
+      required:
+      - content
+      - location_id
+      - venue
+    LocationMessageRequest:
+      type: object
+      properties:
+        content:
+          type: string
+          minLength: 1
+          description: Message text, max 500 characters.
+          maxLength: 500
+      required:
+      - content
+    LogoutRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+          description: The refresh token issued at login, to be blacklisted so it
+            can no longer be used to obtain new access tokens.
+      required:
+      - refresh
+    Notification:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        actor:
+          allOf:
+          - $ref: '#/components/schemas/PublicUser'
+          readOnly: true
+          description: The user whose action triggered this notification, if any.
+        verb:
+          allOf:
+          - $ref: '#/components/schemas/VerbEnum'
+          readOnly: true
+          description: |-
+            Notification type, e.g. `comment` when someone replies to your post.
+
+            * `comment` - Comment
+            * `upvote` - Upvote
+            * `moderation` - Moderation
+            * `broadcast` - Broadcast
+        post:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: The related post, if this notification is post-related.
+        comment:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: The related comment, if this notification is comment-related.
+        message:
+          type: string
+          readOnly: true
+          description: Human-readable summary, ready to display as-is.
+        is_read:
+          type: boolean
+          description: Set via `POST /{id}/mark_read/` or `POST mark_all_read/`.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - actor
+      - comment
+      - created_at
+      - id
+      - message
+      - post
+      - updated_at
+      - verb
+    PaginatedAdminPostList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminPost'
+    PaginatedAdminUserList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUser'
+    PaginatedCategoryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+    PaginatedCommentList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Comment'
+    PaginatedInterestList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Interest'
+    PaginatedLocationMessageList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/LocationMessage'
+    PaginatedNotificationList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+    PaginatedPostList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Post'
+    PaginatedSectionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Section'
+    PaginatedVenueList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Venue'
+    PasswordResetConfirmRequest:
+      type: object
+      properties:
+        uid:
+          type: string
+          minLength: 1
+          description: Base64url-encoded user id, taken from the `uid` query param
+            in the password reset link sent by email.
+        token:
+          type: string
+          minLength: 1
+          description: Reset token from the `token` query param in the password reset
+            link.
+        new_password:
+          type: string
+          writeOnly: true
+          minLength: 1
+          description: Must pass Django's password validators.
+      required:
+      - new_password
+      - token
+      - uid
+    PasswordResetRequestRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+          description: Account email to send a password reset link to. Always returns
+            200 whether or not the account exists, to avoid leaking which emails are
+            registered.
+      required:
+      - email
+    PatchedAdminPostRequest:
+      type: object
+      properties:
+        user:
+          type: integer
+          description: The post's author. Writable here (unlike the public PostSerializer)
+            so admins can create/reassign posts on a user's behalf.
+        venue:
+          type: integer
+          description: The venue this post belongs to.
+        section:
+          type: integer
+          nullable: true
+          description: Optional section within the venue.
+        category:
+          type: integer
+          description: One of the fixed post categories.
+        content:
+          type: string
+          minLength: 1
+          maxLength: 140
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          description: |-
+            `visible` or `hidden`. Prefer the `hide`/`show` actions over editing this directly so the `post_hidden` WebSocket event fires.
+
+            * `visible` - Visible
+            * `hidden` - Hidden
+        is_archived:
+          type: boolean
+    PatchedAdminUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+          maxLength: 254
+        pseudo_name:
+          type: string
+          nullable: true
+          maxLength: 50
+        is_email_verified:
+          type: boolean
+        is_staff:
+          type: boolean
+        is_active:
+          type: boolean
+        is_archived:
+          type: boolean
+    PatchedCategoryRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Display name, must be unique.
+          maxLength: 50
+        description:
+          type: string
+          description: Short explanation shown under the category in pickers.
+          maxLength: 255
+        disclaimer:
+          type: string
+          description: Optional warning shown when this category is selected, e.g.
+            the Help category's medical/security disclaimer.
+          maxLength: 255
+        order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Sort order in category pickers, ascending.
+        is_active:
+          type: boolean
+          description: Toggle off to hide from new-post pickers without affecting
+            existing posts.
+    PatchedCommentRequest:
+      type: object
+      properties:
+        post:
+          type: integer
+          description: The post this comment replies to.
+        content:
+          type: string
+          minLength: 1
+          description: Comment text, max 500 characters.
+          maxLength: 500
+    PatchedGuestSessionUpdateRequestRequest:
+      type: object
+      properties:
+        has_tried_ar_view:
+          type: boolean
+        has_tried_2d_view:
+          type: boolean
+    PatchedInterestRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Display name, must be unique.
+          maxLength: 50
+        order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Sort order in interest pickers, ascending.
+        is_active:
+          type: boolean
+          description: Toggle off to hide from interest pickers without affecting
+            users who already selected it.
+    PatchedLocationMessageRequest:
+      type: object
+      properties:
+        content:
+          type: string
+          minLength: 1
+          description: Message text, max 500 characters.
+          maxLength: 500
+    PatchedPostRequest:
+      type: object
+      properties:
+        venue:
+          type: integer
+          description: The venue this post belongs to. Required.
+        section:
+          type: integer
+          nullable: true
+          description: Optional physical section within the venue (e.g. North Stand).
+            Drives the live section heatmap when set.
+        category:
+          type: integer
+          description: One of the fixed post categories (see /api/forum/categories/).
+        content:
+          type: string
+          minLength: 1
+          description: Post text, max 140 characters.
+          maxLength: 140
+    PatchedSectionRequest:
+      type: object
+      properties:
+        venue:
+          type: integer
+          description: The venue this section belongs to.
+        name:
+          type: string
+          minLength: 1
+          description: e.g. 'North Stand', 'VIP'. Unique per venue.
+          maxLength: 50
+        code:
+          type: string
+          description: Optional short code for the section, e.g. a gate/seat-map label.
+          maxLength: 20
+        is_active:
+          type: boolean
+          description: Toggle off to temporarily close a section (e.g. for an event)
+            without archiving its post history.
+    PatchedUserRequest:
+      type: object
+      properties:
+        pseudo_name:
+          type: string
+          nullable: true
+          description: Public display name shown on posts/comments instead of the
+            user's real email. Must be unique. Set this during onboarding, after email
+            verification and before selecting a venue.
+          maxLength: 50
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        bio:
+          type: string
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 1024
+        interests:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          nullable: true
+          description: List of user interests.
+    PatchedVenueRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Display name, must be unique.
+          maxLength: 100
+        location:
+          type: string
+          description: Free-text address/location.
+          maxLength: 255
+        latitude:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          nullable: true
+          description: Reserved for future GPS auto-suggest.
+        longitude:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          nullable: true
+          description: Reserved for future GPS auto-suggest.
+        mappedin_map_id:
+          type: string
+          nullable: true
+          description: External key for Mappedin integration.
+          maxLength: 255
+        notes:
+          type: string
+    Post:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        user:
+          allOf:
+          - $ref: '#/components/schemas/PublicUser'
+          readOnly: true
+        venue:
+          type: integer
+          description: The venue this post belongs to. Required.
+        section:
+          type: integer
+          nullable: true
+          description: Optional physical section within the venue (e.g. North Stand).
+            Drives the live section heatmap when set.
+        category:
+          type: integer
+          description: One of the fixed post categories (see /api/forum/categories/).
+        content:
+          type: string
+          description: Post text, max 140 characters.
+          maxLength: 140
+        upvotes_count:
+          type: integer
+          readOnly: true
+        flags_count:
+          type: integer
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        has_upvoted:
+          type: boolean
+          readOnly: true
+          description: Whether the requesting user has currently upvoted this post.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - category
+      - content
+      - created_at
+      - flags_count
+      - has_upvoted
+      - id
+      - status
+      - updated_at
+      - upvotes_count
+      - user
+      - venue
+    PostFlagRequestRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          description: Optional free-text reason for the flag, shown to moderators.
+          maxLength: 255
+    PostRequest:
+      type: object
+      properties:
+        venue:
+          type: integer
+          description: The venue this post belongs to. Required.
+        section:
+          type: integer
+          nullable: true
+          description: Optional physical section within the venue (e.g. North Stand).
+            Drives the live section heatmap when set.
+        category:
+          type: integer
+          description: One of the fixed post categories (see /api/forum/categories/).
+        content:
+          type: string
+          minLength: 1
+          description: Post text, max 140 characters.
+          maxLength: 140
+      required:
+      - category
+      - content
+      - venue
+    PublicUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        display_name:
+          type: string
+          readOnly: true
+          description: '`pseudo_name` if set, otherwise falls back to the email''s
+            local part.'
+      required:
+      - display_name
+      - id
+    RegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+          description: Used as the login identifier. Must be unique.
+          maxLength: 254
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+          description: Must pass Django's password validators (min length 8, not too
+            common, not too similar to your email).
+        password_confirm:
+          type: string
+          writeOnly: true
+          minLength: 1
+          description: Must exactly match `password`.
+      required:
+      - email
+      - password
+      - password_confirm
+    ResendVerificationRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+          description: Account email to resend a verification OTP to. Always returns
+            200 whether or not the account exists, to avoid leaking which emails are
+            registered.
+      required:
+      - email
+    Section:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        venue:
+          type: integer
+          description: The venue this section belongs to.
+        name:
+          type: string
+          description: e.g. 'North Stand', 'VIP'. Unique per venue.
+          maxLength: 50
+        code:
+          type: string
+          description: Optional short code for the section, e.g. a gate/seat-map label.
+          maxLength: 20
+        is_active:
+          type: boolean
+          description: Toggle off to temporarily close a section (e.g. for an event)
+            without archiving its post history.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - name
+      - updated_at
+      - venue
+    SectionRequest:
+      type: object
+      properties:
+        venue:
+          type: integer
+          description: The venue this section belongs to.
+        name:
+          type: string
+          minLength: 1
+          description: e.g. 'North Stand', 'VIP'. Unique per venue.
+          maxLength: 50
+        code:
+          type: string
+          description: Optional short code for the section, e.g. a gate/seat-map label.
+          maxLength: 20
+        is_active:
+          type: boolean
+          description: Toggle off to temporarily close a section (e.g. for an event)
+            without archiving its post history.
+      required:
+      - name
+      - venue
+    StatusEnum:
+      enum:
+      - visible
+      - hidden
+      type: string
+      description: |-
+        * `visible` - Visible
+        * `hidden` - Hidden
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+      required:
+      - access
+      - refresh
+    TokenRefreshRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+      required:
+      - refresh
+    UnreadCount:
+      type: object
+      properties:
+        unread_count:
+          type: integer
+      required:
+      - unread_count
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        pseudo_name:
+          type: string
+          nullable: true
+          description: Public display name shown on posts/comments instead of the
+            user's real email. Must be unique. Set this during onboarding, after email
+            verification and before selecting a venue.
+          maxLength: 50
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        bio:
+          type: string
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 1024
+        user_type:
+          allOf:
+          - $ref: '#/components/schemas/UserTypeEnum'
+          readOnly: true
+        is_email_verified:
+          type: boolean
+          readOnly: true
+        interests:
+          type: array
+          items:
+            type: string
+          nullable: true
+          description: List of user interests.
+        stat:
+          allOf:
+          - $ref: '#/components/schemas/UserStat'
+          readOnly: true
+          description: 'Aggregate profile stats: `posts_count` (posts authored), `upvotes_count`
+            (upvotes received across those posts), and `venues_count` (distinct venues
+            posted in).'
+        recent_posts:
+          type: array
+          items: {}
+          readOnly: true
+          description: The user's 5 most recently created posts, newest first.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - email
+      - id
+      - is_email_verified
+      - recent_posts
+      - stat
+      - updated_at
+      - user_type
+    UserRequest:
+      type: object
+      properties:
+        pseudo_name:
+          type: string
+          nullable: true
+          description: Public display name shown on posts/comments instead of the
+            user's real email. Must be unique. Set this during onboarding, after email
+            verification and before selecting a venue.
+          maxLength: 50
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        bio:
+          type: string
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 1024
+        interests:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          nullable: true
+          description: List of user interests.
+    UserStat:
+      type: object
+      properties:
+        posts_count:
+          type: integer
+          description: Number of posts authored
+        upvotes_count:
+          type: integer
+          description: Total upvotes received across posts
+        venues_count:
+          type: integer
+          description: Distinct venues posted in
+      required:
+      - posts_count
+      - upvotes_count
+      - venues_count
+    UserTypeEnum:
+      enum:
+      - regular_user
+      - admin
+      type: string
+      description: |-
+        * `regular_user` - Regular User
+        * `admin` - Admin
+    Venue:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          description: Display name, must be unique.
+          maxLength: 100
+        location:
+          type: string
+          description: Free-text address/location.
+          maxLength: 255
+        latitude:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          nullable: true
+          description: Reserved for future GPS auto-suggest.
+        longitude:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          nullable: true
+          description: Reserved for future GPS auto-suggest.
+        mappedin_map_id:
+          type: string
+          nullable: true
+          description: External key for Mappedin integration.
+          maxLength: 255
+        notes:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - name
+      - updated_at
+    VenueRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Display name, must be unique.
+          maxLength: 100
+        location:
+          type: string
+          description: Free-text address/location.
+          maxLength: 255
+        latitude:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          nullable: true
+          description: Reserved for future GPS auto-suggest.
+        longitude:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          nullable: true
+          description: Reserved for future GPS auto-suggest.
+        mappedin_map_id:
+          type: string
+          nullable: true
+          description: External key for Mappedin integration.
+          maxLength: 255
+        notes:
+          type: string
+      required:
+      - name
+    VenueStat:
+      type: object
+      properties:
+        venue_name:
+          type: string
+        post_count:
+          type: integer
+      required:
+      - post_count
+      - venue_name
+    VerbEnum:
+      enum:
+      - comment
+      - upvote
+      - moderation
+      - broadcast
+      type: string
+      description: |-
+        * `comment` - Comment
+        * `upvote` - Upvote
+        * `moderation` - Moderation
+        * `broadcast` - Broadcast
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+tags:
+- name: Auth
+  description: Registration, login/refresh, email verification, password reset.
+- name: Users
+  description: Authenticated user's own profile.
+- name: Categories
+  description: Fixed set of post categories (Lines and Crowds, Food and Drinks, Fan
+    Vibe, Help).
+- name: Interests
+  description: Curated catalog of user interests shown as profile picker tags.
+- name: Venues
+  description: Stadiums/arenas fans can select to join a live feed.
+- name: Sections
+  description: Physical zones within a venue (e.g. North Stand, VIP), used for the
+    section heatmap.
+- name: Posts
+  description: 140-character venue feed posts, with upvotes, flags, and moderation.
+- name: Comments
+  description: Threaded replies on posts.
+- name: Location Conversations
+  description: Map-pin chat scoped to (venue, Mappedin location id), separate from
+    the venue-wide post feed and from admin Sections.
+- name: Notifications
+  description: Per-user notification inbox, also pushed live over WebSocket.
+- name: Admin
+  description: Administrative metrics, moderation controls, and user management.

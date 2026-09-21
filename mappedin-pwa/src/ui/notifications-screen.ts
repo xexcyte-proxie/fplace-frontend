@@ -1,17 +1,10 @@
 import type { AppState } from '../types';
-import { renderContentLoadingOverlay } from './content-loading-overlay';
+import { renderBusyLabel, renderContentLoadingOverlay } from './content-loading-overlay';
+import { escapeHtml } from './escape-html';
 import {
   formatUnreadBadge,
   mapNotificationsToListItems,
 } from './notifications-data';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
 
 export function renderNotificationsScreen(state: AppState): string {
   const items = mapNotificationsToListItems(state.notifications);
@@ -19,6 +12,7 @@ export function renderNotificationsScreen(state: AppState): string {
   const loading = state.notificationsLoading;
   const markingAll = state.notificationsMarkingAll;
 
+  const showOverlay = loading && items.length === 0;
   const list = items.length
     ? items
         .map(
@@ -42,12 +36,14 @@ export function renderNotificationsScreen(state: AppState): string {
       `,
         )
         .join('<div class="notifications-divider"></div>')
-    : loading
+    : showOverlay
       ? ''
       : `<p class="notifications-empty">No notifications yet.</p>`;
 
   const badge = formatUnreadBadge(unread);
   const markAllDisabled = markingAll || unread <= 0 || loading;
+  const showMarkAllSpinner = markingAll && !showOverlay;
+  const showLoadMoreSpinner = loading && items.length > 0 && !markingAll;
 
   return `
     <div class="notifications-screen">
@@ -68,10 +64,11 @@ export function renderNotificationsScreen(state: AppState): string {
         <button
           type="button"
           id="notifications-mark-all-btn"
-          class="notifications-mark-all-btn"
+          class="notifications-mark-all-btn${showMarkAllSpinner ? ' is-loading' : ''}"
           ${markAllDisabled ? 'disabled' : ''}
+          aria-busy="${showMarkAllSpinner ? 'true' : 'false'}"
         >
-          ${markingAll ? 'Marking…' : 'Mark all read'}
+          ${showMarkAllSpinner ? renderBusyLabel('Marking…') : 'Mark all read'}
         </button>
       </header>
 
@@ -80,14 +77,14 @@ export function renderNotificationsScreen(state: AppState): string {
           ${list}
         </div>
         ${
-          state.notificationsNext
-            ? `<button type="button" id="notifications-load-more-btn" class="notifications-load-more" ${loading ? 'disabled' : ''}>
-                ${loading ? 'Loading…' : 'Load more'}
+          state.notificationsNext && !showOverlay
+            ? `<button type="button" id="notifications-load-more-btn" class="notifications-load-more${showLoadMoreSpinner ? ' is-loading' : ''}" ${loading || markingAll ? 'disabled' : ''} aria-busy="${showLoadMoreSpinner ? 'true' : 'false'}">
+                ${showLoadMoreSpinner ? renderBusyLabel('Loading…') : 'Load more'}
               </button>`
             : ''
         }
         ${
-          loading && items.length === 0
+          showOverlay
             ? renderContentLoadingOverlay('Loading notifications')
             : ''
         }

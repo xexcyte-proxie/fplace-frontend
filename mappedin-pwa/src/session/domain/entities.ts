@@ -91,15 +91,18 @@ export function shouldShowMapBootOverlay(options: {
 }
 
 /**
- * Hide the 3D canvas whenever it is not the visible surface.
- * Splash keeps it visible so Mappedin can start; home does not wait for ready.
+ * Hide the 3D canvas whenever it is not the visible surface, and while the
+ * next indoor map is booting so the previous WebGL frame cannot flash.
+ * Splash keeps it visible so Mappedin can start.
  * Uses visibility (not display) so the canvas stays laid out while hidden.
  */
 export function shouldHideMapCanvas(options: {
   shell: StartupShell;
   activeTab: string;
   navigateView: string;
+  mapStatus?: MapBootStatus;
 }): boolean {
   if (options.shell === 'splash') return false;
-  return !isIndoorMapSurface(options);
+  if (!isIndoorMapSurface(options)) return true;
+  return Boolean(options.mapStatus && options.mapStatus !== 'ready');
 }

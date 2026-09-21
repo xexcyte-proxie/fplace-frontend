@@ -12,6 +12,8 @@
   inset: 0;
   bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
   z-index: 3;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   background: var(--fv-sheet);
   color: #ffffff;
@@ -19,6 +21,7 @@
 }
 
 .first-visit-hero {
+  flex-shrink: 0;
   padding:
     max(32px, calc(env(safe-area-inset-top) + 24px))
     var(--fv-padding-x)
@@ -127,7 +130,12 @@
 }
 
 .first-visit-sheet {
-  min-height: calc(100% - 180px);
+  --home-text: var(--fv-text);
+  --home-text-muted: var(--fv-muted);
+  --home-surface: #ffffff;
+  --home-pin: var(--fv-orange);
+  --home-globe: #3a5ba0;
+  flex: 1;
   padding: 22px var(--fv-padding-x) 28px;
   border-radius: 28px 28px 0 0;
   background: var(--fv-sheet);
@@ -136,8 +144,7 @@
 
 .first-visit-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 190px));
-  justify-content: space-between;
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-bottom: 28px;
 }
@@ -148,9 +155,8 @@
   align-items: flex-start;
   gap: 8px;
   width: 100%;
-  max-width: 190px;
-  height: 121px;
-  padding: 18px 0 18px 18px;
+  min-height: 121px;
+  padding: 18px;
   border: 1px solid transparent;
   border-radius: 20px;
   text-align: left;
@@ -224,6 +230,15 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.first-visit-empty {
+  margin: 4px 0 0;
+  font-family: var(--brand-serif);
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--fv-muted);
 }
 
 .first-visit-post {
@@ -306,17 +321,29 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #00b5ad;
   font-family: "Plus Jakarta Sans", system-ui, sans-serif;
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .first-visit-post-meta svg {
   display: block;
   width: 14px;
   height: 14px;
+  pointer-events: none;
+}
+
+div.first-visit-post-meta {
+  cursor: default;
 }
 
 .first-visit-see-all {
@@ -362,4 +389,24 @@
 
 .first-visit-ar-prompt-dismiss:active {
   opacity: 0.7;
+}
+
+.first-visit-sheet .returning-home-section {
+  margin-bottom: 24px;
+}
+
+.first-visit-sheet .returning-home-section-title {
+  color: var(--fv-text);
+}
+
+.first-visit-sheet .returning-home-empty {
+  padding-top: 4px;
+}
+
+@media (min-width: 768px) {
+  .first-visit-hero,
+  .first-visit-sheet {
+    padding-left: max(var(--fv-padding-x), calc((100% - var(--content-max)) / 2));
+    padding-right: max(var(--fv-padding-x), calc((100% - var(--content-max)) / 2));
+  }
 }

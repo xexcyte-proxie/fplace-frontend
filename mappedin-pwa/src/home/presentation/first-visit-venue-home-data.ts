@@ -6,30 +6,6 @@ import {
   type FirstVisitVenueHomeContent,
 } from '../domain/entities';
 
-/** Demo posts matching the first-time-at-venue Figma frame. */
-export const DEMO_FIRST_VISIT_POSTS: FirstVisitCrowdPost[] = [
-  {
-    id: 'demo-crowd-1',
-    author: 'SwiftOtter_21',
-    categoryLabel: 'CROWDS',
-    categoryTone: 'crowds',
-    content: 'Merch line at Gate C just cleared out.',
-    upvotes: 64,
-    upvoted: true,
-  },
-  {
-    id: 'demo-food-1',
-    author: 'HungryHawk88',
-    categoryLabel: 'FOOD',
-    categoryTone: 'food',
-    content: 'Nachos stand on the concourse has a short line again.',
-    upvotes: 37,
-    upvoted: false,
-  },
-];
-
-const DEMO_FANS_COUNT = 1204;
-
 export interface BuildFirstVisitVenueHomeInput {
   venueName: string;
   sectionLabel: string;
@@ -41,20 +17,21 @@ export interface BuildFirstVisitVenueHomeInput {
     content: string;
     upvotes: number;
     hasUpvoted?: boolean;
+    kind?: string;
   }>;
+  /** Session ids the viewer has upvoted (covers optimistic state). */
+  upvotedPostIds?: readonly string[];
   /** Cap preview rows on the home screen. */
   previewLimit?: number;
 }
 
-/**
- * Builds first-visit venue home content from live feed data, with Figma demo
- * fallbacks when the feed is still empty.
- */
+/** Builds first-visit venue home content from live feed data only. */
 export function buildFirstVisitVenueHomeContent(
   input: BuildFirstVisitVenueHomeInput,
 ): FirstVisitVenueHomeContent {
   const limit = input.previewLimit ?? 2;
-  const livePosts = input.posts.slice(0, limit).map((post) => {
+  const upvotedIds = new Set(input.upvotedPostIds ?? []);
+  const previewPosts = input.posts.slice(0, limit).map((post) => {
     const category = resolveFirstVisitCategory(post.feedType);
     return {
       id: post.id,
@@ -63,22 +40,17 @@ export function buildFirstVisitVenueHomeContent(
       categoryTone: category.tone,
       content: post.content,
       upvotes: post.upvotes,
-      upvoted: Boolean(post.hasUpvoted),
+      upvoted: Boolean(post.hasUpvoted) || upvotedIds.has(post.id),
+      upvoteable: post.kind !== 'conversation',
     } satisfies FirstVisitCrowdPost;
   });
 
-  const previewPosts =
-    livePosts.length > 0 ? livePosts : DEMO_FIRST_VISIT_POSTS.slice(0, limit);
-
   const fansCount = countDistinctFans(input.posts);
-  const fansHereLabel = formatFansHereLabel(
-    fansCount > 0 ? fansCount : DEMO_FANS_COUNT,
-  );
 
   return {
     venueName: input.venueName.trim(),
     sectionLabel: input.sectionLabel.trim() || 'Entry zone',
-    fansHereLabel,
+    fansHereLabel: fansCount > 0 ? formatFansHereLabel(fansCount) : '',
     previewPosts,
   };
 }

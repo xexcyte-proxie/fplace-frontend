@@ -1,9 +1,10 @@
 /**
  * Forum service façade - presentation and MapApp talk to this module only.
- * HTTP + venue-room WebSocket live behind the forum repository (clean architecture).
+ * HTTP + venue/location WebSocket live behind the forum repository.
  */
 import type {
   CreateCommentPayload,
+  CreateLocationMessagePayload,
   CreatePostPayload,
   FlagPostPayload,
   ForumCategory,
@@ -12,24 +13,42 @@ import type {
   ForumSection,
   ForumVenue,
   ListCommentsParams,
+  ListLocationMessagesParams,
   ListPostsParams,
+  LocationLiveEventHandler,
+  LocationLiveStatusHandler,
+  LocationLiveSubscription,
+  LocationMessage,
   PaginatedList,
   UpdateCommentPayload,
+  UpdateLocationMessagePayload,
   UpdatePostPayload,
   VenueLiveEventHandler,
   VenueLiveStatusHandler,
   VenueLiveSubscription,
-} from '../forum/domain/entities';
-import { forumRepository } from '../forum/data/forum-repository-impl';
+} from "../forum/domain/entities";
+import { forumRepository } from "../forum/data/forum-repository-impl";
+import {
+  mergeLocationMessageLists,
+  sortLocationMessagesNewestFirst,
+} from "../forum/domain/apply-location-live-event";
+import { activeInterestLabels } from "../forum/domain/interest-catalog";
 
-export { applyVenueLiveEvent } from '../forum/domain/apply-venue-live-event';
+export { applyVenueLiveEvent } from "../forum/domain/apply-venue-live-event";
+export { applyLocationLiveEvent } from "../forum/domain/apply-location-live-event";
 export {
+  conversationLocationIdsForSections,
   forumPostMatchesLocation,
   sectionIdForLocation,
-} from '../forum/domain/section-locations';
+} from "../forum/domain/section-locations";
+export {
+  FORUM_POST_CONTENT_MAX_LENGTH,
+  LOCATION_MESSAGE_CONTENT_MAX_LENGTH,
+} from "../forum/domain/entities";
 
 export type {
   CreateCommentPayload,
+  CreateLocationMessagePayload,
   CreatePostPayload,
   FlagPostPayload,
   ForumCategory,
@@ -38,16 +57,21 @@ export type {
   ForumSection,
   ForumVenue,
   ListCommentsParams,
+  ListLocationMessagesParams,
   ListPostsParams,
   PaginatedList,
   SectionHeatEntry,
+  LocationLiveEvent,
+  LocationLiveSubscription,
+  LocationMessage,
   UpdateCommentPayload,
+  UpdateLocationMessagePayload,
   UpdatePostPayload,
   VenueLiveEvent,
   VenueLiveSubscription,
   VenueLiveConnectionStatus,
   VenueLiveStatusHandler,
-} from '../forum/domain/entities';
+} from "../forum/domain/entities";
 
 /** Fetch every page of a paginated list (venues/sections/categories are small). */
 async function collectAllPages<T>(
@@ -73,7 +97,9 @@ export async function getForumVenue(venueId: number): Promise<ForumVenue> {
   return forumRepository.getVenue(venueId);
 }
 
-export async function listAllSections(venueId: number): Promise<ForumSection[]> {
+export async function listAllSections(
+  venueId: number,
+): Promise<ForumSection[]> {
   return collectAllPages((page) => forumRepository.listSections(venueId, page));
 }
 
@@ -96,6 +122,14 @@ export async function getForumCategory(
   categoryId: number,
 ): Promise<ForumCategory> {
   return forumRepository.getCategory(categoryId);
+}
+
+/** Active interest names for onboarding / profile chips. */
+export async function listActiveInterestNames(): Promise<string[]> {
+  const interests = await collectAllPages((page) =>
+    forumRepository.listInterests(page),
+  );
+  return activeInterestLabels(interests);
 }
 
 export async function listVenuePosts(
@@ -133,17 +167,129 @@ export async function loadInitialVenueFeed(
   return listVenuePosts({ venue: venueId, latest: true, page: 1 });
 }
 
-/** Conversation thread for one map area (forum section). */
-export async function loadVenueSectionFeed(
+/** Conversation thread for one map location (find-or-create channel on POST). */
+export async function loadLocationConversation(
   venueId: number,
-  sectionId: number,
-): Promise<PaginatedList<ForumPost>> {
-  return listVenuePosts({
+  locationId: string,
+): Promise<PaginatedList<LocationMessage>> {
+  const page = await listLocationMessages({
     venue: venueId,
-    section: sectionId,
-    latest: true,
+    location_id: locationId,
     page: 1,
+    ordering: "-created_at",
   });
+  return {
+    ...page,
+    results: sortLocationMessagesNewestFirst(page.results),
+  };
+}
+
+export interface VenueConversationsPage {
+  results: LocationMessage[];
+  count: number;
+  nextByLocation: Map<string, number>;
+}
+
+function nextPageFromUrl(nextUrl: string | null): number | null {
+  if (!nextUrl) return null;
+  const match = /[?&]page=(\d+)/.exec(nextUrl);
+  if (!match) return null;
+  const page = Number(match[1]);
+  return Number.isFinite(page) && page >= 2 ? page : null;
+}
+
+async function listLocationMessagesPage(
+  venueId: number,
+  locationId: string,
+  page: number,
+): Promise<PaginatedList<LocationMessage>> {
+  try {
+    return await listLocationMessages({
+      venue: venueId,
+      location_id: locationId,
+      page,
+      ordering: "-created_at",
+    });
+  } catch {
+    return { count: 0, next: null, previous: null, results: [] };
+  }
+}
+
+/**
+ * Newest messages across every section conversation. The backend lists by
+ * `(venue, location_id)`, so All fans out one request per section.
+ */
+export async function loadAllVenueConversations(
+  venueId: number,
+  locationIds: readonly string[],
+  pageByLocation?: ReadonlyMap<string, number>,
+): Promise<VenueConversationsPage> {
+  if (!locationIds.length) {
+    return { results: [], count: 0, nextByLocation: new Map() };
+  }
+  const pages = await Promise.all(
+    locationIds.map(async (locationId) => {
+      const page = pageByLocation?.get(locationId) ?? 1;
+      const listed = await listLocationMessagesPage(venueId, locationId, page);
+      return { locationId, listed };
+    }),
+  );
+  const nextByLocation = new Map<string, number>();
+  let count = 0;
+  for (const entry of pages) {
+    count += entry.listed.count;
+    const nextPage = nextPageFromUrl(entry.listed.next);
+    if (nextPage != null) nextByLocation.set(entry.locationId, nextPage);
+  }
+  return {
+    results: mergeLocationMessageLists(pages.map((entry) => entry.listed.results)),
+    count,
+    nextByLocation,
+  };
+}
+
+export async function listLocationMessages(
+  params: ListLocationMessagesParams,
+): Promise<PaginatedList<LocationMessage>> {
+  const page = await forumRepository.listLocationMessages(params);
+  return {
+    ...page,
+    results: sortLocationMessagesNewestFirst(page.results),
+  };
+}
+
+export function getLocationMessage(messageId: number): Promise<LocationMessage> {
+  return forumRepository.getLocationMessage(messageId);
+}
+
+export function createLocationMessage(
+  payload: CreateLocationMessagePayload,
+): Promise<LocationMessage> {
+  return forumRepository.createLocationMessage(payload);
+}
+
+export function updateLocationMessage(
+  messageId: number,
+  payload: UpdateLocationMessagePayload,
+): Promise<LocationMessage> {
+  return forumRepository.updateLocationMessage(messageId, payload);
+}
+
+export function replaceLocationMessage(
+  messageId: number,
+  payload: UpdateLocationMessagePayload,
+): Promise<LocationMessage> {
+  return forumRepository.replaceLocationMessage(messageId, payload);
+}
+
+export function deleteLocationMessage(messageId: number): Promise<void> {
+  return forumRepository.deleteLocationMessage(messageId);
+}
+
+export function restoreLocationMessage(
+  messageId: number,
+): Promise<LocationMessage> {
+  return forumRepository.restoreLocationMessage(messageId);
 }
 
 /**
@@ -156,6 +302,24 @@ export function subscribeVenueLiveFeed(
   onStatus?: VenueLiveStatusHandler,
 ): VenueLiveSubscription {
   return forumRepository.subscribeVenueLive(venueId, onEvent, onStatus);
+}
+
+/**
+ * Open the receive-only location conversation WebSocket room.
+ * Call immediately after `loadLocationConversation`.
+ */
+export function subscribeLocationLiveFeed(
+  venueId: number,
+  locationId: string,
+  onEvent: LocationLiveEventHandler,
+  onStatus?: LocationLiveStatusHandler,
+): LocationLiveSubscription {
+  return forumRepository.subscribeLocationLive(
+    venueId,
+    locationId,
+    onEvent,
+    onStatus,
+  );
 }
 
 /** Create a post; backend also broadcasts `new_post` (+ heat update when section set). */
@@ -266,8 +430,6 @@ export function deleteForumComment(commentId: number): Promise<void> {
   return forumRepository.deleteComment(commentId);
 }
 
-export function restoreForumComment(
-  commentId: number,
-): Promise<ForumComment> {
+export function restoreForumComment(commentId: number): Promise<ForumComment> {
   return forumRepository.restoreComment(commentId);
 }

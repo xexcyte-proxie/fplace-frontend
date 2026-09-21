@@ -6,6 +6,7 @@
     "dev": "npm run dev --prefix mappedin-pwa",
     "build": "npm run build --prefix mappedin-pwa",
     "preview": "npm run preview --prefix mappedin-pwa",
+    "slop": "npm run slop --prefix mappedin-pwa",
     "deploy": "./deploy"
   },
   "devDependencies": {

@@ -1,8 +1,8 @@
 import type { ReturningHomeContent } from '../../domain/entities';
 
 /**
- * Local/demo home content matching the returning-user Figma frame.
- * Swap for a remote datasource when the API exists.
+ * Local/demo home content for recently visited venues.
+ * Profile stats come from GET /api/users/me/ (`stat`), not this datasource.
  */
 export class HomeLocalDatasource {
   async fetchReturningHomeContent(): Promise<ReturningHomeContent> {
@@ -23,10 +23,11 @@ export class HomeLocalDatasource {
           icon: 'globe',
         },
       ],
+      otherVenues: [],
       stats: {
-        venues: 14,
-        upvotesLabel: '3.2k',
-        posts: 86,
+        venues: 0,
+        upvotesLabel: '0',
+        posts: 0,
       },
     };
   }

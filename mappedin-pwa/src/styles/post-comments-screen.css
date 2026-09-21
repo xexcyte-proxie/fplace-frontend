@@ -167,6 +167,10 @@
 }
 
 .post-comments-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   background: var(--pc-accent);
   color: #fff;
 }
@@ -198,6 +202,14 @@
   background: var(--pc-surface);
 }
 
+.post-comments-composer-note {
+  margin: 0;
+  padding: 10px var(--pc-pad-x) 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--pc-muted);
+}
+
 .post-comments-input {
   flex: 1;
   min-width: 0;
@@ -225,6 +237,11 @@
 .post-comments-send-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.post-comments-send-btn.is-loading:disabled {
+  opacity: 1;
+  cursor: wait;
 }
 
 .notification-detail-content {

@@ -1,55 +1,58 @@
-import { PROFILE_DESIGN } from './profile-data';
+import {
+  buildProfileViewModel,
+} from './profile-data';
 import {
   resolveDisplayName,
   type AppState,
 } from '../types';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
-
-/** Initials for pseudo-names like `RowdyGull_47` → `RG`. */
-function initialsFromName(name: string): string {
-  const cleaned = name.trim().replace(/_\d+$/, '');
-  const camelParts = cleaned.match(/[A-Z]?[a-z]+|[A-Z]+(?![a-z])/g);
-  if (camelParts && camelParts.length >= 2) {
-    return `${camelParts[0]![0] ?? ''}${camelParts[1]![0] ?? ''}`.toUpperCase();
-  }
-
-  const parts = cleaned.split(/[\s_]+/).filter(Boolean);
-  if (parts.length === 0) return 'G';
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return `${parts[0]![0] ?? ''}${parts[1]![0] ?? ''}`.toUpperCase();
-}
+import { nounS } from '../auth/domain/user-stats';
+import { escapeHtml } from './escape-html';
 
 export function renderProfileScreen(state: AppState): string {
-  const profile = PROFILE_DESIGN;
-  const displayName = resolveDisplayName(state.authUser);
-  const initials = initialsFromName(displayName);
-  const interests =
-    state.authUser?.interests?.length
-      ? state.authUser.interests
-      : state.selectedInterests.length > 0
-        ? state.selectedInterests
-        : [...profile.interests];
-  const venueName =
-    state.forumVenues.find((item) => String(item.id) === state.selectedVenueId)
-      ?.name || 'LA Stadium';
-  const sectionName =
-    state.forumSections.find((item) => String(item.id) === state.selectedGateId)
-      ?.name || 'Section 118';
-  const locationLabel = `${venueName} · ${sectionName}`;
+  const profile = buildProfileViewModel(
+    state,
+    resolveDisplayName(state.authUser),
+  );
 
-  const interestTags = interests
-    .map(
-      (interest) =>
-        `<span class="profile-interest-tag">${escapeHtml(interest)}</span>`,
-    )
-    .join('');
+  const interestSection = profile.interests.length
+    ? `<div class="profile-interests">${profile.interests
+        .map(
+          (interest) =>
+            `<span class="profile-interest-tag">${escapeHtml(interest)}</span>`,
+        )
+        .join('')}</div>`
+    : `<p class="profile-empty" role="status">No interests yet.</p>`;
+
+  const recentPosts = profile.recentPosts.length
+    ? `
+        <div class="profile-post-list">
+          ${profile.recentPosts
+            .map(
+              (post) => `
+          <article class="profile-post-card">
+            <p class="profile-post-content">${escapeHtml(post.content)}</p>
+            <div class="profile-post-footer">
+              <span class="profile-post-meta">${escapeHtml(post.meta)}</span>
+              <button
+                type="button"
+                class="profile-post-upvotes ${post.hasUpvoted ? 'is-active' : ''}"
+                data-upvote-id="${escapeHtml(post.id)}"
+                aria-pressed="${post.hasUpvoted ? 'true' : 'false'}"
+                aria-label="${post.hasUpvoted ? 'Remove upvote' : 'Upvote'}"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M12 5l6 7h-4v7H10v-7H6l6-7z" fill="currentColor"></path>
+                </svg>
+                ${escapeHtml(post.upvotesLabel)}
+              </button>
+            </div>
+          </article>
+        `,
+            )
+            .join('')}
+        </div>
+      `
+    : `<p class="profile-empty" role="status">No posts yet.</p>`;
 
   return `
     <div class="profile-screen">
@@ -62,51 +65,40 @@ export function renderProfileScreen(state: AppState): string {
 
       <div class="profile-body">
         <div class="profile-identity">
-          <span class="profile-avatar">${escapeHtml(initials)}</span>
-          <h1 class="profile-username">${escapeHtml(displayName)}</h1>
+          <span class="profile-avatar">${escapeHtml(profile.initials)}</span>
+          <h1 class="profile-username">${escapeHtml(profile.displayName)}</h1>
           <p class="profile-location">
             <svg class="profile-location-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 21s6.5-4.5 6.5-10a6.5 6.5 0 10-13 0c0 5.5 6.5 10 6.5 10z" stroke="currentColor" stroke-width="1.75"></path>
               <circle cx="12" cy="11" r="2.25" stroke="currentColor" stroke-width="1.75"></circle>
             </svg>
-            <span>${escapeHtml(locationLabel)}</span>
+            <span>${escapeHtml(profile.locationLabel)}</span>
           </p>
         </div>
 
         <div class="profile-stats">
           <div class="profile-stat-card">
             <div class="profile-stat-value">${profile.stats.posts}</div>
-            <div class="profile-stat-label">Posts</div>
+            <div class="profile-stat-label">${nounS('Post')}</div>
           </div>
           <div class="profile-stat-card">
-            <div class="profile-stat-value profile-stat-value--green">${escapeHtml(String(profile.stats.upvotes))}</div>
-            <div class="profile-stat-label">Upvotes</div>
+            <div class="profile-stat-value profile-stat-value--green">${escapeHtml(profile.stats.upvotesLabel)}</div>
+            <div class="profile-stat-label">${nounS('Upvote')}</div>
           </div>
           <div class="profile-stat-card">
             <div class="profile-stat-value">${profile.stats.venues}</div>
-            <div class="profile-stat-label">Venues</div>
+            <div class="profile-stat-label">${nounS('Venue')}</div>
           </div>
         </div>
 
         <section class="profile-section">
           <h2 class="profile-section-title">Interests</h2>
-          <div class="profile-interests">${interestTags || '<span class="profile-interest-tag">None yet</span>'}</div>
+          ${interestSection}
         </section>
 
         <section class="profile-section">
           <h2 class="profile-section-title">Recent Posts</h2>
-          <article class="profile-post-card">
-            <p class="profile-post-content">${escapeHtml(profile.recentPost.content)}</p>
-            <div class="profile-post-footer">
-              <span class="profile-post-meta">${escapeHtml(profile.recentPost.meta)}</span>
-              <span class="profile-post-upvotes">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M12 5l6 7h-4v7H10v-7H6l6-7z" fill="currentColor"></path>
-                </svg>
-                ${profile.recentPost.upvotes}
-              </span>
-            </div>
-          </article>
+          ${recentPosts}
         </section>
       </div>
     </div>

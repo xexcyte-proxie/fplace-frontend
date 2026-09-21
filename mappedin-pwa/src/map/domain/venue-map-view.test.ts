@@ -4,12 +4,21 @@ import {
   clampVenueZoom,
   isWorldScaleZoom,
   SHOW_VENUE_MAP_OPTIONS,
+  VENUE_CAMERA_INTERACTIONS,
   VENUE_MAP_MIN_ZOOM,
 } from './venue-map-view';
 
 describe('venue map view', () => {
   it('disables Mappedin outdoor/world tiles', () => {
     expect(SHOW_VENUE_MAP_OPTIONS.outdoorView.enabled).toBe(false);
+  });
+
+  it('keeps pan and zoom but disables tilt/rotate for 2D dragging', () => {
+    expect(VENUE_CAMERA_INTERACTIONS).toEqual({
+      pan: true,
+      zoom: true,
+      bearingAndPitch: false,
+    });
   });
 
   it('treats globe-scale zoom as a world view', () => {

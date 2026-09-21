@@ -7,6 +7,7 @@ import {
   shouldShowMapBootOverlay,
 } from "../session/domain/entities";
 import type { AppState, AuthStep } from "../types";
+import { resolveDisplayName } from "../types";
 import type { MapApp } from "../services/map-app";
 import { buildRouteSheetSummary } from "./route-summary";
 import { renderOnboardingScreen } from "./onboarding-screen";
@@ -16,13 +17,18 @@ import { renderFeaturesScreen } from "./features-screen";
 import { renderCreateAccountScreen } from "./create-account-screen";
 import { renderLoginScreen } from "./login-screen";
 import { renderForgotPasswordScreen } from "./forgot-password-screen";
+import { AUTH_AUTOFILL_ANIMATION_NAME } from "./auth-autofill";
 import { renderResetPasswordConfirmScreen } from "./reset-password-confirm-screen";
 import { renderCheckEmailScreen } from "./check-email-screen";
 import { renderVerifyEmailScreen } from "./verify-email-screen";
 import { renderPseudoNameScreen } from "./pseudo-name-screen";
 import { buildSearchResultViews } from "./search-results-data";
 import { renderContentLoadingOverlay } from "./content-loading-overlay";
-import { renderVenueSelectScreen } from "./venue-select-screen";
+import { renderMapBootOverlay } from "./map-boot-overlay";
+import {
+  applyVenueSelectGatePatch,
+  renderVenueSelectScreen,
+} from "./venue-select-screen";
 import {
   renderLocationErrorScreen,
   renderLocationPermissionRequiredScreen,
@@ -71,11 +77,15 @@ import {
 } from "./bottom-nav-icons";
 import {
   applyLiveNavigationUiPatch,
+  applyMyLocationFabPatch,
+  applyNotifyBadgeUiPatch,
   applyToastUiPatch,
   classifyUiStateChange,
   myLocationFabPresentation,
   renderToastHtml,
 } from "./live-navigation-ui";
+import { buildReturningHomeViewModel } from "../home/presentation/returning-home-data";
+import { renderHomeVenueSections } from "./home-venue-list";
 import {
   installUiRootEventDelegation,
   syncAuthPasswordStrength,
@@ -96,6 +106,8 @@ export class UiRoot {
   private createPasswordDraft = "";
   private createPasswordConfirmDraft = "";
   private createTermsAcceptedDraft = false;
+  private resetPasswordDraft = "";
+  private loginCredentialAutofillRequested = false;
   private changePasswordOldDraft = "";
   private changePasswordNewDraft = "";
   private changePasswordOldVisible = false;
@@ -128,6 +140,9 @@ export class UiRoot {
       },
       setCreateTermsAcceptedDraft: (value) => {
         this.createTermsAcceptedDraft = value;
+      },
+      setResetPasswordDraft: (value) => {
+        this.resetPasswordDraft = value;
       },
       setChangePasswordOldDraft: (value) => {
         this.changePasswordOldDraft = value;
@@ -189,6 +204,26 @@ export class UiRoot {
       }
       if (kind === "search") {
         this.applySearchPatch(state);
+        this.lastRenderedState = state;
+        return;
+      }
+      if (kind === "home-search") {
+        this.applyHomeSearchPatch(state);
+        this.lastRenderedState = state;
+        return;
+      }
+      if (kind === "social-feed") {
+        this.applySocialFeedPatch(state);
+        this.lastRenderedState = state;
+        return;
+      }
+      if (kind === "notify-badge") {
+        applyNotifyBadgeUiPatch(this.root, state);
+        this.lastRenderedState = state;
+        return;
+      }
+      if (kind === "venue-select-gate") {
+        applyVenueSelectGatePatch(this.root, state);
         this.lastRenderedState = state;
         return;
       }
@@ -327,6 +362,12 @@ export class UiRoot {
       this.root.querySelector<HTMLElement>(".venue-feed-scroll")?.scrollTop ??
       null;
 
+    // Same for venue-select: gate taps and live location updates rebuild the
+    // screen and would otherwise yank the list back to the top.
+    const venueSelectScrollTop =
+      this.root.querySelector<HTMLElement>(".venue-select-body")?.scrollTop ??
+      null;
+
     const focusedPostCommentsInput =
       activeEl?.id === "post-comments-input"
         ? (activeEl as HTMLInputElement)
@@ -369,12 +410,19 @@ export class UiRoot {
       this.createTermsAcceptedDraft = false;
     }
 
+    const liveAuthEmail =
+      this.root.querySelector<HTMLInputElement>(
+        "#login-email, #auth-email, #forgot-password-email",
+      )?.value;
+    if (liveAuthEmail) this.authEmailDraft = liveAuthEmail;
+
     const preserveAuthEmailDraft =
       showCreateAccount ||
       showCheckEmail ||
       showVerifyEmail ||
       showLogin ||
       showForgotPassword ||
+      showResetPasswordConfirm ||
       (showOnboardingFlow &&
         authUiStep === "create" &&
         showAuthPrivacy);
@@ -387,6 +435,14 @@ export class UiRoot {
       if (livePassword) this.authPasswordDraft = livePassword;
     } else {
       this.authPasswordDraft = "";
+    }
+    if (showResetPasswordConfirm) {
+      const liveResetPassword =
+        this.root.querySelector<HTMLInputElement>("#reset-password-new")
+          ?.value;
+      if (liveResetPassword) this.resetPasswordDraft = liveResetPassword;
+    } else {
+      this.resetPasswordDraft = "";
     }
     if (!showPseudoName && !onProfileEditProfile) {
       this.pseudoNameDraft = null;
@@ -418,11 +474,12 @@ export class UiRoot {
       focusedHomeVenueSearch?.selectionEnd ?? null;
 
     // visibility:hidden keeps layout so Mappedin can boot off-screen.
-    // Hide as soon as we are not on the indoor map: do not wait for ready.
+    // Hide as soon as we are not on the indoor map, and while a venue map boots.
     const hideMapCanvas = shouldHideMapCanvas({
       shell: startupShell,
       activeTab: state.activeTab,
       navigateView: state.navigateView,
+      mapStatus: state.mapStatus,
     });
     document
       .getElementById("mappedin-map")
@@ -437,7 +494,7 @@ export class UiRoot {
 
     this.root.innerHTML = `
       ${this.loadingOverlay(state)}
-      ${onNavigateMap && showMapBootOverlay ? this.mapBootOverlay(state) : ""}
+      ${onNavigateMap && showMapBootOverlay ? renderMapBootOverlay(state) : ""}
       ${showOnboardingScreen ? renderOnboardingScreen({
         guestAccessAllowed: state.guestAccessAllowed,
         authLoading: state.authLoading,
@@ -450,6 +507,7 @@ export class UiRoot {
         authLoading: state.authLoading,
         authFieldErrors: state.authFieldErrors,
         guestAccessAllowed: state.guestAccessAllowed,
+        guestContinueLoading: state.guestContinueLoading,
       }) : ""}
       ${
         showCreateAccount && state.createAccountPrompt === "invalid-token"
@@ -469,6 +527,7 @@ export class UiRoot {
       ${showResetPasswordConfirm ? renderResetPasswordConfirmScreen({
         authLoading: state.authLoading,
         authFieldErrors: state.authFieldErrors,
+        username: this.authEmailDraft || state.authEmail,
       }) : ""}
       ${showAuthPrivacy ? renderAuthPrivacyScreen() : ""}
       ${showCheckEmail ? renderCheckEmailScreen({
@@ -515,7 +574,7 @@ export class UiRoot {
       ${onFirstVisitHome ? renderFirstVisitVenueScreen(state) : ""}
       ${onReturningHome ? renderReturningHomeScreen(state) : ""}
       ${onNavigateMap ? this.homeHeader(state) : ""}
-      ${onNavigateMap && state.searchQuery.trim() ? this.searchResults(state) : ""}
+      ${onNavigateMap && !showMapBootOverlay && state.searchQuery.trim() ? this.searchResults(state) : ""}
       ${onNavigateMap ? this.fabs(state, app) : ""}
       ${onNavigateMap && state.locationActionPrompt ? renderLocationActionSheet(state.locationActionPrompt, Boolean(state.markers.origin)) : ""}
       ${onNavigateMap && (!state.showRouteSheet || (!state.route && !state.routeNotFound && !state.markers.destination)) ? this.routeHintBar(state, app) : ""}
@@ -536,7 +595,7 @@ export class UiRoot {
         pseudoNameHint: state.pseudoNameHint,
         selectedInterests: state.selectedInterests,
         interestOptions: state.interestOptions,
-        authLoading: state.authLoading,
+        profileEditSaving: state.profileEditSaving,
         authFieldErrors: state.authFieldErrors,
       }) : ""}
       ${showOverlays && onProfileChangePassword ? renderChangePasswordScreen({
@@ -544,6 +603,7 @@ export class UiRoot {
         authFieldErrors: state.authFieldErrors,
         oldPasswordVisible: this.changePasswordOldVisible,
         newPasswordVisible: this.changePasswordNewVisible,
+        username: state.authUser?.email || state.authEmail,
       }) : ""}
       ${showOverlays && onProfileAbout ? renderAboutSettingsScreen() : ""}
       ${showOverlays && onProfilePrivacy ? renderPrivacySettingsScreen() : ""}
@@ -584,11 +644,21 @@ export class UiRoot {
       }
     }
 
+    if (venueSelectScrollTop != null && venueSelectScrollTop > 0) {
+      const venueSelectBody =
+        this.root.querySelector<HTMLElement>(".venue-select-body");
+      if (venueSelectBody) {
+        venueSelectBody.scrollTop = venueSelectScrollTop;
+      }
+    }
+
     this.afterFullRender();
     this.bindOtpInputs(app, focusedOtpIndex);
     this.restoreLoginPasswordDraft(showLogin);
     this.restoreCreateAccountDrafts(showCreateAccount);
+    this.restoreResetPasswordDraft(showResetPasswordConfirm);
     this.restoreChangePasswordDrafts(onProfileChangePassword);
+    this.applySavedLoginCredential(showLogin, app);
 
     if (focusedPseudoName && (showPseudoName || onProfileEditProfile)) {
       const pseudoInput =
@@ -728,14 +798,6 @@ export class UiRoot {
     if (!overlay || overlay.classList.contains("map-boot-overlay--error")) {
       return false;
     }
-
-    const progress = Math.max(0, Math.min(100, state.loadingProgress));
-    const bar = overlay.querySelector<HTMLElement>(".map-boot-progress-bar");
-    const track = overlay.querySelector(".map-boot-progress");
-    if (!bar || !track) return false;
-
-    bar.style.width = `${progress}%`;
-    track.setAttribute("aria-valuenow", String(progress));
     return true;
   }
 
@@ -763,35 +825,6 @@ export class UiRoot {
               aria-label="Loading"
             >
               <div class="splash-progress-bar" style="width:${progress}%"></div>
-            </div>
-          `
-        }
-      </div>
-    `;
-  }
-
-  private mapBootOverlay(state: AppState): string {
-    const isError = state.mapStatus === "error";
-    const progress = Math.max(0, Math.min(100, state.loadingProgress));
-    const message = isError
-      ? state.loadingMessage || "Map failed to load"
-      : "Loading map…";
-    return `
-      <div class="map-boot-overlay ${isError ? "map-boot-overlay--error" : ""}" role="status">
-        <p class="map-boot-message">${escapeHtml(message)}</p>
-        ${
-          isError
-            ? ""
-            : `
-            <div
-              class="map-boot-progress"
-              role="progressbar"
-              aria-valuenow="${progress}"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              aria-label="Loading map"
-            >
-              <div class="map-boot-progress-bar" style="width:${progress}%"></div>
             </div>
           `
         }
@@ -933,6 +966,7 @@ export class UiRoot {
           class="fab ${locationFab.trackingActive ? "fab--tracking" : ""} ${locationFab.following ? "fab--following" : ""}"
           aria-label="${escapeHtml(locationFab.label)}"
           title="${escapeHtml(locationFab.label)}"
+          ${locationFab.enabled ? "" : "disabled"}
         >⊕</button>
       </div>
     `;
@@ -979,7 +1013,7 @@ export class UiRoot {
               : ""
           }
         </div>
-        ${state.isCalculatingRoute ? '<div class="mini-spinner"></div>' : ""}
+        ${state.isCalculatingRoute && state.mapStatus === "ready" ? '<div class="mini-spinner"></div>' : ""}
         <button
           type="button"
           id="reset-points-btn"
@@ -1092,6 +1126,8 @@ export class UiRoot {
       input.value = state.searchQuery;
     }
 
+    applyMyLocationFabPatch(this.root, state);
+
     const bar = this.root.querySelector(".search-bar");
     if (bar) {
       const clear = bar.querySelector("#search-clear");
@@ -1114,7 +1150,10 @@ export class UiRoot {
         );
       });
 
-    const nextHtml = state.searchQuery.trim() ? this.searchResults(state) : "";
+    const nextHtml =
+      state.mapStatus === "ready" && state.searchQuery.trim()
+        ? this.searchResults(state)
+        : "";
     const existing = this.root.querySelector(".search-results");
     if (!nextHtml) {
       existing?.remove();
@@ -1127,6 +1166,75 @@ export class UiRoot {
     this.root
       .querySelector(".home-header")
       ?.insertAdjacentHTML("afterend", nextHtml);
+  }
+
+  /** Live forum updates while Social is showing the feed list. */
+  private applySocialFeedPatch(state: AppState): void {
+    const existing = this.root.querySelector(".venue-feed");
+    if (!existing) return;
+
+    const scrollTop =
+      this.root.querySelector<HTMLElement>(".venue-feed-scroll")?.scrollTop ??
+      null;
+    const activeEl = document.activeElement;
+    const focusedInput =
+      activeEl?.id === "venue-feed-input"
+        ? (activeEl as HTMLInputElement)
+        : null;
+    const selectionStart = focusedInput?.selectionStart ?? null;
+    const selectionEnd = focusedInput?.selectionEnd ?? null;
+    const draft = focusedInput?.value;
+
+    existing.outerHTML = renderVenueFeedScreen(state);
+
+    const scroll = this.root.querySelector<HTMLElement>(".venue-feed-scroll");
+    if (scroll && scrollTop != null) {
+      scroll.scrollTop = scrollTop;
+    }
+
+    const input = this.root.querySelector<HTMLInputElement>("#venue-feed-input");
+    if (input && focusedInput) {
+      if (typeof draft === "string") input.value = draft;
+      input.focus({ preventScroll: true });
+      if (selectionStart !== null && selectionEnd !== null) {
+        input.setSelectionRange(selectionStart, selectionEnd);
+      }
+    }
+  }
+
+  /** Returning-home venue filter: refresh list without tearing down chrome. */
+  private applyHomeSearchPatch(state: AppState): void {
+    const input = this.root.querySelector<HTMLInputElement>(
+      "#home-venue-search-input",
+    );
+    if (input && document.activeElement !== input) {
+      input.value = state.homeVenueSearchQuery;
+    }
+
+    const host = this.root.querySelector(".returning-home-venues");
+    if (!host) return;
+
+    const homeLoading = state.homeContent == null;
+    const content = state.homeContent ?? {
+      recentlyVisited: [],
+      otherVenues: [],
+      stats: { venues: 0, upvotesLabel: "0", posts: 0 },
+    };
+    const displayName = state.authUser
+      ? resolveDisplayName(state.authUser)
+      : state.pseudoNameDraft.trim() || resolveDisplayName(null);
+    const view = buildReturningHomeViewModel({
+      displayName,
+      searchQuery: state.homeVenueSearchQuery,
+      content,
+      profileStat: state.authUser?.stat,
+    });
+    host.innerHTML = renderHomeVenueSections({
+      recentlyVisited: view.recentlyVisited,
+      otherVenues: view.otherVenues,
+      searching: Boolean(view.searchQuery.trim()),
+      loading: homeLoading,
+    });
   }
 
   private afterFullRender(): void {
@@ -1150,6 +1258,46 @@ export class UiRoot {
     if (passwordInput && !passwordInput.value) {
       passwordInput.value = this.authPasswordDraft;
     }
+  }
+
+  private restoreResetPasswordDraft(showResetPasswordConfirm: boolean): void {
+    if (!showResetPasswordConfirm || !this.resetPasswordDraft) return;
+    const passwordInput =
+      this.root.querySelector<HTMLInputElement>("#reset-password-new");
+    if (passwordInput && !passwordInput.value) {
+      passwordInput.value = this.resetPasswordDraft;
+    }
+  }
+
+  private applySavedLoginCredential(showLogin: boolean, app: MapApp): void {
+    if (!showLogin) {
+      this.loginCredentialAutofillRequested = false;
+      return;
+    }
+    if (this.loginCredentialAutofillRequested) return;
+    this.loginCredentialAutofillRequested = true;
+
+    const emailInput =
+      this.root.querySelector<HTMLInputElement>("#login-email");
+    const passwordInput =
+      this.root.querySelector<HTMLInputElement>("#login-password");
+    if (emailInput?.value && passwordInput?.value) return;
+
+    void app.loadSavedPasswordCredential().then((credential) => {
+      if (!credential) return;
+      const email = this.root.querySelector<HTMLInputElement>("#login-email");
+      const password =
+        this.root.querySelector<HTMLInputElement>("#login-password");
+      if (!email || !password) return;
+      if (!email.value) {
+        email.value = credential.email;
+        this.authEmailDraft = credential.email;
+      }
+      if (!password.value) {
+        password.value = credential.password;
+        this.authPasswordDraft = credential.password;
+      }
+    });
   }
 
   private restoreChangePasswordDrafts(showChangePassword: boolean): void {
@@ -1246,7 +1394,7 @@ export class UiRoot {
     };
 
     inputs.forEach((input, index) => {
-      input.addEventListener("input", () => {
+      const onOtpFieldFilled = (): void => {
         const rawDigits = normalizeOtpDigits(input.value);
         // Browser / OS OTP autofill inserts the full code into one field.
         if (rawDigits.length > 1) {
@@ -1264,6 +1412,13 @@ export class UiRoot {
           inputs[index + 1]?.focus();
         }
         maybeSubmit(this.otpDraft);
+      };
+
+      input.addEventListener("input", onOtpFieldFilled);
+      input.addEventListener("animationstart", (event) => {
+        if (!(event instanceof AnimationEvent)) return;
+        if (event.animationName !== AUTH_AUTOFILL_ANIMATION_NAME) return;
+        onOtpFieldFilled();
       });
 
       input.addEventListener("keydown", (event) => {

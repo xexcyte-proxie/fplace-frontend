@@ -134,20 +134,6 @@ describe('OpenAPI non-admin endpoint coverage', () => {
       expect(call.url).toContain('/api/users/change-password/');
     });
 
-    it('GET /api/users/interests/', async () => {
-      mockJson({
-        count: 1,
-        next: null,
-        previous: null,
-        results: [{ id: 1, name: 'Home team', slug: 'home-team' }],
-      });
-      const options = await auth.listInterestOptions();
-      expect(options).toEqual(['Home team']);
-      const call = lastCall();
-      expect(call.method).toBe('GET');
-      expect(call.url).toContain('/api/users/interests/');
-    });
-
     it('PUT /api/users/me/', async () => {
       mockJson({
         id: 1,
@@ -161,6 +147,30 @@ describe('OpenAPI non-admin endpoint coverage', () => {
       const call = lastCall();
       expect(call.method).toBe('PUT');
       expect(call.url).toContain('/api/users/me/');
+    });
+
+    it('GET /api/users/me/ includes stat and recent_posts', async () => {
+      mockJson({
+        id: 1,
+        email: 'fan@email.com',
+        pseudo_name: 'Fan',
+        is_email_verified: true,
+        stat: { posts_count: 86, upvotes_count: 3200, venues_count: 14 },
+        recent_posts: [{ id: 21, content: 'Hello section', upvotes_count: 4 }],
+        created_at: '',
+        updated_at: '',
+      });
+      const user = await auth.getProfile();
+      expect(user.stat).toEqual({
+        posts_count: 86,
+        upvotes_count: 3200,
+        venues_count: 14,
+      });
+      expect(user.recent_posts).toEqual([
+        expect.objectContaining({ id: 21, content: 'Hello section' }),
+      ]);
+      expect(lastCall().method).toBe('GET');
+      expect(lastCall().url).toContain('/api/users/me/');
     });
   });
 
@@ -207,6 +217,22 @@ describe('OpenAPI non-admin endpoint coverage', () => {
       });
       await forum.getCategory(2);
       expect(lastCall().url).toContain('/api/forum/categories/2/');
+    });
+
+    it('GET /api/forum/interests/', async () => {
+      mockJson({
+        count: 1,
+        next: null,
+        previous: null,
+        results: [{ id: 1, name: 'Home team', slug: 'home-team', order: 1 }],
+      });
+      const page = await forum.listInterests();
+      expect(page.results.map((item) => item.name)).toEqual(['Home team']);
+      const call = lastCall();
+      expect(call.method).toBe('GET');
+      expect(call.url).toContain('/api/forum/interests/');
+      expect(call.url).toContain('is_active=true');
+      expect(call.url).toContain('ordering=order');
     });
 
     it('GET/PUT/PATCH/DELETE/restore post by id', async () => {
@@ -294,6 +320,73 @@ describe('OpenAPI non-admin endpoint coverage', () => {
       await forum.restoreComment(7);
       expect(lastCall().method).toBe('POST');
       expect(lastCall().url).toContain('/api/forum/comments/7/restore/');
+    });
+  });
+
+  describe('forum conversations', () => {
+    const forum = new ForumRemoteDatasource();
+    const message = {
+      id: 21,
+      venue: 1,
+      location_id: 'loc-north',
+      location_name: 'North Stand',
+      user: { id: 1, display_name: 'Fan' },
+      content: 'See you at the gate',
+      created_at: '',
+      updated_at: '',
+    };
+
+    it('list/create/get/update/replace/delete/restore location messages', async () => {
+      mockJson({ count: 1, next: null, previous: null, results: [message] });
+      await forum.listLocationMessages({
+        venue: 1,
+        location_id: 'loc-north',
+        ordering: '-created_at',
+      });
+      expect(lastCall().method).toBe('GET');
+      expect(lastCall().url).toContain('/api/forum/conversations/');
+      expect(lastCall().url).toContain('venue=1');
+      expect(lastCall().url).toContain('location_id=loc-north');
+      expect(lastCall().url).toContain('ordering=-created_at');
+
+      mockJson(message);
+      await forum.createLocationMessage({
+        venue: 1,
+        location_id: 'loc-north',
+        content: 'See you at the gate',
+        location_name: 'North Stand',
+      });
+      expect(lastCall().method).toBe('POST');
+      expect(lastCall().url).toContain('/api/forum/conversations/');
+      expect(lastCall().body).toEqual({
+        venue: 1,
+        location_id: 'loc-north',
+        content: 'See you at the gate',
+        location_name: 'North Stand',
+      });
+
+      mockJson(message);
+      await forum.getLocationMessage(21);
+      expect(lastCall().url).toContain('/api/forum/conversations/21/');
+
+      mockJson(message);
+      await forum.updateLocationMessage(21, { content: 'edited' });
+      expect(lastCall().method).toBe('PATCH');
+
+      mockJson(message);
+      await forum.replaceLocationMessage(21, {
+        content: 'replaced',
+      });
+      expect(lastCall().method).toBe('PUT');
+
+      mockJson({});
+      await forum.deleteLocationMessage(21);
+      expect(lastCall().method).toBe('DELETE');
+
+      mockJson(message);
+      await forum.restoreLocationMessage(21);
+      expect(lastCall().method).toBe('POST');
+      expect(lastCall().url).toContain('/api/forum/conversations/21/restore/');
     });
   });
 

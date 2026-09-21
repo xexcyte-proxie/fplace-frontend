@@ -1,16 +1,24 @@
 import type {
   CreateCommentPayload,
+  CreateLocationMessagePayload,
   CreatePostPayload,
   FlagPostPayload,
   ForumCategory,
   ForumComment,
+  ForumInterest,
   ForumPost,
   ForumSection,
   ForumVenue,
   ListCommentsParams,
+  ListLocationMessagesParams,
   ListPostsParams,
+  LocationLiveEventHandler,
+  LocationLiveStatusHandler,
+  LocationLiveSubscription,
+  LocationMessage,
   PaginatedList,
   UpdateCommentPayload,
+  UpdateLocationMessagePayload,
   UpdatePostPayload,
   VenueLiveEventHandler,
   VenueLiveStatusHandler,
@@ -24,6 +32,8 @@ export interface ForumRepository {
   getSection(sectionId: number): Promise<ForumSection>;
   listCategories(page?: number): Promise<PaginatedList<ForumCategory>>;
   getCategory(categoryId: number): Promise<ForumCategory>;
+  /** GET /api/forum/interests/?is_active=true — public catalog for profile pickers. */
+  listInterests(page?: number): Promise<PaginatedList<ForumInterest>>;
   listPosts(params: ListPostsParams): Promise<PaginatedList<ForumPost>>;
   getPost(postId: number): Promise<ForumPost>;
   /** POST /api/forum/posts/ - broadcasts `new_post` (+ `section_heat_update` when section set). */
@@ -52,6 +62,24 @@ export interface ForumRepository {
   ): Promise<ForumComment>;
   deleteComment(commentId: number): Promise<void>;
   restoreComment(commentId: number): Promise<ForumComment>;
+  listLocationMessages(
+    params: ListLocationMessagesParams,
+  ): Promise<PaginatedList<LocationMessage>>;
+  getLocationMessage(messageId: number): Promise<LocationMessage>;
+  /** POST /api/forum/conversations/ - find-or-create; broadcasts `new_location_message`. */
+  createLocationMessage(
+    payload: CreateLocationMessagePayload,
+  ): Promise<LocationMessage>;
+  updateLocationMessage(
+    messageId: number,
+    payload: UpdateLocationMessagePayload,
+  ): Promise<LocationMessage>;
+  replaceLocationMessage(
+    messageId: number,
+    payload: UpdateLocationMessagePayload,
+  ): Promise<LocationMessage>;
+  deleteLocationMessage(messageId: number): Promise<void>;
+  restoreLocationMessage(messageId: number): Promise<LocationMessage>;
   /**
    * Receive-only WebSocket to the venue room.
    * Call immediately after the initial REST feed fetch.
@@ -61,4 +89,14 @@ export interface ForumRepository {
     onEvent: VenueLiveEventHandler,
     onStatus?: VenueLiveStatusHandler,
   ): VenueLiveSubscription;
+  /**
+   * Receive-only WebSocket to a map-location conversation room.
+   * Call after the initial REST conversation fetch.
+   */
+  subscribeLocationLive(
+    venueId: number,
+    locationId: string,
+    onEvent: LocationLiveEventHandler,
+    onStatus?: LocationLiveStatusHandler,
+  ): LocationLiveSubscription;
 }

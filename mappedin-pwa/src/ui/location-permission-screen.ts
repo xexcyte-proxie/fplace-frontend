@@ -1,16 +1,6 @@
 import type { AppState } from '../types';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
-
-const locationSpinner = `
-  <span class="location-dialog-spinner" aria-hidden="true"></span>
-`;
+import { renderBusyLabel } from './content-loading-overlay';
+import { escapeHtml } from './escape-html';
 
 /**
  * Location permission gate as a modal dialog over the current auth screen.
@@ -42,7 +32,7 @@ export function renderLocationPermissionScreen(
         >
           ${
             loading
-              ? `${locationSpinner}<span>Getting location…</span>`
+              ? renderBusyLabel('Getting location…')
               : 'Enable Location'
           }
         </button>
@@ -83,7 +73,7 @@ export function renderLocationPermissionRequiredScreen(
         >
           ${
             loading
-              ? `${locationSpinner}<span>Checking…</span>`
+              ? renderBusyLabel('Checking…')
               : 'Try Again'
           }
         </button>
@@ -120,7 +110,7 @@ export function renderLocationErrorScreen(
         >
           ${
             loading
-              ? `${locationSpinner}<span>Retrying…</span>`
+              ? renderBusyLabel('Retrying…')
               : 'Retry'
           }
         </button>

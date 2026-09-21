@@ -167,5 +167,32 @@ describe('startup shell', () => {
         navigateView: 'map',
       }),
     ).toBe(false);
+    expect(
+      shouldHideMapCanvas({
+        shell: 'app',
+        activeTab: 'map',
+        navigateView: 'map',
+        mapStatus: 'ready',
+      }),
+    ).toBe(false);
+  });
+
+  it('hides the indoor map canvas while the next venue map boots', () => {
+    expect(
+      shouldHideMapCanvas({
+        shell: 'app',
+        activeTab: 'map',
+        navigateView: 'map',
+        mapStatus: 'loading',
+      }),
+    ).toBe(true);
+    expect(
+      shouldHideMapCanvas({
+        shell: 'app',
+        activeTab: 'map',
+        navigateView: 'map',
+        mapStatus: 'initial',
+      }),
+    ).toBe(true);
   });
 });

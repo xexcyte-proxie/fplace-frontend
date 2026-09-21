@@ -5,6 +5,7 @@ import {
   classifyUiStateChange,
   isLiveNavigationTelemetryOnlyChange,
   myLocationFabPresentation,
+  renderToastHtml,
 } from './live-navigation-ui';
 
 describe('isLiveNavigationTelemetryOnlyChange', () => {
@@ -77,6 +78,33 @@ describe('classifyUiStateChange', () => {
     ).toBe('full');
   });
 
+  it('patches venue-select gate taps without rebuilding chrome', () => {
+    const previous = initialAppState();
+    previous.authStep = 'venue-select';
+    previous.selectedVenueId = '1';
+    previous.selectedGateId = null;
+    expect(
+      classifyUiStateChange(previous, {
+        ...previous,
+        selectedGateId: '2',
+      }),
+    ).toBe('venue-select-gate');
+  });
+
+  it('still rebuilds when venue selection changes', () => {
+    const previous = initialAppState();
+    previous.authStep = 'venue-select';
+    previous.selectedVenueId = '1';
+    expect(
+      classifyUiStateChange(previous, {
+        ...previous,
+        selectedVenueId: '2',
+        selectedGateId: null,
+        forumSections: [],
+      }),
+    ).toBe('full');
+  });
+
   it('patches search distances when the live user origin moves', () => {
     const previous = initialAppState();
     previous.searchQuery = 'cafe';
@@ -143,6 +171,25 @@ describe('classifyUiStateChange', () => {
     ).toBe('silent');
   });
 
+  it('rebuilds the indoor map canvas when a venue switch starts loading', () => {
+    const previous = {
+      ...initialAppState(),
+      startupReady: true,
+      onboardingComplete: true,
+      activeTab: 'map' as const,
+      navigateView: 'map' as const,
+      mapStatus: 'ready' as const,
+    };
+    expect(
+      classifyUiStateChange(previous, {
+        ...previous,
+        mapStatus: 'loading' as const,
+        loadingProgress: 12,
+        loadingMessage: 'Loading map…',
+      }),
+    ).toBe('full');
+  });
+
   it('rebuilds the indoor map canvas when Mappedin becomes ready', () => {
     const previous = {
       ...initialAppState(),
@@ -181,7 +228,7 @@ describe('classifyUiStateChange', () => {
     ).toBe('full');
   });
 
-  it('rebuilds the social tab when live feed posts or heatmap status change', () => {
+  it('patches the social feed in place when live posts or status change', () => {
     const previous = initialAppState();
     previous.activeTab = 'social';
     expect(
@@ -189,7 +236,7 @@ describe('classifyUiStateChange', () => {
         ...previous,
         venueLiveStatus: 'connected',
       }),
-    ).toBe('full');
+    ).toBe('social-feed');
     expect(
       classifyUiStateChange(previous, {
         ...previous,
@@ -211,21 +258,223 @@ describe('classifyUiStateChange', () => {
           },
         ],
       }),
+    ).toBe('social-feed');
+  });
+
+  it('does not rebuild map chrome for background feed or location live status', () => {
+    const previous = initialAppState();
+    previous.activeTab = 'map';
+    previous.navigateView = 'map';
+    expect(
+      classifyUiStateChange(previous, {
+        ...previous,
+        venueFeedPosts: [
+          {
+            id: '1',
+            author: 'Alex',
+            authorId: 2,
+            initials: 'AL',
+            avatarColor: '#000',
+            location: 'North',
+            locationId: '4',
+            timeAgo: 'just now',
+            feedType: 'fan-vibe',
+            categoryId: '1',
+            content: 'Go',
+            upvotes: 0,
+            comments: 0,
+          },
+        ],
+      }),
+    ).toBe('silent');
+    expect(
+      classifyUiStateChange(previous, {
+        ...previous,
+        locationLiveStatus: 'connected',
+      }),
+    ).toBe('heatmap-map');
+  });
+
+  it('patches home venue search without rebuilding chrome', () => {
+    const previous = {
+      ...initialAppState(),
+      activeTab: 'map' as const,
+      navigateView: 'home' as const,
+    };
+    expect(
+      classifyUiStateChange(previous, {
+        ...previous,
+        homeVenueSearchQuery: 'stad',
+      }),
+    ).toBe('home-search');
+  });
+
+  it('patches the notify badge when unread changes on the social feed', () => {
+    const previous = initialAppState();
+    previous.activeTab = 'social';
+    expect(
+      classifyUiStateChange(previous, {
+        ...previous,
+        notificationsUnreadCount: 2,
+      }),
+    ).toBe('notify-badge');
+  });
+
+  it('keeps the notifications inbox on a full rebuild when it is open', () => {
+    const previous = initialAppState();
+    previous.activeTab = 'social';
+    previous.notificationsOpen = true;
+    expect(
+      classifyUiStateChange(previous, {
+        ...previous,
+        notificationsUnreadCount: 2,
+      }),
+    ).toBe('full');
+  });
+
+  it('patches live guidance when the route leg or instructions change', () => {
+    const previous = initialAppState();
+    expect(
+      classifyUiStateChange(previous, {
+        ...previous,
+        currentLegIndex: 1,
+        routeInstructions: 'Turn right for 20 meters',
+      }),
+    ).toBe('live');
+  });
+
+  it('keeps comments overlays on a full rebuild for feed updates', () => {
+    const previous = initialAppState();
+    previous.activeTab = 'social';
+    previous.postCommentsOpen = true;
+    expect(
+      classifyUiStateChange(previous, {
+        ...previous,
+        venueFeedPosts: [
+          {
+            id: '1',
+            author: 'Alex',
+            authorId: 2,
+            initials: 'AL',
+            avatarColor: '#000',
+            location: 'North',
+            locationId: '4',
+            timeAgo: 'just now',
+            feedType: 'fan-vibe',
+            categoryId: '1',
+            content: 'Go',
+            upvotes: 0,
+            comments: 1,
+          },
+        ],
+      }),
     ).toBe('full');
   });
 });
 
 describe('myLocationFabPresentation', () => {
+  const atVenue = {
+    locationPermission: 'granted' as const,
+    userLocation: {
+      latitude: 6.5244,
+      longitude: 3.3792,
+      accuracy: 12,
+    },
+    selectedVenueId: '1',
+    forumVenues: [
+      {
+        id: 1,
+        name: 'LTV-8',
+        location: 'Lagos',
+        latitude: 6.5244,
+        longitude: 3.3792,
+      },
+    ],
+  };
+
+  const away = {
+    ...atVenue,
+    userLocation: {
+      latitude: 6.7,
+      longitude: 3.6,
+      accuracy: 12,
+    },
+  };
+
   it('labels the control as following while locked to the blue dot', () => {
     expect(
       myLocationFabPresentation({
+        ...atVenue,
         blueDotStatus: 'active',
         blueDotFollowing: true,
       }),
     ).toEqual({
       trackingActive: true,
       following: true,
+      enabled: true,
       label: 'Following your location',
     });
+  });
+
+  it('labels the control as live when tracking without follow', () => {
+    expect(
+      myLocationFabPresentation({
+        ...atVenue,
+        blueDotStatus: 'active',
+        blueDotFollowing: false,
+      }),
+    ).toEqual({
+      trackingActive: true,
+      following: false,
+      enabled: true,
+      label: 'Live location active',
+    });
+  });
+
+  it('labels the control as My location when tracking is off', () => {
+    expect(
+      myLocationFabPresentation({
+        ...atVenue,
+        blueDotStatus: 'off',
+        blueDotFollowing: false,
+      }),
+    ).toEqual({
+      trackingActive: false,
+      following: false,
+      enabled: true,
+      label: 'My location',
+    });
+  });
+
+  it('disables the control when the user is away from the venue', () => {
+    expect(
+      myLocationFabPresentation({
+        ...away,
+        blueDotStatus: 'active',
+        blueDotFollowing: true,
+      }),
+    ).toEqual({
+      trackingActive: false,
+      following: false,
+      enabled: false,
+      label: "You're not at this venue",
+    });
+  });
+});
+
+describe('renderToastHtml', () => {
+  it('keeps toast status markup and the map-pin icon', () => {
+    const html = renderToastHtml('You are here.');
+    expect(html).toContain('class="toast"');
+    expect(html).toContain('role="status"');
+    expect(html).toContain('class="toast-message"');
+    expect(html).toContain('You are here.');
+    expect(html).toContain('src="/onboarding/map-pin-logo.svg"');
+  });
+
+  it('escapes toast copy that looks like HTML', () => {
+    const html = renderToastHtml('<img src=x onerror=alert(1)>');
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(html).not.toContain('<img src=x onerror=alert(1)>');
   });
 });

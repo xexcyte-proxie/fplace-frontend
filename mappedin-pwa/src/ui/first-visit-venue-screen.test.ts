@@ -43,7 +43,37 @@ function firstVisitScreenState(
     ],
     venueFeedPosts: [],
     venueFeedLoading: false,
+    upvotedPostIds: [],
     arRoutePromptOpen: false,
+    arNotAtVenuePromptOpen: false,
+    homeContent: {
+      recentlyVisited: [
+        {
+          id: '1',
+          name: 'LA Stadium',
+          visitedLabel: 'Los Angeles',
+          postCount: 0,
+          icon: 'pin',
+        },
+      ],
+      otherVenues: [
+        {
+          id: '3',
+          name: 'Riverside',
+          visitedLabel: 'Lagos',
+          postCount: 0,
+          icon: 'pin',
+        },
+        {
+          id: '8',
+          name: 'LTV 8',
+          visitedLabel: 'Agidigbi',
+          postCount: 0,
+          icon: 'pin',
+        },
+      ],
+      stats: { venues: 2, upvotesLabel: '0', posts: 0 },
+    },
     ...overrides,
   };
 }
@@ -83,7 +113,8 @@ describe('first-visit venue home', () => {
   });
 
   it('formats fans label and category chips', () => {
-    expect(formatFansHereLabel(1204)).toBe('1,204 fans here right now');
+    expect(formatFansHereLabel(1204)).toBe('1,204 fan(s) here right now');
+    expect(formatFansHereLabel(1)).toBe('1 fan(s) here right now');
     expect(countDistinctFans([{ authorId: 1 }, { authorId: 1 }, { authorId: 2 }])).toBe(
       2,
     );
@@ -97,7 +128,7 @@ describe('first-visit venue home', () => {
     });
   });
 
-  it('falls back to demo posts when the feed is empty', () => {
+  it('keeps an empty crowd preview when the feed has no posts', () => {
     const content = buildFirstVisitVenueHomeContent({
       venueName: 'LA Stadium',
       sectionLabel: 'North Stand, Level 1',
@@ -105,9 +136,8 @@ describe('first-visit venue home', () => {
     });
     expect(content.venueName).toBe('LA Stadium');
     expect(content.sectionLabel).toBe('North Stand, Level 1');
-    expect(content.fansHereLabel).toContain('1,204');
-    expect(content.previewPosts).toHaveLength(2);
-    expect(content.previewPosts[0]?.author).toBe('SwiftOtter_21');
+    expect(content.fansHereLabel).toBe('');
+    expect(content.previewPosts).toEqual([]);
   });
 
   it('tracks first vs returning venue visits', () => {
@@ -149,10 +179,29 @@ describe('first-visit venue home', () => {
     expect(html).toContain('id="first-visit-ar-btn"');
     expect(html).toContain('data-tour-id="home-hero"');
     expect(html).toContain('See all posts');
+    expect(html).toContain('No posts yet. Be the first to shout out.');
+    expect(html).toContain('Recently visited');
+    expect(html).toContain('Other venues');
+    expect(html).toContain('data-home-venue-id="1"');
+    expect(html).toContain('data-home-venue-id="3"');
+    expect(html).toContain('data-home-venue-id="8"');
+    expect(html.indexOf('Recently visited')).toBeLessThan(html.indexOf('Other venues'));
+    expect(html).not.toContain('class="first-visit-fans"');
+    expect(html).not.toContain('SwiftOtter_21');
+    expect(html).not.toContain('HungryHawk88');
+    expect(html).not.toContain('1,204');
     expect(html).toContain('<svg');
     expect(html).toContain('currentColor');
     expect(html).not.toContain('/home/location.png');
     expect(html).not.toContain('/home/camera.png');
+  });
+
+  it('omits venue lists until home catalog content has loaded', () => {
+    const html = renderFirstVisitVenueScreen(
+      firstVisitScreenState({ homeContent: null }),
+    );
+    expect(html).not.toContain('Recently visited');
+    expect(html).not.toContain('Other venues');
   });
 
   it('renders the Try AR route prompt on the same screen', () => {
@@ -164,6 +213,18 @@ describe('first-visit venue home', () => {
     expect(html).toContain('id="first-visit-ar-open-map-btn"');
     expect(html).toContain('Open map');
     expect(html).toContain('id="first-visit-ar-prompt-dismiss"');
+  });
+
+  it('tells the user they are not at the location when Try AR is blocked', () => {
+    const html = renderFirstVisitVenueScreen(
+      firstVisitScreenState({ arNotAtVenuePromptOpen: true }),
+    );
+
+    expect(html).toContain("You're not at the location");
+    expect(html).toContain("You're not at LA Stadium. Head there to try AR navigation.");
+    expect(html).toContain('id="first-visit-ar-away-dismiss-btn"');
+    expect(html).toContain('Got it');
+    expect(html).not.toContain('Set a route for AR');
   });
 
   it('keeps action chrome visible and overlays the feed while posts load', () => {
@@ -179,6 +240,7 @@ describe('first-visit venue home', () => {
     expect(html).toContain('aria-label="Loading posts"');
     expect(html).not.toContain('SwiftOtter_21');
     expect(html).not.toContain('class="first-visit-post"');
+    expect(html).not.toContain('No posts yet. Be the first to shout out.');
   });
 
   it('does not overlay a feed that already has posts', () => {
@@ -208,5 +270,82 @@ describe('first-visit venue home', () => {
     expect(html).not.toContain('screen-loading-overlay');
     expect(html).toContain('LiveFan');
     expect(html).toContain('Gate C is moving.');
+    expect(html).toContain('data-upvote-id="p1"');
+    expect(html).toContain('class="first-visit-fans"');
+    expect(html).toContain('1 fan(s) here right now');
+  });
+
+  it('does not attach upvote controls to location conversation rows', () => {
+    const html = renderFirstVisitVenueScreen(
+      firstVisitScreenState({
+        venueFeedPosts: [
+          {
+            id: '9',
+            kind: 'conversation',
+            author: 'ChatFan',
+            authorId: 4,
+            initials: 'CF',
+            avatarColor: '#3b5998',
+            location: 'North Stand',
+            locationId: '2',
+            timeAgo: '1m',
+            feedType: 'vibe',
+            categoryId: '1',
+            content: 'Anyone at the rail?',
+            upvotes: 0,
+            comments: 0,
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain('Anyone at the rail?');
+    expect(html).not.toContain('data-upvote-id');
+  });
+
+  it('keeps the see-all posts hook used by ui-root-events', () => {
+    const html = renderFirstVisitVenueScreen(firstVisitScreenState());
+    expect(html).toContain('id="first-visit-see-all-btn"');
+    expect(html).toContain('aria-label="Venue home"');
+  });
+
+  it('falls back to Entry zone and a guest label without a signed-in user', () => {
+    const html = renderFirstVisitVenueScreen(
+      firstVisitScreenState({
+        authUser: null,
+        guestId: 'abcdef123456',
+        selectedGateId: null,
+        forumSections: [],
+      }),
+    );
+    expect(html).toContain('Welcome back, Guest_abcdef');
+    expect(html).toContain('Entry zone');
+  });
+
+  it('escapes crowd post content that looks like HTML', () => {
+    const html = renderFirstVisitVenueScreen(
+      firstVisitScreenState({
+        venueFeedPosts: [
+          {
+            id: 'p1',
+            author: 'LiveFan',
+            authorId: 9,
+            initials: 'LF',
+            avatarColor: '#3b5998',
+            location: 'North Stand',
+            locationId: '2',
+            timeAgo: '1m',
+            feedType: 'crowds',
+            categoryId: '1',
+            content: '<b>hi</b>',
+            upvotes: 4,
+            comments: 0,
+          },
+        ],
+      }),
+    );
+    expect(html).toContain('&lt;b&gt;hi&lt;/b&gt;');
+    expect(html).not.toContain('<b>hi</b>');
+    expect(html).toContain('data-upvote-id="p1"');
   });
 });

@@ -1,0 +1,28 @@
+---
+description: Detect and fix slop without breaking app behavior — characterization tests, then one slice
+alwaysApply: true
+---
+
+# Slop cleanup
+
+Slop is copy-paste, dead wrappers, or business rules trapped in UI. Large working files (`map-app.ts`, `ui-root.ts`) are not automatic cleanup targets.
+
+## Process (required)
+
+1. **One slice** — one screen or domain module per change. Do not “tidy the app.”
+2. **Lock first** — keep or add characterization tests for user-visible copy, empty/error states, and DOM hooks (`id`, `data-*`, `aria-*`) that `ui-root-events.ts` binds. Do not rewrite those tests to match a new structure in the same change.
+3. **Refactor** — move rules into domain/mappers; keep screens as HTML + callbacks. Extract shared helpers only for the slice you are in.
+4. **Verify** — targeted Vitest, `npx tsc --noEmit`, then click the same flow in the browser.
+
+```bash
+cd mappedin-pwa && npm run slop
+npx vitest run src/ui/<slice>*.test.ts
+npx tsc --noEmit
+```
+
+## Do not
+
+- Unify helpers across every screen in one pass (`escapeHtml` has many copies on purpose until each slice is locked)
+- Change mapper field aliases (`created_at` vs `createdAt`) without an API-shaped test
+- Touch `map-app.ts` / `ui-root-events.ts` while cleaning a screen
+- Delete “extra” domain files that tests still pin to the live API

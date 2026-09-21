@@ -8,14 +8,23 @@ import type {
   RegisterCredentials,
   UpdateProfilePayload,
 } from '../../domain/entities';
-import { parseInterestOptionsPayload } from '../../domain/interest-options';
+import { coerceAuthSession, coerceAuthUser } from '../mappers/auth-user-mapper';
 import { apiRequest } from './api-client';
 
-function normalizeSession(body: AuthSession): AuthSession {
-  if (!body?.access || !body?.refresh || !body?.user) {
+function normalizeSession(body: unknown): AuthSession {
+  const session = coerceAuthSession(body);
+  if (!session) {
     throw new Error('Invalid auth response: missing tokens or user.');
   }
-  return body;
+  return session;
+}
+
+function requireAuthUser(raw: unknown, fallbackError: string): AuthUser {
+  const user = coerceAuthUser(raw);
+  if (!user) {
+    throw new Error(fallbackError);
+  }
+  return user;
 }
 
 function detailMessage(
@@ -26,20 +35,28 @@ function detailMessage(
 }
 
 export class AuthRemoteDatasource {
-  register(credentials: RegisterCredentials): Promise<AuthUser> {
-    return apiRequest<AuthUser>('/api/users/register/', {
+  async register(credentials: RegisterCredentials): Promise<AuthUser> {
+    const raw = await apiRequest<unknown>('/api/users/register/', {
       method: 'POST',
       body: credentials,
       fallbackError: 'Could not create your account. Please try again.',
     });
+    return requireAuthUser(
+      raw,
+      'Could not create your account. Please try again.',
+    );
   }
 
-  verifyEmail(email: string, otp: string): Promise<AuthUser> {
-    return apiRequest<AuthUser>('/api/users/verify-email/', {
+  async verifyEmail(email: string, otp: string): Promise<AuthUser> {
+    const raw = await apiRequest<unknown>('/api/users/verify-email/', {
       method: 'POST',
       body: { email, otp },
       fallbackError: 'Could not verify your email. Please try again.',
     });
+    return requireAuthUser(
+      raw,
+      'Could not verify your email. Please try again.',
+    );
   }
 
   async resendVerification(email: string): Promise<string> {
@@ -95,7 +112,7 @@ export class AuthRemoteDatasource {
   }
 
   async login(credentials: LoginCredentials): Promise<AuthSession> {
-    const body = await apiRequest<AuthSession>('/api/users/login/', {
+    const body = await apiRequest<unknown>('/api/users/login/', {
       method: 'POST',
       body: credentials,
       fallbackError: 'Could not log in. Check your email and password.',
@@ -104,7 +121,7 @@ export class AuthRemoteDatasource {
   }
 
   async loginWithGoogle(idToken: string): Promise<AuthSession> {
-    const body = await apiRequest<AuthSession>('/api/users/login/google/', {
+    const body = await apiRequest<unknown>('/api/users/login/google/', {
       method: 'POST',
       body: { id_token: idToken },
       fallbackError: 'Google sign-in failed. Please try again.',
@@ -112,38 +129,42 @@ export class AuthRemoteDatasource {
     return normalizeSession(body);
   }
 
-  updateProfile(payload: UpdateProfilePayload): Promise<AuthUser> {
-    return apiRequest<AuthUser>('/api/users/me/', {
+  async updateProfile(payload: UpdateProfilePayload): Promise<AuthUser> {
+    const raw = await apiRequest<unknown>('/api/users/me/', {
       method: 'PATCH',
       body: payload,
       auth: true,
       fallbackError: 'Could not update your profile. Please try again.',
     });
+    return requireAuthUser(
+      raw,
+      'Could not update your profile. Please try again.',
+    );
   }
 
-  replaceProfile(payload: UpdateProfilePayload): Promise<AuthUser> {
-    return apiRequest<AuthUser>('/api/users/me/', {
+  async replaceProfile(payload: UpdateProfilePayload): Promise<AuthUser> {
+    const raw = await apiRequest<unknown>('/api/users/me/', {
       method: 'PUT',
       body: payload,
       auth: true,
       fallbackError: 'Could not replace your profile. Please try again.',
     });
+    return requireAuthUser(
+      raw,
+      'Could not replace your profile. Please try again.',
+    );
   }
 
-  getProfile(): Promise<AuthUser> {
-    return apiRequest<AuthUser>('/api/users/me/', {
+  async getProfile(): Promise<AuthUser> {
+    const raw = await apiRequest<unknown>('/api/users/me/', {
       method: 'GET',
       auth: true,
       fallbackError: 'Could not load your profile. Please try again.',
     });
-  }
-
-  async listInterestOptions(): Promise<string[]> {
-    const body = await apiRequest<unknown>('/api/users/interests/', {
-      method: 'GET',
-      fallbackError: 'Could not load interests. Please try again.',
-    });
-    return parseInterestOptionsPayload(body);
+    return requireAuthUser(
+      raw,
+      'Could not load your profile. Please try again.',
+    );
   }
 
   refreshTokens(refresh: string): Promise<AuthTokens> {

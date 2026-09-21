@@ -1,10 +1,7 @@
 import type { ForumComment } from '../forum/domain/entities';
 import type { PostCommentItem } from '../types';
 
-function escapeNotNeeded(value: string): string {
-  return value;
-}
-
+/** Initials for comment authors. Empty names fall back to `?`, not profile `G`. */
 function initialsFromName(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
@@ -37,7 +34,7 @@ export function mapForumCommentToItem(comment: ForumComment): PostCommentItem {
     id: comment.id,
     postId: comment.post,
     authorId: comment.user.id,
-    author: escapeNotNeeded(author),
+    author,
     initials: initialsFromName(author),
     avatarColor: avatarColorForId(comment.user.id),
     content: comment.content,

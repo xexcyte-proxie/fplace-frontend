@@ -36,4 +36,9 @@ describe('venuesForPicker', () => {
     expect(options[0]?.subtitle).toMatch(/^[\d.]+ (m|km) · Downtown$/);
     expect(options[2]?.subtitle).toBe('Mystery');
   });
+
+  it('filters by name when searching', () => {
+    const options = venuesForPicker(venues, 'stadium', 'denied', user);
+    expect(options.map((item) => item.id)).toEqual(['1']);
+  });
 });

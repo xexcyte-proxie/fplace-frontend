@@ -2,7 +2,8 @@
   color-scheme: light;
   --brand-orange: #e07a33;
   /* Self-hosted via @fontsource-variable/source-serif-4 - never fall back to Times. */
-  --brand-serif: "Source Serif 4 Variable", "Source Serif 4", Georgia, ui-serif, serif;
+  --brand-serif:
+    "Source Serif 4 Variable", "Source Serif 4", Georgia, ui-serif, serif;
   --brand-sans: "Plus Jakarta Sans", system-ui, sans-serif;
   --app-bg: #f0ece7;
   --app-text: #15151f;
@@ -368,8 +369,15 @@ body,
   justify-content: center;
   gap: 16px;
   padding: 24px;
-  background: rgba(224, 122, 51, 0.92);
+  background: var(--brand-orange);
+  color: #fff;
   pointer-events: none;
+}
+
+.map-boot-overlay .busy-indicator {
+  width: 36px;
+  height: 36px;
+  border-width: 3px;
 }
 
 .map-boot-message {
@@ -379,21 +387,6 @@ body,
   font-weight: 600;
   color: #fff;
   text-align: center;
-}
-
-.map-boot-progress {
-  width: min(160px, calc(100vw - 80px));
-  height: 4px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.22);
-  overflow: hidden;
-}
-
-.map-boot-progress-bar {
-  height: 100%;
-  border-radius: inherit;
-  background: rgba(255, 255, 255, 0.92);
-  transition: width 0.45s ease;
 }
 
 .map-boot-overlay--error {
@@ -416,9 +409,7 @@ body,
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  padding:
-    max(20px, env(safe-area-inset-top))
-    28px
+  padding: max(20px, env(safe-area-inset-top)) 28px
     max(28px, env(safe-area-inset-bottom));
   background: var(--app-bg);
   color: var(--app-text);
@@ -501,9 +492,7 @@ body,
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  padding:
-    max(20px, env(safe-area-inset-top))
-    34px
+  padding: max(20px, env(safe-area-inset-top)) 34px
     max(28px, env(safe-area-inset-bottom));
   background: #f0ece7;
   color: #15151f;
@@ -575,9 +564,7 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  padding:
-    max(24px, env(safe-area-inset-top))
-    24px
+  padding: max(24px, env(safe-area-inset-top)) 24px
     max(24px, env(safe-area-inset-bottom));
   background: rgba(21, 21, 31, 0.45);
   /* Keep taps on the dialog only - underlying Continue / forms stay frozen. */
@@ -636,14 +623,32 @@ body,
   filter: brightness(0.96);
 }
 
-.location-dialog-spinner {
+.location-dialog-spinner,
+.busy-indicator {
   width: 18px;
   height: 18px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #ffffff;
+  border: 2px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-top-color: currentColor;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   flex-shrink: 0;
+}
+
+.is-loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+button.is-loading:disabled,
+.auth-submit-btn.is-loading:disabled,
+.onboarding-cta-primary.is-loading:disabled,
+.onboarding-cta-secondary.is-loading:disabled,
+.auth-guest-btn.is-loading:disabled,
+.auth-google-btn.is-loading:disabled {
+  opacity: 0.92;
+  cursor: wait;
 }
 
 .auth-screen {
@@ -653,9 +658,7 @@ body,
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  padding:
-    calc(24px + env(safe-area-inset-top))
-    34px
+  padding: calc(24px + env(safe-area-inset-top)) 34px
     max(28px, env(safe-area-inset-bottom));
   background: #f0ece7;
   color: #15151f;
@@ -788,6 +791,32 @@ body,
 
 .auth-input--error {
   border-color: #dc2626;
+}
+
+@keyframes auth-autofill-start {
+  from {
+    opacity: 0.99;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.auth-input:-webkit-autofill,
+.auth-input:-webkit-autofill:hover,
+.auth-input:-webkit-autofill:focus,
+.auth-input:-webkit-autofill:active,
+.otp-digit:-webkit-autofill,
+.otp-digit:-webkit-autofill:hover,
+.otp-digit:-webkit-autofill:focus,
+.otp-digit:-webkit-autofill:active {
+  -webkit-text-fill-color: #15151f;
+  caret-color: #15151f;
+  box-shadow: 0 0 0 1000px #ffffff inset;
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+  transition: background-color 99999s ease-out;
+  animation-name: auth-autofill-start;
+  animation-duration: 1ms;
 }
 
 .auth-password-toggle {
@@ -925,6 +954,13 @@ body,
   cursor: pointer;
 }
 
+.auth-legal-link.is-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: wait;
+}
+
 .auth-terms-error {
   display: block;
   margin: 0 0 12px 36px;
@@ -979,7 +1015,7 @@ body,
 
 .auth-divider::before,
 .auth-divider::after {
-  content: '';
+  content: "";
   flex: 1;
   height: 1px;
   background: #e5e5ea;
@@ -1153,6 +1189,9 @@ body,
 
 .venue-select-screen {
   background: #f0ece7;
+  /* Keep scroll inside .venue-select-body so overscroll does not chain to the
+     outer auth-screen (and so rebuilds restore a single scroll offset). */
+  overflow: hidden;
 }
 
 .venue-select-screen .auth-title {
@@ -1167,6 +1206,7 @@ body,
   gap: 22px;
   margin-top: 24px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   min-height: 0;
   padding-bottom: 8px;
 }
@@ -1304,6 +1344,9 @@ body,
 }
 
 .venue-select-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 16px;
   font-weight: 600;
   line-height: 1.25;
@@ -1764,6 +1807,12 @@ body,
   background: var(--app-accent-blue);
   border-color: var(--app-accent-blue);
   color: #ffffff;
+}
+
+.fab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .route-hint,
@@ -2363,6 +2412,7 @@ body,
   border-radius: 50%;
   background: rgba(32, 33, 36, 0.78);
   color: #fff;
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
   cursor: pointer;
@@ -2401,6 +2451,7 @@ body,
   color: #fff;
   font-size: 12px;
   font-weight: 600;
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
@@ -2431,7 +2482,8 @@ body,
 
   .onboarding-screen,
   .auth-screen,
-  .placeholder-screen {
+  .placeholder-screen,
+  .returning-home-screen {
     padding-left: max(34px, calc((100% - var(--content-max)) / 2));
     padding-right: max(34px, calc((100% - var(--content-max)) / 2));
   }
@@ -2912,6 +2964,7 @@ body,
   border: 1px solid rgba(148, 163, 184, 0.35);
   border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   pointer-events: auto;
 }

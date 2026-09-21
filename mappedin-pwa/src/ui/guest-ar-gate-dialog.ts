@@ -2,16 +2,10 @@ import {
   guestArAlreadyUsedMessage,
   guestArOneTimeTrialMessage,
 } from '../guest/domain/entities';
+import { renderBusyLabel } from './content-loading-overlay';
+import { escapeHtml } from './escape-html';
 
 export type GuestArGatePrompt = 'one-time-info' | 'already-used';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
 
 /**
  * Guest AR eligibility dialogs - one-time trial notice or already-used block.
@@ -32,7 +26,7 @@ export function renderGuestArGateDialog(
   const primaryLabel = isBlocked
     ? 'Got it'
     : loading
-      ? 'Opening…'
+      ? renderBusyLabel('Opening…')
       : 'Continue to AR';
 
   return `
@@ -50,10 +44,11 @@ export function renderGuestArGateDialog(
         <button
           type="button"
           id="${primaryId}"
-          class="location-dialog-primary"
+          class="location-dialog-primary${loading && !isBlocked ? ' is-loading' : ''}"
           ${loading ? 'disabled' : ''}
+          aria-busy="${loading ? 'true' : 'false'}"
         >
-          ${escapeHtml(primaryLabel)}
+          ${primaryLabel}
         </button>
         ${
           isBlocked

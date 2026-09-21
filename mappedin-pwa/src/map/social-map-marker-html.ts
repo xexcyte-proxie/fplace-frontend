@@ -1,16 +1,16 @@
-import type { SectionHeatPriority, SocialPost } from '../types';
+import type { SectionHeatPriority, SocialPost } from "../types";
 
-export type SocialMarkerCategory = 'vibe' | 'lines' | 'food';
+export type SocialMarkerCategory = "vibe" | "lines" | "food";
 export type SocialMarkerVisualState =
-  | 'default'
-  | 'live'
-  | 'trending'
-  | 'new'
-  | 'viewed'
-  | 'heat-high'
-  | 'heat-medium'
-  | 'heat-low'
-  | 'heat-neutral';
+  | "default"
+  | "live"
+  | "trending"
+  | "new"
+  | "viewed"
+  | "heat-high"
+  | "heat-medium"
+  | "heat-low"
+  | "heat-neutral";
 
 export interface SocialMarkerModel {
   anchorId: string;
@@ -26,45 +26,45 @@ export interface SocialMarkerModel {
 
 function escapeHtml(value: string): string {
   return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 function shortenLabel(name: string): string {
   const trimmed = name.trim();
   if (trimmed.length <= 16) return trimmed;
-  return trimmed.replace(/^Store\s+/i, 'St ').slice(0, 16);
+  return trimmed.replace(/^Store\s+/i, "St ").slice(0, 16);
 }
 
 export function heatVisualState(
   priority: SectionHeatPriority | null,
 ): SocialMarkerVisualState {
-  if (!priority) return 'heat-neutral';
+  if (!priority) return "heat-neutral";
   return `heat-${priority}`;
 }
 
 function classNames(model: SocialMarkerModel): string {
-  const classes = ['social-map-marker', 'social-map-marker--default'];
-  if (model.selected) classes.push('social-map-marker--selected');
+  const classes = ["social-map-marker", "social-map-marker--default"];
+  if (model.selected) classes.push("social-map-marker--selected");
   if (model.category) classes.push(`social-map-marker--${model.category}`);
-  if (model.visualState.startsWith('heat-')) {
+  if (model.visualState.startsWith("heat-")) {
     classes.push(`social-map-marker--${model.visualState}`);
-  } else if (model.visualState === 'viewed') {
-    classes.push('social-map-marker--viewed');
-  } else if (model.visualState === 'trending') {
-    classes.push('social-map-marker--trending');
-  } else if (model.visualState === 'new') {
-    classes.push('social-map-marker--new');
-  } else if (model.visualState === 'live') {
-    classes.push('social-map-marker--live');
+  } else if (model.visualState === "viewed") {
+    classes.push("social-map-marker--viewed");
+  } else if (model.visualState === "trending") {
+    classes.push("social-map-marker--trending");
+  } else if (model.visualState === "new") {
+    classes.push("social-map-marker--new");
+  } else if (model.visualState === "live") {
+    classes.push("social-map-marker--live");
   }
-  return classes.join(' ');
+  return classes.join(" ");
 }
 
 function previewHtml(model: SocialMarkerModel): string {
-  if (!model.selected || !model.previewPost) return '';
+  if (!model.selected || !model.previewPost) return "";
   const post = model.previewPost;
   return `
     <div class="social-map-marker__preview">
@@ -78,23 +78,20 @@ function previewHtml(model: SocialMarkerModel): string {
 }
 
 function leadingIcon(model: SocialMarkerModel): string {
-  if (
-    model.visualState === 'trending' ||
-    model.visualState === 'heat-high'
-  ) {
+  if (model.visualState === "trending" || model.visualState === "heat-high") {
     return '<span class="social-map-marker__trend-icon" aria-hidden="true">🔥</span>';
   }
   return '<span class="social-map-marker__status-dot" aria-hidden="true"></span>';
 }
 
 function secondaryLine(model: SocialMarkerModel): string {
-  if (!model.secondary) return '';
+  if (!model.secondary) return "";
   return `<div class="social-map-marker__secondary">${escapeHtml(model.secondary)}</div>`;
 }
 
 export function renderSocialMapMarkerHtml(model: SocialMarkerModel): string {
   const label = shortenLabel(model.label);
-  const aria = `${label}, ${model.count} posts${model.secondary ? `, ${model.secondary}` : ''}`;
+  const aria = `${label}, ${model.count} post(s)${model.secondary ? `, ${model.secondary}` : ""}`;
 
   return `
     <div

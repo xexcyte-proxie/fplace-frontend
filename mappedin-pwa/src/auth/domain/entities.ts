@@ -1,3 +1,20 @@
+/** Aggregate counts from GET /api/users/me/ (`stat`). */
+export interface UserStat {
+  posts_count: number;
+  upvotes_count: number;
+  venues_count: number;
+}
+
+/** One of the five newest posts embedded on the profile payload. */
+export interface ProfileRecentPost {
+  id: number;
+  content: string;
+  section: number | null;
+  venue: number | null;
+  upvotes_count: number;
+  created_at: string;
+}
+
 /** Authenticated app user returned by the fPlaces users API. */
 export interface AuthUser {
   id: number;
@@ -10,6 +27,8 @@ export interface AuthUser {
   user_type?: 'regular_user' | 'admin';
   is_email_verified: boolean;
   interests?: string[] | null;
+  stat?: UserStat | null;
+  recent_posts?: ProfileRecentPost[];
   created_at: string;
   updated_at: string;
 }

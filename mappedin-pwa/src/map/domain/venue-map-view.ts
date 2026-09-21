@@ -9,6 +9,16 @@ export const SHOW_VENUE_MAP_OPTIONS = {
   outdoorView: { enabled: false },
 } as const;
 
+/**
+ * One-finger drag should pan the floor plan. Tilt/rotate fights that on
+ * touch and is why guests fall back to the zoom buttons.
+ */
+export const VENUE_CAMERA_INTERACTIONS = {
+  pan: true,
+  zoom: true,
+  bearingAndPitch: false,
+} as const;
+
 export function isWorldScaleZoom(zoomLevel: number | null | undefined): boolean {
   return typeof zoomLevel === 'number' && Number.isFinite(zoomLevel)
     ? zoomLevel < VENUE_MAP_MIN_ZOOM

@@ -1,10 +1,9 @@
 /**
- * Maps service façade - Mappedin credentials from the backend, or a local
- * key/secret override for testing a specific map.
+ * Maps service façade - Mappedin credentials from the backend.
  * Guests: mappedin.token from POST /api/users/guest/
  * Users: token from GET /api/maps/token/
  */
-import { appConfig } from '../config';
+import { DEFAULT_MAPPEDIN_MAP_ID } from '../forum/domain/venue-map-source';
 import {
   clearAuthSessionLocally,
   isAuthCredentialFailure,
@@ -22,50 +21,44 @@ import { mapsRepository } from '../maps/data/maps-repository-impl';
 
 export type { MapsToken };
 
-/** Auth + map id for getMapData (backend token or local key/secret). */
+/** Auth + map id for getMapData (backend Mappedin token). */
 export type MappedinMapCredentials = {
   mapId: string;
-} & (
-  | { accessToken: string; key?: never; secret?: never }
-  | { key: string; secret: string; accessToken?: never }
-);
+  accessToken: string;
+};
 
-export type MappedinGetMapDataAuth =
-  | { accessToken: string }
-  | { key: string; secret: string };
+export type MappedinGetMapDataAuth = { accessToken: string };
 
 /** GET /api/maps/token/ - short-lived Mappedin credentials (registered users). */
 export function fetchMapsToken(): Promise<MapsToken> {
   return mapsRepository.getToken();
 }
 
-export function localMappedinCredentialsFromConfig(mappedin: {
-  key?: string;
-  secret?: string;
-  mapId: string;
-}): Extract<MappedinMapCredentials, { key: string }> | null {
-  const key = mappedin.key?.trim() ?? '';
-  const secret = mappedin.secret?.trim() ?? '';
-  const mapId = mappedin.mapId.trim();
-  if (!key || !secret || !mapId) return null;
-  return { key, secret, mapId };
-}
-
 export function toGetMapDataAuth(
   credentials: MappedinMapCredentials,
 ): MappedinGetMapDataAuth {
-  if ('key' in credentials && credentials.key && credentials.secret) {
-    return { key: credentials.key, secret: credentials.secret };
-  }
-  if ('accessToken' in credentials && credentials.accessToken) {
-    return { accessToken: credentials.accessToken };
-  }
-  throw new Error('Map credentials from the server were incomplete.');
+  return { accessToken: credentials.accessToken };
 }
 
 /**
- * Resolve Mappedin map credentials from a local key/secret override, or from
- * the fplaces backend.
+ * Prefer the venue's map id. The maps-token payload may also include a map id;
+ * that is only a fallback when the caller did not request one.
+ */
+export function mapIdFromMapsToken(
+  maps: MapsToken,
+  requestedMapId: string | null | undefined,
+  fallbackMapId: string = DEFAULT_MAPPEDIN_MAP_ID,
+): string {
+  const requested = requestedMapId?.trim();
+  if (requested) return requested;
+  if (typeof maps.mapId === 'string' && maps.mapId.trim()) {
+    return maps.mapId.trim();
+  }
+  return fallbackMapId;
+}
+
+/**
+ * Resolve Mappedin credentials for a specific map.
  *
  * If a stored user session is invalid (401/expired), falls back to guest
  * credentials so the splash can finish and the app can route to sign-in.
@@ -73,17 +66,7 @@ export function toGetMapDataAuth(
 export async function resolveMappedinMapCredentials(options?: {
   mapId?: string | null;
 }): Promise<MappedinMapCredentials> {
-  const local = localMappedinCredentialsFromConfig(appConfig.mappedin);
-  if (local) {
-    return {
-      key: local.key,
-      secret: local.secret,
-      mapId: options?.mapId?.trim() || local.mapId,
-    };
-  }
-
-  const mapId =
-    options?.mapId?.trim() || appConfig.mappedin.mapId.trim();
+  const mapId = options?.mapId?.trim() || DEFAULT_MAPPEDIN_MAP_ID;
   if (!mapId) {
     throw new Error('No Mappedin map id is available for this venue.');
   }
@@ -96,11 +79,10 @@ export async function resolveMappedinMapCredentials(options?: {
       if (!accessToken) {
         throw new Error('Map credentials from the server were incomplete.');
       }
-      const remoteMapId =
-        typeof maps.mapId === 'string' && maps.mapId.trim()
-          ? maps.mapId.trim()
-          : mapId;
-      return { accessToken, mapId: remoteMapId };
+      return {
+        accessToken,
+        mapId: mapIdFromMapsToken(maps, mapId),
+      };
     } catch (error) {
       if (!isAuthCredentialFailure(error)) {
         throw error;

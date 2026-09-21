@@ -26,11 +26,16 @@ describe('toWebSocketOrigin', () => {
 });
 
 describe('describeWsUrl', () => {
-  it('strips the access token from venue and notification URLs', () => {
+  it('strips the access token from venue, location, and notification URLs', () => {
     expect(
       describeWsUrl(
         `${FPLACES_BACKEND_WS_ORIGIN}/ws/venues/1/?token=secret.jwt`,
       ),
     ).toBe(`${FPLACES_BACKEND_WS_ORIGIN}/ws/venues/1/`);
+    expect(
+      describeWsUrl(
+        `${FPLACES_BACKEND_WS_ORIGIN}/ws/venues/1/locations/loc-north/?token=secret.jwt`,
+      ),
+    ).toBe(`${FPLACES_BACKEND_WS_ORIGIN}/ws/venues/1/locations/loc-north/`);
   });
 });

@@ -1,21 +1,13 @@
 import type { AppState } from '../types';
+import { AUTH_AUTOCOMPLETE, renderHiddenUsernameField } from './auth-autofill';
+import { authFieldError } from './auth-field-error';
+import { renderBusyLabel } from './content-loading-overlay';
+import { escapeHtml } from './escape-html';
 
 const AUTH_ASSETS = {
   eye: '/auth/eye.svg',
   eyeOff: '/auth/eye-off.svg',
 } as const;
-
-function fieldError(errors: Record<string, string>, key: string): string {
-  return errors[key] ?? '';
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
 
 export interface ChangePasswordScreenView {
   authLoading: boolean;
@@ -24,18 +16,24 @@ export interface ChangePasswordScreenView {
   oldPasswordVisible?: boolean;
   /** When true, new-password field is shown as plain text. */
   newPasswordVisible?: boolean;
+  /** Account email so the password manager can update the right login. */
+  username?: string;
 }
 
 export function renderChangePasswordScreen(
   state: ChangePasswordScreenView | Pick<AppState, 'authLoading' | 'authFieldErrors'>,
 ): string {
-  const oldError = fieldError(state.authFieldErrors, 'old_password');
-  const newError = fieldError(state.authFieldErrors, 'new_password');
-  const generalError = fieldError(state.authFieldErrors, '_form');
+  const oldError = authFieldError(state.authFieldErrors, 'old_password');
+  const newError = authFieldError(state.authFieldErrors, 'new_password');
+  const generalError = authFieldError(state.authFieldErrors, '_form');
   const oldVisible =
     'oldPasswordVisible' in state ? Boolean(state.oldPasswordVisible) : false;
   const newVisible =
     'newPasswordVisible' in state ? Boolean(state.newPasswordVisible) : false;
+  const username =
+    'username' in state && typeof state.username === 'string'
+      ? state.username
+      : '';
 
   return `
     <div class="settings-screen">
@@ -49,12 +47,13 @@ export function renderChangePasswordScreen(
       </header>
 
       <div class="settings-content">
-        <form id="change-password-form" class="settings-edit-form" autocomplete="on" novalidate>
+        <form id="change-password-form" class="settings-edit-form" method="post" autocomplete="on" novalidate>
           ${
             generalError
               ? `<p class="settings-form-error" role="alert">${escapeHtml(generalError)}</p>`
               : ''
           }
+          ${renderHiddenUsernameField(username)}
 
           <section class="settings-group">
             <h2 class="settings-group-label">Current password</h2>
@@ -68,7 +67,7 @@ export function renderChangePasswordScreen(
                     type="${oldVisible ? 'text' : 'password'}"
                     class="auth-input auth-input--with-toggle${oldError ? ' auth-input--error' : ''}"
                     placeholder="••••••••"
-                    autocomplete="current-password"
+                    autocomplete="${AUTH_AUTOCOMPLETE.currentPassword}"
                     ${state.authLoading ? 'disabled' : ''}
                     required
                   />
@@ -107,7 +106,7 @@ export function renderChangePasswordScreen(
                     type="${newVisible ? 'text' : 'password'}"
                     class="auth-input auth-input--with-toggle${newError ? ' auth-input--error' : ''}"
                     placeholder="••••••••"
-                    autocomplete="new-password"
+                    autocomplete="${AUTH_AUTOCOMPLETE.newPassword}"
                     ${state.authLoading ? 'disabled' : ''}
                     required
                   />
@@ -142,10 +141,11 @@ export function renderChangePasswordScreen(
             <button
               type="submit"
               id="change-password-submit-btn"
-              class="onboarding-primary-btn auth-submit-btn"
+              class="onboarding-primary-btn auth-submit-btn${state.authLoading ? ' is-loading' : ''}"
               ${state.authLoading ? 'disabled' : ''}
+              aria-busy="${state.authLoading ? 'true' : 'false'}"
             >
-              ${state.authLoading ? 'Updating…' : 'Update password'}
+              ${state.authLoading ? renderBusyLabel('Updating…') : 'Update password'}
             </button>
           </div>
         </form>

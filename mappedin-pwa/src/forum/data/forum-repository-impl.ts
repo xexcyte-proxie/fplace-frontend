@@ -1,16 +1,24 @@
 import type {
   CreateCommentPayload,
+  CreateLocationMessagePayload,
   CreatePostPayload,
   FlagPostPayload,
   ForumCategory,
   ForumComment,
+  ForumInterest,
   ForumPost,
   ForumSection,
   ForumVenue,
   ListCommentsParams,
+  ListLocationMessagesParams,
   ListPostsParams,
+  LocationLiveEventHandler,
+  LocationLiveStatusHandler,
+  LocationLiveSubscription,
+  LocationMessage,
   PaginatedList,
   UpdateCommentPayload,
+  UpdateLocationMessagePayload,
   UpdatePostPayload,
   VenueLiveEventHandler,
   VenueLiveStatusHandler,
@@ -18,6 +26,7 @@ import type {
 } from '../domain/entities';
 import type { ForumRepository } from '../domain/repositories/forum-repository';
 import { forumRemoteDatasource } from './datasources/forum-remote-datasource';
+import { forumLocationWsDatasource } from './datasources/forum-location-ws-datasource';
 import { forumWsDatasource } from './datasources/forum-ws-datasource';
 
 export class ForumRepositoryImpl implements ForumRepository {
@@ -46,6 +55,10 @@ export class ForumRepositoryImpl implements ForumRepository {
 
   getCategory(categoryId: number): Promise<ForumCategory> {
     return forumRemoteDatasource.getCategory(categoryId);
+  }
+
+  listInterests(page?: number): Promise<PaginatedList<ForumInterest>> {
+    return forumRemoteDatasource.listInterests(page);
   }
 
   listPosts(params: ListPostsParams): Promise<PaginatedList<ForumPost>> {
@@ -123,12 +136,64 @@ export class ForumRepositoryImpl implements ForumRepository {
     return forumRemoteDatasource.restoreComment(commentId);
   }
 
+  listLocationMessages(
+    params: ListLocationMessagesParams,
+  ): Promise<PaginatedList<LocationMessage>> {
+    return forumRemoteDatasource.listLocationMessages(params);
+  }
+
+  getLocationMessage(messageId: number): Promise<LocationMessage> {
+    return forumRemoteDatasource.getLocationMessage(messageId);
+  }
+
+  createLocationMessage(
+    payload: CreateLocationMessagePayload,
+  ): Promise<LocationMessage> {
+    return forumRemoteDatasource.createLocationMessage(payload);
+  }
+
+  updateLocationMessage(
+    messageId: number,
+    payload: UpdateLocationMessagePayload,
+  ): Promise<LocationMessage> {
+    return forumRemoteDatasource.updateLocationMessage(messageId, payload);
+  }
+
+  replaceLocationMessage(
+    messageId: number,
+    payload: UpdateLocationMessagePayload,
+  ): Promise<LocationMessage> {
+    return forumRemoteDatasource.replaceLocationMessage(messageId, payload);
+  }
+
+  deleteLocationMessage(messageId: number): Promise<void> {
+    return forumRemoteDatasource.deleteLocationMessage(messageId);
+  }
+
+  restoreLocationMessage(messageId: number): Promise<LocationMessage> {
+    return forumRemoteDatasource.restoreLocationMessage(messageId);
+  }
+
   subscribeVenueLive(
     venueId: number,
     onEvent: VenueLiveEventHandler,
     onStatus?: VenueLiveStatusHandler,
   ): VenueLiveSubscription {
     return forumWsDatasource.connect(venueId, onEvent, onStatus);
+  }
+
+  subscribeLocationLive(
+    venueId: number,
+    locationId: string,
+    onEvent: LocationLiveEventHandler,
+    onStatus?: LocationLiveStatusHandler,
+  ): LocationLiveSubscription {
+    return forumLocationWsDatasource.connect(
+      venueId,
+      locationId,
+      onEvent,
+      onStatus,
+    );
   }
 }
 

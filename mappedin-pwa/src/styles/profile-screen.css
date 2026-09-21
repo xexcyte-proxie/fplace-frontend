@@ -169,6 +169,20 @@
   color: var(--profile-text);
 }
 
+.profile-post-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.profile-empty {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--profile-text-muted);
+}
+
 .profile-post-card {
   padding: 14px 15px;
   border: 1px solid var(--profile-border);
@@ -203,15 +217,27 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   font-size: 13px;
   font-weight: 600;
   line-height: 1;
+  color: var(--profile-accent-green);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.profile-post-upvotes.is-active {
   color: var(--profile-accent-green);
 }
 
 .profile-post-upvotes svg {
   display: block;
   flex-shrink: 0;
+  pointer-events: none;
 }
 
 @media (min-width: 768px) {

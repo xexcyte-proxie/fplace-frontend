@@ -1,12 +1,5 @@
 import { PRIVACY_POLICY, type LegalDocument } from './settings-data';
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
+import { escapeHtml } from './escape-html';
 
 function renderLegalDocument(
   document: LegalDocument,

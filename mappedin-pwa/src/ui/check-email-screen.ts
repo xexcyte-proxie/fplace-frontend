@@ -1,4 +1,6 @@
 import type { AppState, AuthCheckEmailPurpose } from '../types';
+import { renderBusyLabel } from './content-loading-overlay';
+import { escapeHtml } from './escape-html';
 
 const AUTH_ASSETS = {
   back: '/auth/back-chevron.svg',
@@ -62,10 +64,11 @@ export function renderCheckEmailScreen(
           <button
             type="button"
             id="check-email-resend-btn"
-            class="auth-legal-link"
+            class="auth-legal-link${state.authLoading ? ' is-loading' : ''}"
             ${state.authLoading ? 'disabled' : ''}
+            aria-busy="${state.authLoading ? 'true' : 'false'}"
           >
-            Resend
+            ${state.authLoading ? renderBusyLabel('Resending…') : 'Resend'}
           </button>
         </p>
         ${
@@ -87,12 +90,4 @@ export function renderCheckEmailScreen(
       </div>
     </div>
   `;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
 }

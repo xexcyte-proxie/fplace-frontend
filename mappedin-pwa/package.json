@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "test": "vitest run",
+    "slop": "node scripts/detect-slop.mjs",
     "prebuild": "npm run copy:ar:public",
     "build": "tsc && vite build",
     "copy:ar:public": "rm -rf public/ar && mkdir -p public/ar && rsync -a --exclude .netlify ../ar-nav/ public/ar/",
@@ -18,8 +19,8 @@
     "@fontsource/inter": "^5.3.0",
     "@fontsource/plus-jakarta-sans": "^5.3.0",
     "@fontsource/space-grotesk": "^5.3.0",
-    "@mappedin/blue-dot": "6.20.0-beta.0",
-    "@mappedin/mappedin-js": "6.20.0"
+    "@mappedin/blue-dot": "^6.27.0-beta.0",
+    "@mappedin/mappedin-js": "^6.27.0"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0",

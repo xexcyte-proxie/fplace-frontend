@@ -47,6 +47,7 @@ describe('startup flow screens (widget)', () => {
     });
     expect(html).toContain('id="auth-guest-btn"');
     expect(html).toContain('Continuing…');
+    expect(html).toContain('busy-indicator');
     expect(html).toContain('disabled');
   });
 
@@ -88,7 +89,7 @@ describe('startup flow screens (widget)', () => {
     });
     expect(html).toContain('Getting location…');
     expect(html).toContain('disabled');
-    expect(html).toContain('location-dialog-spinner');
+    expect(html).toContain('busy-indicator');
     expect(html).toContain('aria-busy="true"');
   });
 

@@ -1,6 +1,10 @@
 import type { AppState } from '../types';
 import { interestOptionsForPicker } from '../auth/domain/interest-options';
 import { PSEUDO_NAME_PLACEHOLDER } from './pseudo-name-data';
+import { AUTH_AUTOCOMPLETE } from './auth-autofill';
+import { authFieldError } from './auth-field-error';
+import { renderBusyLabel } from './content-loading-overlay';
+import { escapeHtml } from './escape-html';
 
 const AUTH_ASSETS = {
   back: '/auth/back-chevron.svg',
@@ -20,8 +24,8 @@ export function renderPseudoNameScreen(
     allowBack?: boolean;
   },
 ): string {
-  const nameError = state.authFieldErrors.pseudo_name ?? '';
-  const generalError = state.authFieldErrors._form ?? '';
+  const nameError = authFieldError(state.authFieldErrors, 'pseudo_name');
+  const generalError = authFieldError(state.authFieldErrors, '_form');
   const selected = new Set(state.selectedInterests);
   const allowBack = state.allowBack !== false;
   const nameHint = state.pseudoNameHint || PSEUDO_NAME_PLACEHOLDER;
@@ -83,7 +87,7 @@ export function renderPseudoNameScreen(
               type="text"
               class="auth-input pseudo-name-input${nameError ? ' auth-input--error' : ''}"
               maxlength="50"
-              autocomplete="username"
+              autocomplete="${AUTH_AUTOCOMPLETE.displayName}"
               placeholder="${escapeHtml(nameHint)}"
               value="${escapeHtml(state.pseudoNameDraft)}"
               ${state.authLoading ? 'disabled' : ''}
@@ -121,21 +125,14 @@ export function renderPseudoNameScreen(
           <button
             type="submit"
             id="pseudo-name-continue-btn"
-            class="auth-cta-primary auth-submit-btn"
+            class="auth-cta-primary auth-submit-btn${state.authLoading ? ' is-loading' : ''}"
             ${state.authLoading ? 'disabled' : ''}
+            aria-busy="${state.authLoading ? 'true' : 'false'}"
           >
-            ${state.authLoading ? 'Saving…' : 'Continue'}
+            ${state.authLoading ? renderBusyLabel('Saving…') : 'Continue'}
           </button>
         </div>
       </form>
     </div>
   `;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
 }

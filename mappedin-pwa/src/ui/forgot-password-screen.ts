@@ -1,26 +1,18 @@
 import type { AppState } from '../types';
+import { AUTH_AUTOCOMPLETE } from './auth-autofill';
+import { authFieldError } from './auth-field-error';
+import { renderBusyLabel } from './content-loading-overlay';
+import { escapeHtml } from './escape-html';
 
 const AUTH_ASSETS = {
   back: '/auth/back-chevron.svg',
 } as const;
 
-function fieldError(errors: Record<string, string>, key: string): string {
-  return errors[key] ?? '';
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
-
 export function renderForgotPasswordScreen(
   state: Pick<AppState, 'authEmail' | 'authLoading' | 'authFieldErrors'>,
 ): string {
-  const emailError = fieldError(state.authFieldErrors, 'email');
-  const generalError = fieldError(state.authFieldErrors, '_form');
+  const emailError = authFieldError(state.authFieldErrors, 'email');
+  const generalError = authFieldError(state.authFieldErrors, '_form');
 
   return `
     <div class="auth-screen forgot-password-screen">
@@ -42,7 +34,7 @@ export function renderForgotPasswordScreen(
         </p>
       </div>
 
-      <form id="forgot-password-form" class="auth-form" autocomplete="on" novalidate>
+      <form id="forgot-password-form" class="auth-form" method="post" autocomplete="on" novalidate>
         ${
           generalError
             ? `<p class="auth-form-error" role="alert">${escapeHtml(generalError)}</p>`
@@ -53,11 +45,11 @@ export function renderForgotPasswordScreen(
           <span class="auth-label">Email</span>
           <input
             id="forgot-password-email"
-            name="email"
+            name="username"
             type="email"
             class="auth-input${emailError ? ' auth-input--error' : ''}"
             placeholder="fan@email.com"
-            autocomplete="email"
+            autocomplete="${AUTH_AUTOCOMPLETE.username}"
             inputmode="email"
             autocapitalize="off"
             autocorrect="off"
@@ -73,10 +65,11 @@ export function renderForgotPasswordScreen(
           <button
             type="submit"
             id="forgot-password-submit-btn"
-            class="onboarding-primary-btn auth-submit-btn"
+            class="onboarding-primary-btn auth-submit-btn${state.authLoading ? ' is-loading' : ''}"
             ${state.authLoading ? 'disabled' : ''}
+            aria-busy="${state.authLoading ? 'true' : 'false'}"
           >
-            ${state.authLoading ? 'Sending…' : 'Send reset link'}
+            ${state.authLoading ? renderBusyLabel('Sending…') : 'Send reset link'}
           </button>
 
           <p class="auth-footer-text">

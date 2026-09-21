@@ -1,17 +1,22 @@
 import { apiRequest } from '../../../auth/data/datasources/api-client';
 import type {
   CreateCommentPayload,
+  CreateLocationMessagePayload,
   CreatePostPayload,
   FlagPostPayload,
   ForumCategory,
   ForumComment,
+  ForumInterest,
   ForumPost,
   ForumSection,
   ForumVenue,
   ListCommentsParams,
+  ListLocationMessagesParams,
   ListPostsParams,
+  LocationMessage,
   PaginatedList,
   UpdateCommentPayload,
+  UpdateLocationMessagePayload,
   UpdatePostPayload,
 } from '../../domain/entities';
 import {
@@ -22,6 +27,15 @@ import {
   coerceForumComment,
   coerceForumCommentList,
 } from '../mappers/forum-comment-mapper';
+import { coerceForumInterestList } from '../mappers/forum-interest-mapper';
+import {
+  coerceForumSection,
+  coerceForumSectionList,
+} from '../mappers/forum-section-mapper';
+import {
+  coerceLocationMessage,
+  coerceLocationMessageList,
+} from '../mappers/location-message-mapper';
 
 function withQuery(
   path: string,
@@ -59,6 +73,28 @@ function requireForumComment(
   return comment;
 }
 
+function requireLocationMessage(
+  raw: unknown,
+  fallbackError: string,
+): LocationMessage {
+  const message = coerceLocationMessage(raw);
+  if (!message) {
+    throw new Error(fallbackError);
+  }
+  return message;
+}
+
+function requireForumSection(
+  raw: unknown,
+  fallbackError: string,
+): ForumSection {
+  const section = coerceForumSection(raw);
+  if (!section) {
+    throw new Error(fallbackError);
+  }
+  return section;
+}
+
 export class ForumRemoteDatasource {
   listVenues(page = 1): Promise<PaginatedList<ForumVenue>> {
     return apiRequest<PaginatedList<ForumVenue>>(
@@ -75,8 +111,11 @@ export class ForumRemoteDatasource {
     });
   }
 
-  listSections(venueId: number, page = 1): Promise<PaginatedList<ForumSection>> {
-    return apiRequest<PaginatedList<ForumSection>>(
+  async listSections(
+    venueId: number,
+    page = 1,
+  ): Promise<PaginatedList<ForumSection>> {
+    const raw = await apiRequest<unknown>(
       withQuery('/api/forum/sections/', {
         venue: venueId,
         is_active: true,
@@ -86,12 +125,17 @@ export class ForumRemoteDatasource {
         fallbackError: 'Could not load sections for this venue.',
       },
     );
+    return coerceForumSectionList(raw);
   }
 
-  getSection(sectionId: number): Promise<ForumSection> {
-    return apiRequest<ForumSection>(`/api/forum/sections/${sectionId}/`, {
-      fallbackError: 'Could not load that section.',
-    });
+  async getSection(sectionId: number): Promise<ForumSection> {
+    const raw = await apiRequest<unknown>(
+      `/api/forum/sections/${sectionId}/`,
+      {
+        fallbackError: 'Could not load that section.',
+      },
+    );
+    return requireForumSection(raw, 'Could not load that section.');
   }
 
   listCategories(page = 1): Promise<PaginatedList<ForumCategory>> {
@@ -111,6 +155,20 @@ export class ForumRemoteDatasource {
     return apiRequest<ForumCategory>(`/api/forum/categories/${categoryId}/`, {
       fallbackError: 'Could not load that category.',
     });
+  }
+
+  async listInterests(page = 1): Promise<PaginatedList<ForumInterest>> {
+    const raw = await apiRequest<unknown>(
+      withQuery('/api/forum/interests/', {
+        is_active: true,
+        ordering: 'order',
+        page,
+      }),
+      {
+        fallbackError: 'Could not load interests. Please try again.',
+      },
+    );
+    return coerceForumInterestList(raw);
   }
 
   async listPosts(params: ListPostsParams): Promise<PaginatedList<ForumPost>> {
@@ -354,6 +412,110 @@ export class ForumRemoteDatasource {
       },
     );
     return requireForumComment(raw, 'Could not restore that comment.');
+  }
+
+  async listLocationMessages(
+    params: ListLocationMessagesParams,
+  ): Promise<PaginatedList<LocationMessage>> {
+    const raw = await apiRequest<unknown>(
+      withQuery('/api/forum/conversations/', {
+        venue: params.venue,
+        location_id: params.location_id,
+        page: params.page,
+        ordering: params.ordering,
+        created_after: params.created_after,
+        created_before: params.created_before,
+      }),
+      {
+        auth: true,
+        fallbackError: 'Could not load this conversation. Please try again.',
+      },
+    );
+    return coerceLocationMessageList(raw);
+  }
+
+  async getLocationMessage(messageId: number): Promise<LocationMessage> {
+    const raw = await apiRequest<unknown>(
+      `/api/forum/conversations/${messageId}/`,
+      {
+        auth: true,
+        fallbackError: 'Could not load that message.',
+      },
+    );
+    return requireLocationMessage(raw, 'Could not load that message.');
+  }
+
+  async createLocationMessage(
+    payload: CreateLocationMessagePayload,
+  ): Promise<LocationMessage> {
+    const locationName = payload.location_name?.trim();
+    const raw = await apiRequest<unknown>('/api/forum/conversations/', {
+      method: 'POST',
+      auth: true,
+      body: {
+        venue: payload.venue,
+        location_id: payload.location_id,
+        content: payload.content,
+        ...(locationName ? { location_name: locationName } : {}),
+      },
+      fallbackError: 'Could not send that message. Please try again.',
+    });
+    return requireLocationMessage(
+      raw,
+      'Could not send that message. Please try again.',
+    );
+  }
+
+  async updateLocationMessage(
+    messageId: number,
+    payload: UpdateLocationMessagePayload,
+  ): Promise<LocationMessage> {
+    const raw = await apiRequest<unknown>(
+      `/api/forum/conversations/${messageId}/`,
+      {
+        method: 'PATCH',
+        auth: true,
+        body: payload,
+        fallbackError: 'Could not update that message.',
+      },
+    );
+    return requireLocationMessage(raw, 'Could not update that message.');
+  }
+
+  async replaceLocationMessage(
+    messageId: number,
+    payload: UpdateLocationMessagePayload,
+  ): Promise<LocationMessage> {
+    const raw = await apiRequest<unknown>(
+      `/api/forum/conversations/${messageId}/`,
+      {
+        method: 'PUT',
+        auth: true,
+        body: payload,
+        fallbackError: 'Could not replace that message.',
+      },
+    );
+    return requireLocationMessage(raw, 'Could not replace that message.');
+  }
+
+  async deleteLocationMessage(messageId: number): Promise<void> {
+    await apiRequest(`/api/forum/conversations/${messageId}/`, {
+      method: 'DELETE',
+      auth: true,
+      fallbackError: 'Could not delete that message.',
+    });
+  }
+
+  async restoreLocationMessage(messageId: number): Promise<LocationMessage> {
+    const raw = await apiRequest<unknown>(
+      `/api/forum/conversations/${messageId}/restore/`,
+      {
+        method: 'POST',
+        auth: true,
+        fallbackError: 'Could not restore that message.',
+      },
+    );
+    return requireLocationMessage(raw, 'Could not restore that message.');
   }
 }
 

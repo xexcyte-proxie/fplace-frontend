@@ -3,6 +3,7 @@ import {
   isTokenNotValidForAnyType,
   type AuthSessionClearedReason,
 } from '../../domain/invalid-access-token';
+import { resolveUserFacingApiErrorMessage } from '../../domain/user-facing-api-error';
 import { appConfig } from '../../../config';
 import { tokenLocalDatasource } from './token-local-datasource';
 
@@ -25,10 +26,14 @@ export class AuthApiError extends Error {
   readonly body: ApiErrorBody;
 
   constructor(body: ApiErrorBody, fallbackMessage: string, status = 0) {
-    const summary =
+    const serverMessage =
       body.message?.trim() ||
       (typeof body.detail === 'string' ? body.detail.trim() : '') ||
-      fallbackMessage;
+      '';
+    const summary = resolveUserFacingApiErrorMessage(
+      serverMessage,
+      fallbackMessage,
+    );
     super(summary);
     this.name = 'AuthApiError';
     this.summary = summary;
