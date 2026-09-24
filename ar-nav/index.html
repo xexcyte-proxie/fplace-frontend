@@ -12,9 +12,7 @@
       content="camera=(self), geolocation=(self), gyroscope=(self), accelerometer=(self), magnetometer=(self), xr-spatial-tracking=(self)"
     />
     <title>Live View</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="./css/ar.css?v=20260909-fast-boot-v1" />
+    <link rel="stylesheet" href="./css/ar.css?v=20260923-inline-icons-v1" />
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <link
       rel="preload"
@@ -27,12 +25,6 @@
       href="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
       as="script"
       crossorigin
-    />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,500,1,0&display=swap"
-      rel="stylesheet"
-      media="print"
-      onload="this.media='all'"
     />
     <script>
       (function () {
@@ -75,7 +67,7 @@
     >
       <div class="camera-start-card">
         <span class="camera-start-icon" aria-hidden="true">
-          <span class="material-symbols-rounded">photo_camera</span>
+          <span class="lv-icon" data-lv-icon="photo_camera"></span>
         </span>
         <h2 id="camera-start-title" class="camera-start-title">
           Start Live View
@@ -96,9 +88,7 @@
         class="lv-chrome-btn"
         aria-label="Back to map"
       >
-        <span class="material-symbols-rounded" aria-hidden="true"
-          >arrow_back</span
-        >
+        <span class="lv-icon" data-lv-icon="arrow_back" aria-hidden="true"></span>
       </button>
       <div
         id="tracking-mode-badge"
@@ -114,7 +104,7 @@
         class="lv-chrome-btn"
         aria-label="Show map"
       >
-        <span class="material-symbols-rounded" aria-hidden="true">map</span>
+        <span class="lv-icon" data-lv-icon="map" aria-hidden="true"></span>
       </button>
     </div>
 
@@ -171,17 +161,8 @@
         </div>
       </div>
 
-      <div id="align-banner" class="lv-align hidden" aria-live="polite">
-        <div class="lv-align-glyph" aria-hidden="true">
-          <span id="align-icon" class="material-symbols-rounded"
-            >chevron_left</span
-          >
-        </div>
-        <span id="align-text" class="lv-align-label">Turn left</span>
-      </div>
-
       <div id="floor-banner" class="lv-floor hidden">
-        <span class="material-symbols-rounded" aria-hidden="true">layers</span>
+        <span class="lv-icon" data-lv-icon="layers" aria-hidden="true"></span>
         <span id="floor-banner-text"></span>
       </div>
 
@@ -191,17 +172,26 @@
       </div>
 
       <div id="offPath" class="lv-warn hidden"></div>
+    </div>
 
-      <div id="arrival-card" class="lv-arrival hidden">
-        <span
-          class="material-symbols-rounded lv-arrival-icon"
-          aria-hidden="true"
-          >check_circle</span
-        >
-        <div>
-          <div class="lv-arrival-title">You've arrived</div>
-          <div id="arrival-dest" class="lv-arrival-dest"></div>
-        </div>
+    <div
+      id="arrival-card"
+      class="lv-arrival hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="arrival-dialog-title"
+      aria-describedby="arrival-dest"
+      aria-hidden="true"
+    >
+      <div class="lv-arrival-card">
+        <span class="lv-icon lv-arrival-icon" data-lv-icon="check_circle" aria-hidden="true"></span>
+        <h2 id="arrival-dialog-title" class="lv-arrival-title">
+          You've arrived
+        </h2>
+        <p id="arrival-dest" class="lv-arrival-dest"></p>
+        <button type="button" id="arrival-ok-btn" class="lv-arrival-ok">
+          Okay
+        </button>
       </div>
     </div>
 
@@ -219,7 +209,7 @@
         </button>
         <div class="lv-dest-row">
           <div class="lv-dest-icon" aria-hidden="true">
-            <span class="material-symbols-rounded">location_on</span>
+            <span class="lv-icon" data-lv-icon="location_on"></span>
           </div>
           <div class="lv-dest-copy">
             <div id="trip-dest" class="lv-dest-name">-</div>
@@ -227,10 +217,10 @@
           </div>
           <span
             id="lv-sheet-chevron"
-            class="lv-sheet-chevron material-symbols-rounded"
+            class="lv-sheet-chevron lv-icon"
+            data-lv-icon="expand_more"
             aria-hidden="true"
           >
-            expand_more
           </span>
         </div>
         <div id="lv-sheet-body" class="lv-sheet-body">
@@ -249,22 +239,21 @@
             </div>
           </div>
           <button type="button" id="lv-end-nav-btn" class="lv-end-nav-btn">
-            <span class="material-symbols-rounded" aria-hidden="true"
-              >close</span
-            >
+            <span class="lv-icon" data-lv-icon="close" aria-hidden="true"></span>
             End navigation
           </button>
         </div>
       </div>
     </div>
 
-    <script defer src="./config.js?v=20260910-slam-resume-v1"></script>
+    <script defer src="./js/ui-icons.js?v=20260923-inline-icons-v1"></script>
+    <script defer src="./config.js?v=20260921-camera-unblocked-v3"></script>
     <script defer src="./js/slam-diagnostics.js?v=20260825-compass-lighting-v1"></script>
     <script defer src="./js/ar-debug.js"></script>
     <script defer src="./js/geo-math.js"></script>
     <script defer src="./js/ar-quaternion-alignment.js?v=20260709-heading-fix-v1"></script>
     <script defer src="./js/route-services.js"></script>
-    <script defer src="./js/route-bridge.js?v=20260909-fast-boot-v1"></script>
+    <script defer src="./js/route-bridge.js?v=20260922-arrival-lock-v1"></script>
     <script defer src="./js/anchorEngine.js?v=20260909-fast-boot-v1"></script>
     <script defer src="./js/route-geometry.js"></script>
     <script defer src="./js/floor-transitions.js"></script>
@@ -276,25 +265,24 @@
     <script defer src="./js/world-route-scene.js?v=20260908-near-field-cap-v1"></script>
     <script defer src="./js/demo-sim-walk.js"></script>
     <script defer src="./js/live-guidance.js?v=20260908-no-advance-turns-v1"></script>
-    <script defer src="./js/route-navigator.js?v=20260909-gps-offroute-cap-v1"></script>
+    <script defer src="./js/route-navigator.js?v=20260922-arrival-lock-v1"></script>
     <script defer src="./js/route-lane-heading.js?v=20260825-compass-lighting-v1"></script>
     <script defer src="./js/slam-heading.js"></script>
     <script defer src="./js/slam-pose-bridge.js"></script>
-    <script defer src="./js/turn-cue.js?v=20260831-turn-cue-v1"></script>
-    <script defer src="./js/live-view-hud.js?v=20260910-slam-resume-v1"></script>
-    <script defer src="./js/lv-chrome.js?v=20260902-pip-ui-v1"></script>
-    <script defer src="./js/camera-start.js?v=20260910-slam-resume-v1"></script>
+    <script defer src="./js/live-view-hud.js?v=20260922-arrival-lock-v1"></script>
+    <script defer src="./js/lv-chrome.js?v=20260922-arrival-lock-v1"></script>
+    <script defer src="./js/camera-start.js?v=20260921-camera-unblocked-v3"></script>
     <script defer src="./js/live-view-arrows-3d.js?v=20260708-align-debug-v1"></script>
     <script defer src="./js/orientation-compass.js?v=20260825-compass-lighting-v1"></script>
     <script defer src="./js/visual-tracking-quality.js?v=20260825-compass-lighting-v1"></script>
     <script defer src="./js/camera-luma-sampler.js?v=20260831-ar-stable-v1"></script>
-    <script defer src="./js/lighting-compass-prompt.js?v=20260910-slam-resume-v1"></script>
-    <script defer src="./js/visual-tracking-monitor.js?v=20260910-slam-resume-v1"></script>
+    <script defer src="./js/lighting-compass-prompt.js?v=20260921-camera-unblocked-v3"></script>
+    <script defer src="./js/visual-tracking-monitor.js?v=20260921-camera-unblocked-v3"></script>
     <script defer src="./js/live-view-minimap.js"></script>
     <script defer src="./js/fallback-nav.js?v=20260825-compass-lighting-v1"></script>
     <script defer src="./js/fplaces-xr-renderer-patch.js?v=20260707-camera-v18"></script>
     <script id="xr-bootstrap"></script>
-    <script defer src="./js/xr-nav-scene.js?v=20260910-slam-resume-v1"></script>
-    <script defer src="./js/bootstrap.js?v=20260910-slam-resume-v1"></script>
+    <script defer src="./js/xr-nav-scene.js?v=20260921-camera-unblocked-v3"></script>
+    <script defer src="./js/bootstrap.js?v=20260921-camera-unblocked-v3"></script>
   </body>
 </html>

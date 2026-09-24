@@ -649,3 +649,14 @@
     transition: none;
   }
 }
+
+/* Retain the last count while making stale heat visibly distinct. */
+.social-map-marker--heat-stale {
+  --sm-status-color: var(--sm-heat-neutral);
+  --sm-secondary-color: var(--sm-muted);
+}
+.social-map-marker--heat-stale .social-map-marker__halo {
+  background: rgba(199, 199, 204, 0.28) !important;
+  opacity: 0.35;
+  animation: none;
+}

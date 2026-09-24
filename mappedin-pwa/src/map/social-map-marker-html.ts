@@ -10,7 +10,8 @@ export type SocialMarkerVisualState =
   | "heat-high"
   | "heat-medium"
   | "heat-low"
-  | "heat-neutral";
+  | "heat-neutral"
+  | "heat-stale";
 
 export interface SocialMarkerModel {
   anchorId: string;

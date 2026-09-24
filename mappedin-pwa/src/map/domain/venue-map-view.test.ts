@@ -13,11 +13,11 @@ describe('venue map view', () => {
     expect(SHOW_VENUE_MAP_OPTIONS.outdoorView.enabled).toBe(false);
   });
 
-  it('keeps pan and zoom but disables tilt/rotate for 2D dragging', () => {
+  it('enables pan, zoom, tilt, and rotate for the venue map', () => {
     expect(VENUE_CAMERA_INTERACTIONS).toEqual({
       pan: true,
       zoom: true,
-      bearingAndPitch: false,
+      bearingAndPitch: true,
     });
   });
 

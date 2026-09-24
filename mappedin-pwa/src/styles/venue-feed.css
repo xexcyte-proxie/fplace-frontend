@@ -41,12 +41,75 @@
   padding-bottom: 12px;
 }
 
+.venue-feed-context {
+  margin: max(12px, env(safe-area-inset-top)) var(--vf-padding-x) 8px;
+  padding: 18px;
+  border: 1px solid #d4ded5;
+  border-radius: var(--vf-card-radius);
+  background: #e4ece3;
+  color: #233d30;
+}
+
+.venue-feed-context-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.venue-feed-context-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.venue-feed-context-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.venue-feed-context-venue {
+  margin: 14px 0 4px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+}
+
+.venue-feed-context-event {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #4a6052;
+}
+
+.venue-feed-context-crowd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #c8d6c9;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.venue-feed-context-crowd svg {
+  flex-shrink: 0;
+}
+
 .venue-feed-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: max(12px, env(safe-area-inset-top)) var(--vf-padding-x) 14px;
+  padding: 12px var(--vf-padding-x) 14px;
 }
 
 .venue-feed-header-copy {
@@ -97,24 +160,6 @@
 .venue-feed-live-dot--offline {
   background: var(--vf-border);
   box-shadow: none;
-}
-
-.venue-feed-live-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 0 var(--vf-padding-x) 12px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(224, 122, 51, 0.12);
-  border: 1px solid rgba(224, 122, 51, 0.24);
-  color: var(--vf-text);
-  font-size: 13px;
-  line-height: 1.35;
-}
-
-.venue-feed-live-banner .venue-feed-live-dot {
-  margin-top: 4px;
 }
 
 .venue-feed-location-scope {
@@ -325,6 +370,13 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1.4;
+}
+
+.venue-feed-badge--category {
+  max-width: 45%;
+  overflow-wrap: anywhere;
+  background: #e0f2fe;
+  color: #0284c7;
 }
 
 .venue-feed-badge--hype {

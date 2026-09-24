@@ -168,21 +168,9 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     return;
   }
 
-  const venueSection = target.closest<HTMLButtonElement>('[data-venue-section]');
-  if (venueSection && venueSection.hasAttribute('data-venue-section')) {
-    const locationId = venueSection.dataset.venueSection?.trim() || null;
-    const locationName = venueSection.dataset.venueSectionName ?? null;
-    if (locationId) {
-      app.setSocialLocation(locationId, locationName);
-    } else {
-      app.clearSocialLocation();
-    }
-    return;
-  }
-
   const venueFilter = target.closest<HTMLButtonElement>('[data-venue-filter]');
   if (venueFilter?.dataset.venueFilter) {
-    app.setVenueFeedFilter(
+    void app.setVenueFeedFilter(
       venueFilter.dataset.venueFilter as AppState['venueFeedFilter'],
     );
     return;

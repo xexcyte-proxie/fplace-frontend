@@ -29,26 +29,27 @@ export class BleBeaconProvider extends PositionProvider {
   private scanAbort: AbortController | null = null;
   private readonly readings = new Map<string, BeaconReading>();
   private lastSnap: FplacesPositionFrame | null = null;
-  private readonly matrix: BeaconVenueMatrix;
+  private matrix: BeaconVenueMatrix = { venueMapId: '', beacons: [] };
   private readonly rssiThreshold: number;
   private readonly scanIntervalMs: number;
 
   constructor() {
     super();
-    const raw = beaconMatrixData as BeaconVenueMatrix;
-    this.matrix =
-      raw.venueMapId === appConfig.mappedin.mapId
-        ? raw
-        : { venueMapId: appConfig.mappedin.mapId, beacons: [] };
-
     const envInterval = Number(import.meta.env.VITE_BLE_SCAN_INTERVAL_MS);
     this.rssiThreshold = appConfig.positioning.bleRssiThresholdDbm;
-    this.scanIntervalMs = Number.isFinite(envInterval)
+    this.scanIntervalMs = Number.isFinite(envInterval) && envInterval >= 100
       ? envInterval
       : appConfig.positioning.bleScanIntervalMs;
   }
 
   protected onStart(options?: PositionProviderStartOptions): void {
+    const raw = beaconMatrixData as BeaconVenueMatrix;
+    this.matrix = raw.venueMapId === options?.venueMapId
+      ? raw : { venueMapId: options?.venueMapId ?? '', beacons: [] };
+    if (!this.matrix.beacons.length) {
+      this.startFallback(options, 'venue_beacons_unavailable');
+      return;
+    }
     if (!('bluetooth' in navigator)) {
       this.startFallback(options, 'bluetooth_unavailable');
       return;
@@ -81,12 +82,16 @@ export class BleBeaconProvider extends PositionProvider {
     if (reason) {
       appWarn('BleBeacon', `Falling back to GPS (${reason})`);
     }
+    if (!this.running || this.fallback) return;
     this.fallback = new GpsPositionProvider();
-    this.fallback.start((frame) => this.emit({ ...frame, source: 'ble_beacon' }), options);
+    this.fallback.start((frame) => this.emit(frame), {
+      ...options, onStatus: (status) => this.reportStatus(status),
+    });
   }
 
   private async startScanning(options?: PositionProviderStartOptions): Promise<void> {
     const nav = navigator as BluetoothNavigator;
+    const generation = this.generation;
 
     try {
       if (typeof nav.bluetooth.requestLEScan === 'function') {
@@ -99,29 +104,31 @@ export class BleBeaconProvider extends PositionProvider {
         return;
       }
 
-      await this.requestDeviceFallback(nav);
-      appLog('BleBeacon', 'Device picker fallback active');
+      this.startFallback(options, 'lescan_unavailable');
     } catch (error) {
       appWarn('BleBeacon', 'Scan startup failed', error);
-      if (this.running) this.startFallback(options, 'scan_failed');
+      if (this.running && generation === this.generation) this.startFallback(options, 'scan_failed');
     }
   }
 
   private async startLeScanLoop(nav: BluetoothNavigator): Promise<void> {
-    this.scanAbort = new AbortController();
-    this.lescan = await nav.bluetooth.requestLEScan!({
+    const generation = this.generation;
+    const scan = await nav.bluetooth.requestLEScan!({
       acceptAllAdvertisements: true,
       keepRepeatedDevices: true,
     });
 
+    if (!this.running || generation !== this.generation) {
+      await scan.stop();
+      return;
+    }
+    this.lescan = scan;
+    this.scanAbort = new AbortController();
     const onAdvert = (event: Event) => {
       const advert = parseAdvertisementEvent(event as BluetoothAdvertisingEvent);
       if (!advert) return;
       const reading = toReading(advert);
-      const existing = this.readings.get(reading.key);
-      if (!existing || reading.rssi > existing.rssi) {
-        this.readings.set(reading.key, reading);
-      }
+      this.readings.set(reading.key, reading);
     };
 
     navigator.addEventListener('advertisementreceived', onAdvert as (event: BluetoothAdvertisingEvent) => void);
@@ -134,17 +141,12 @@ export class BleBeaconProvider extends PositionProvider {
     }, this.scanIntervalMs);
   }
 
-  private async requestDeviceFallback(nav: BluetoothNavigator): Promise<void> {
-    await nav.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: [],
-    });
-    this.startFallback(undefined, 'lescan_unavailable');
-  }
-
   private evaluateProximity(): void {
     if (!this.running) return;
 
+    for (const [key, reading] of this.readings) {
+      if (Date.now() - reading.timestamp > 5_000) this.readings.delete(key);
+    }
     positionTelemetry.recordBleHierarchy(
       [...this.readings.values()].map((reading) => ({
         uuid: reading.uuid,

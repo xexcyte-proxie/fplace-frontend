@@ -38,6 +38,7 @@ export function mediaPermissionFromGetUserMediaError(
   ) {
     return 'unsupported';
   }
+  // NotReadableError / AbortError = camera busy or interrupted, not a permanent deny.
   return 'prompt';
 }
 

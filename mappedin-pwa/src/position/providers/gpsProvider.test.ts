@@ -165,3 +165,31 @@ describe('GpsPositionProvider', () => {
     provider.stop();
   });
 });
+
+describe('GPS errors and late callbacks', () => {
+  it('reports permission errors and ignores callbacks from a stopped session', () => {
+    let success!: PositionCallback;
+    let error!: PositionErrorCallback;
+    vi.stubGlobal('navigator', { geolocation: {
+      watchPosition: vi.fn((s: PositionCallback, e: PositionErrorCallback) => { success = s; error = e; return 1; }),
+      clearWatch: vi.fn(),
+    } });
+    vi.stubGlobal('DeviceOrientationEvent', undefined);
+    const provider = new GpsPositionProvider();
+    const onStatus = vi.fn();
+    const onFrame = vi.fn();
+    provider.start(onFrame, { onStatus });
+    error({ code: 1, message: 'Denied' } as GeolocationPositionError);
+    expect(onStatus).toHaveBeenLastCalledWith('error');
+    const oldSuccess = success;
+    provider.stop();
+    provider.start(onFrame, { onStatus });
+    oldSuccess({ coords: { latitude: 6.6, longitude: 3.35, accuracy: 5 }, timestamp: Date.now() } as GeolocationPosition);
+    expect(onFrame).not.toHaveBeenCalled();
+    success({ coords: { latitude: 6.6, longitude: 3.35, accuracy: 5 }, timestamp: Date.now() } as GeolocationPosition);
+    expect(onFrame).toHaveBeenCalledTimes(1);
+    expect(onStatus).toHaveBeenLastCalledWith('active');
+    provider.stop();
+    vi.unstubAllGlobals();
+  });
+});

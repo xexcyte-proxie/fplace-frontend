@@ -20,7 +20,6 @@ import {
 import { routeValidationService } from './route-validation-service';
 
 const BACKEND = FPLACES_BACKEND_HTTP_ORIGIN;
-const MAP_ID = '65c0ff7430b94e3fabd5bb8c';
 const LIVE_TIMEOUT_MS = 90_000;
 const MIN_ROUTE_SEPARATION_M = 15;
 const TOO_CLOSE_M = 3;
@@ -83,6 +82,7 @@ async function routeBetween(
   mapData: MapData,
   from: NamedTarget,
   to: NamedTarget,
+  mapId: string,
 ): Promise<RoutePayload | null> {
   try {
     const directions = await mapData.getDirections(from.target, to.target);
@@ -90,7 +90,7 @@ async function routeBetween(
     return buildRoutePayload(
       directions,
       to.name,
-      MAP_ID,
+      mapId,
       from.target,
       to.target,
     );
@@ -101,6 +101,7 @@ async function routeBetween(
 
 async function findWalkableRoute(
   mapData: MapData,
+  mapId: string,
 ): Promise<{ from: NamedTarget; to: NamedTarget; route: RoutePayload }> {
   const targets = collectNamedTargets(mapData);
   expect(targets.length).toBeGreaterThan(1);
@@ -117,7 +118,7 @@ async function findWalkableRoute(
   expect(attempts.length).toBeGreaterThan(0);
 
   for (const [from, to] of attempts) {
-    const route = await routeBetween(mapData, from, to);
+    const route = await routeBetween(mapData, from, to, mapId);
     if (route && (route.distanceMeters ?? 0) >= MIN_ROUTE_SEPARATION_M) {
       return { from, to, route };
     }
@@ -131,8 +132,13 @@ describe('Guest indoor wayfinding (live Mappedin + backend token)', () => {
     'builds a validated walk route from a guest Mappedin token',
     async () => {
       const { accessToken } = await obtainGuestMappedinToken();
-      const mapData = await getMapData({ accessToken, mapId: MAP_ID });
-      const { from, to, route } = await findWalkableRoute(mapData);
+      const catalogResponse = await fetch(`${BACKEND}/api/forum/venues/`);
+      expect(catalogResponse.ok).toBe(true);
+      const catalog = await catalogResponse.json() as { results: Array<{ mappedin_map_id?: string | null }> };
+      const mapId = catalog.results.find(venue => venue.mappedin_map_id?.trim())?.mappedin_map_id?.trim();
+      expect(mapId, 'A catalog venue must have a Mappedin map').toBeTruthy();
+      const mapData = await getMapData({ accessToken, mapId: mapId! });
+      const { from, to, route } = await findWalkableRoute(mapData, mapId!);
 
       expect(haversineMeters(from.coord, to.coord)).toBeGreaterThan(TOO_CLOSE_M);
 

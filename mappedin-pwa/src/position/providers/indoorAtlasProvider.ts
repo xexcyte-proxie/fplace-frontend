@@ -48,25 +48,39 @@ export class IndoorAtlasProvider extends PositionProvider {
     if (reason) {
       appWarn('IndoorAtlas', `Falling back to GPS (${reason})`);
     }
+    if (!this.running || this.fallback) return;
     this.fallback = new GpsPositionProvider();
-    this.fallback.start((frame) => this.emit({ ...frame, source: 'indoor_atlas' }), options);
+    this.fallback.start((frame) => this.emit(frame), {
+      ...options, onStatus: (status) => this.reportStatus(status),
+    });
   }
 
   private async bootstrap(apiKey: string, options?: PositionProviderStartOptions): Promise<void> {
+    const generation = this.generation;
     try {
       const apiSecret = import.meta.env.VITE_INDOOR_ATLAS_API_SECRET;
       const sdk = await initializeIndoorAtlas(apiKey, apiSecret);
 
+      if (!this.running || generation !== this.generation) return;
       this.floorFilter = new IndoorAtlasFloorFilter(options?.venueMapId);
+      if (!this.floorFilter.isConfigured()) {
+        appWarn('IndoorAtlas', 'Venue floor mapping is missing or invalid');
+        this.floorFilter = null;
+        this.startFallback(options, 'invalid_floor_mapping');
+        return;
+      }
       this.floorFilter.setExpectedFloorId(
         options?.expectedFloorId ?? options?.floorId ?? null,
       );
 
-      sdk.watchPosition((position) => this.handleLocation(position));
+      sdk.watchPosition((position) => {
+        if (generation === this.generation) this.handleLocation(position);
+      });
       this.sdkWatchActive = true;
 
       if (typeof sdk.watchFloorPlan === 'function') {
         sdk.watchFloorPlan((floorPlan) => {
+          if (!this.running || generation !== this.generation) return;
           if (floorPlan?.floorLevel != null) {
             const mapped = this.floorFilter?.resolveMappedinFloorId(floorPlan.floorLevel);
             if (mapped) this.floorFilter?.setExpectedFloorId(mapped);
@@ -78,7 +92,7 @@ export class IndoorAtlasProvider extends PositionProvider {
       appLog('IndoorAtlas', 'SDK initialized and watchPosition active');
     } catch (error) {
       appWarn('IndoorAtlas', 'SDK init failed', error);
-      if (this.running) this.startFallback(options, 'sdk_init_failed');
+      if (this.running && generation === this.generation) this.startFallback(options, 'sdk_init_failed');
     }
   }
 
@@ -120,7 +134,8 @@ export class IndoorAtlasProvider extends PositionProvider {
       ...(coords.heading != null && Number.isFinite(coords.heading) && coords.heading >= 0
         ? { heading: coords.heading }
         : {}),
-      accuracy: coords.accuracy ?? 12,
+      accuracy: coords.accuracy ?? Number.POSITIVE_INFINITY,
+      timestamp: position.timestamp,
       floorId: verdict.mappedinFloorId,
     });
   }

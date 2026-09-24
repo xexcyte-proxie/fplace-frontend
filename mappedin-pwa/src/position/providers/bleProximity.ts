@@ -82,6 +82,6 @@ export function snapToBeaconFrame(
     accuracy: proximityMeters,
     source: 'ble_beacon',
     floorId: entry.floorId,
-    timestamp: Date.now(),
+    timestamp: reading.timestamp,
   };
 }

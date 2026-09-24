@@ -4,12 +4,12 @@ import type { ForumPost, LocationMessage } from '../forum/domain/entities';
 import {
   appendOlderVenueFeedPosts,
   applyCommentCounts,
+  categoryFiltersFromApi,
   mapForumPostToVenueFeed,
   mapLocationMessageToVenueFeed,
   nextFeedPageFromUrl,
   resolveVenueFeedAreaName,
   scopeVenueFeedPostsToLocation,
-  venueFeedSectionChips,
   venueFeedTimeAgo,
 } from './venue-feed-data';
 import type { ForumSectionSummary, VenueFeedPost } from '../types';
@@ -290,45 +290,22 @@ describe('applyCommentCounts', () => {
     });
   });
 
-  describe('venueFeedSectionChips', () => {
-    const sections: ForumSectionSummary[] = [
-      {
-        id: 8,
-        venue: 1,
-        name: 'North Stand',
-        code: 'N',
-        is_active: true,
-        mappedinLocationId: 'loc-north',
-      },
-      {
-        id: 9,
-        venue: 1,
-        name: 'Church',
-        code: '',
-        is_active: true,
-        mappedinLocationId: 'loc-church',
-      },
-    ];
-
-    it('lists All plus each active section', () => {
-      expect(venueFeedSectionChips(sections, null).map((chip) => chip.label)).toEqual(
-        ['All', 'North Stand', 'Church'],
-      );
-    });
-
-    it('marks All while the venue-wide feed is open', () => {
-      const chips = venueFeedSectionChips(sections, null);
-      expect(chips[0]?.active).toBe(true);
-      expect(chips.slice(1).every((chip) => !chip.active)).toBe(true);
-    });
-
-    it('marks the section that owns the open conversation', () => {
-      const chips = venueFeedSectionChips(sections, 'loc-church');
-      expect(chips.find((chip) => chip.label === 'All')?.active).toBe(false);
-      expect(chips.find((chip) => chip.label === 'Church')?.active).toBe(true);
-      expect(chips.find((chip) => chip.label === 'North Stand')?.active).toBe(
-        false,
-      );
+  describe('categoryFiltersFromApi', () => {
+    it('lists All plus the categories returned by the backend', () => {
+      expect(categoryFiltersFromApi([
+        {
+          id: 2,
+          name: 'Food & Drinks',
+          slug: 'food-and-drinks',
+          description: '',
+          disclaimer: '',
+          order: 1,
+          is_active: true,
+        },
+      ])).toEqual([
+        { id: 'all', label: 'All' },
+        { id: '2', label: 'Food & Drinks', helpIcon: false },
+      ]);
     });
   });
 

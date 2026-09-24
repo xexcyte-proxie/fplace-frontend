@@ -33,6 +33,7 @@ type MarkerHandle = { remove?: () => void };
 interface InstalledMarker {
   anchorId: string;
   handle: MarkerHandle;
+  html: string;
 }
 
 export type LocationCardSelection = {
@@ -51,7 +52,10 @@ export class SocialMapMarkerService {
   private anchorById = new Map<string, LocationAnchor>();
   private viewedLocationIds = new Set<string>();
   private mapContainer: HTMLElement | null = null;
-  private lastMarkerSyncKey = "";
+  private latestState: AppState | null = null;
+  private heatReceivedAt: number | null = null;
+  private heatDisconnected = false;
+  private freshnessTimer: ReturnType<typeof setInterval> | null = null;
   private lastMarkerInputs: SocialMarkerSyncInputs | null = null;
   private installed = false;
   private disposed = false;
@@ -63,55 +67,48 @@ export class SocialMapMarkerService {
   ) {}
 
   install(mapContainer: HTMLElement): number {
-    if (this.disposed) return 0;
+    if (this.disposed || this.installed) return this.markers.length;
     this.mapContainer = mapContainer;
     this.anchors = collectLocationAnchors(this.mapData);
     this.anchorById = new Map(this.anchors.map((entry) => [entry.id, entry]));
     this.installed = true;
-    const count = this.renderAll(null);
-    this.lastMarkerSyncKey = this.markerSyncKey(
-      null,
-      [],
-      false,
-      [],
-      [],
-      "idle",
-      null,
-    );
-    this.lastMarkerInputs = null;
+    const count = this.renderAll(this.latestState);
+    this.freshnessTimer = setInterval(() => {
+      if (this.latestState) this.renderAll(this.latestState);
+    }, 30_000);
     return count;
   }
 
   syncState(state: AppState): void {
-    if (!this.installed) return;
-
-    const nextInputs = socialMarkerSyncInputsFromState(state);
-    if (socialMarkerSyncInputsUnchanged(this.lastMarkerInputs, nextInputs)) {
-      return;
+    if (this.disposed) return;
+    const previous = this.latestState;
+    if (state.selectedVenueId !== previous?.selectedVenueId) {
+      this.viewedLocationIds.clear();
+      this.heatReceivedAt = null;
+      this.heatDisconnected = false;
     }
+    if (!state.sectionHeatmapActive) {
+      this.heatReceivedAt = null;
+      this.heatDisconnected = false;
+    } else if (state.sectionHeatmap !== previous?.sectionHeatmap) {
+      this.heatReceivedAt = Date.now();
+      this.heatDisconnected = false;
+    }
+    if (state.venueLiveStatus !== "connected") this.heatDisconnected = true;
+    this.latestState = state;
+    if (!this.installed) return;
+    const nextInputs = socialMarkerSyncInputsFromState(state);
+    if (socialMarkerSyncInputsUnchanged(this.lastMarkerInputs, nextInputs)) return;
     this.lastMarkerInputs = nextInputs;
-
-    const syncKey = this.markerSyncKey(
-      state.socialLocation,
-      state.sectionHeatmap,
-      state.sectionHeatmapActive,
-      state.forumSections,
-      state.venueFeedPosts,
-      state.venueLiveStatus,
-      state.selectedVenueId,
-    );
-    if (syncKey === this.lastMarkerSyncKey) return;
-
-    this.lastMarkerSyncKey = syncKey;
     this.renderAll(state);
   }
 
   /** Re-collect anchors after Mappedin language packs update location names. */
-  refreshForLanguageChange(state: AppState | null): void {
+  refreshForLanguageChange(state: AppState | null = this.latestState): void {
     if (!this.installed || !this.mapContainer) return;
     this.anchors = collectLocationAnchors(this.mapData);
     this.anchorById = new Map(this.anchors.map((entry) => [entry.id, entry]));
-    this.lastMarkerSyncKey = "";
+    this.clearMarkers();
     this.lastMarkerInputs = null;
     this.renderAll(state);
   }
@@ -121,7 +118,9 @@ export class SocialMapMarkerService {
     this.clearMarkers();
     this.mapContainer = null;
     this.installed = false;
-    this.lastMarkerSyncKey = "";
+    if (this.freshnessTimer !== null) clearInterval(this.freshnessTimer);
+    this.freshnessTimer = null;
+    this.latestState = null;
     this.lastMarkerInputs = null;
   }
 
@@ -198,29 +197,7 @@ export class SocialMapMarkerService {
     }
   }
 
-  private markerSyncKey(
-    socialLocation: string | null,
-    sectionHeatmap: SectionHeatEntry[],
-    sectionHeatmapActive: boolean,
-    forumSections: AppState["forumSections"],
-    venueFeedPosts: AppState["venueFeedPosts"],
-    venueLiveStatus: AppState["venueLiveStatus"],
-    selectedVenueId: AppState["selectedVenueId"],
-  ): string {
-    const feedKey = venueFeedPosts
-      .map((post) => `${post.id}:${post.upvotes}`)
-      .join("|");
-    const heatKey = sectionHeatmap
-      .map((entry) => `${entry.sectionId}:${entry.postCount}:${entry.priority}`)
-      .join("|");
-    const sectionKey = forumSections
-      .map((section) => `${section.id}:${section.mappedinLocationId ?? ""}`)
-      .join(",");
-    return `${socialLocation ?? ""}::${feedKey}::${sectionHeatmapActive}:${heatKey}::${sectionKey}::${venueLiveStatus}::${selectedVenueId ?? ""}`;
-  }
-
   private renderAll(state: AppState | null): number {
-    this.clearMarkers();
     if (!this.mapView.Markers?.add) return 0;
 
     const live = resolveSocialMarkerLiveSource(state);
@@ -233,7 +210,12 @@ export class SocialMapMarkerService {
       state?.forumSections ?? [],
     );
     const feedPosts = state?.venueFeedPosts ?? [];
+    const heatStale = hasLiveHeatmap && (
+      this.heatDisconnected || this.heatReceivedAt === null ||
+      Date.now() - this.heatReceivedAt >= 5 * 60_000
+    );
 
+    const installedById = new Map(this.markers.map((marker) => [marker.anchorId, marker]));
     for (const entry of this.anchors) {
       const model = this.buildModel(
         entry,
@@ -244,7 +226,13 @@ export class SocialMapMarkerService {
         feedPosts,
         live.socketLive,
       );
+      if (heatStale) {
+        model.visualState = "heat-stale";
+        model.secondary = "out of date";
+      }
       const html = renderSocialMapMarkerHtml(model);
+      const existing = installedById.get(entry.id);
+      if (existing?.html === html) continue;
 
       try {
         // Non-interactive + CSS pointer-events:none: Mappedin keeps full pan
@@ -254,7 +242,9 @@ export class SocialMapMarkerService {
           html,
         ) as MarkerHandle;
         if (handle) {
-          this.markers.push({ anchorId: entry.id, handle });
+          existing?.handle.remove?.();
+          this.markers = this.markers.filter((marker) => marker !== existing);
+          this.markers.push({ anchorId: entry.id, handle, html });
         }
       } catch (error) {
         appLog(

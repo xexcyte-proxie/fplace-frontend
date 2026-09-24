@@ -34,7 +34,8 @@ export function isLoopbackOrPrivateHost(host: string): boolean {
 /**
  * Pick a WebSocket origin and whether the browser will block it.
  * On HTTPS + private/LAN hosts, fall back to same-origin `wss:` (Vite `/ws` proxy).
- * On public HTTPS + `ws://` backend, mixed content is blocked until the ALB has TLS.
+ * HTTPS pages always fail closed to encrypted WebSockets. A configured `ws://`
+ * origin is never returned to a secure public page.
  */
 export function selectWsOrigin(input: {
   configured: string;
@@ -60,7 +61,7 @@ export function selectWsOrigin(input: {
     if (isLoopbackOrPrivateHost(input.pageHost)) {
       return { origin: `wss://${input.pageHost}`, mixedContent: false };
     }
-    return { origin, mixedContent: true };
+    return { origin: `wss://${input.pageHost}`, mixedContent: false };
   }
 
   return { origin, mixedContent: false };

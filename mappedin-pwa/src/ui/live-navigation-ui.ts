@@ -254,15 +254,17 @@ export function myLocationFabPresentation(
     ) !== 'away';
   const trackingActive =
     atVenue &&
-    (state.blueDotStatus === 'active' || state.blueDotStatus === 'inactive');
-  const following = atVenue && state.blueDotFollowing;
+    state.blueDotStatus === 'active';
+  const following = trackingActive && state.blueDotFollowing;
   return {
     trackingActive,
     following,
     enabled: atVenue,
     label: !atVenue
       ? "You're not at this venue"
-      : following
+      : state.blueDotStatus === 'error' || state.blueDotStatus === 'inactive'
+        ? 'Location unavailable — tap to retry'
+        : following
         ? 'Following your location'
         : trackingActive
           ? 'Live location active'
@@ -296,12 +298,26 @@ function setTextContent(el: Element | null, value: string): void {
   el.textContent = value;
 }
 
+export function liveTrackingMessage(state: Pick<AppState, 'blueDotStatus' | 'route'>): string {
+  if (!state.route) return '';
+  if (state.blueDotStatus === 'error') return 'Location unavailable. Check location permission and try again.';
+  if (state.blueDotStatus === 'inactive') return 'Location signal is weak or lost. Waiting for an accurate location.';
+  if (state.blueDotStatus === 'starting') return 'Finding your location…';
+  return '';
+}
+
 /** Updates live numbers/classes in place. Call only when telemetry-only. */
 export function applyLiveNavigationUiPatch(
   root: ParentNode,
   state: AppState,
 ): void {
   const summary = buildRouteSheetSummary(state);
+  const warning = root.querySelector('.route-tracking-status');
+  if (warning instanceof HTMLElement) {
+    const message = liveTrackingMessage(state);
+    setTextContent(warning, message);
+    warning.hidden = !message;
+  }
   setTextContent(root.querySelector('.route-sheet-time'), summary.walkTime);
   setTextContent(
     root.querySelector('.route-sheet-distance'),

@@ -3,6 +3,10 @@
 # like `/settings` must not inherit a long-lived cache.
 /*
   Cache-Control: no-cache, no-store, must-revalidate
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), geolocation=(self), microphone=()
 
 # Fingerprinted Vite bundles - safe to cache forever
 /assets/*

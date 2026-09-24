@@ -610,7 +610,12 @@
       DBG()?.log('Bridge', 'Parent simulator armed', data);
       const nav = window.__fplacesNavigator;
       if (nav) {
-        nav.arrived = false;
+        if (typeof nav.applyArrivalLatch === 'function') {
+          nav.applyArrivalLatch(null, { forceClear: true });
+        } else {
+          nav.arrived = false;
+          nav._arrivalNotifiedToParent = false;
+        }
         nav.offPathMessage = '';
       }
       if (typeof data.alongPathMeters === 'number') {

@@ -1,5 +1,7 @@
 # Mappedin PWA - Fplaces Indoor Nav
 
+For creating a venue map with AI and connecting it to the current app, see [Mappedin Map Maker: getting started with Fplaces](../docs/mappedin-map-maker-getting-started.md).
+
 PRD implementation using **Mappedin JS v6** the [official way](https://developer.mappedin.com/web-sdk/getting-started):
 
 - Vite + TypeScript

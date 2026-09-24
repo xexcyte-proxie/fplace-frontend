@@ -108,12 +108,25 @@ function persistCameraChoice(camera: MediaPermissionState): void {
  * Ask for camera + motion now. Must be called from a user gesture (AR click)
  * before any slow awaits so the browser can show its permission UI.
  * After the first allow/deny, later opens reuse that choice and do not prompt.
+ *
+ * `camera: 'reuse-only'` skips getUserMedia (same-origin Live View owns the
+ * camera in the iframe - parent priming races iOS and looks like "blocked").
  */
-export function primeArMediaPermissions(): Promise<ArMediaPermissionResult> {
+export function primeArMediaPermissions(options?: {
+  camera?: 'request' | 'reuse-only';
+}): Promise<ArMediaPermissionResult> {
+  const cameraMode = options?.camera ?? 'request';
   const storedCamera = permissionChoiceLocalDatasource.loadCamera();
-  const camera = shouldSkipCameraPrompt(storedCamera)
-    ? Promise.resolve(storedCamera)
-    : requestCameraAccess();
+  const camera =
+    cameraMode === 'reuse-only'
+      ? Promise.resolve(
+          storedCamera === 'granted' || storedCamera === 'denied'
+            ? storedCamera
+            : ('prompt' as MediaPermissionState),
+        )
+      : shouldSkipCameraPrompt(storedCamera)
+        ? Promise.resolve(storedCamera)
+        : requestCameraAccess();
 
   const storedMotion = permissionChoiceLocalDatasource.loadMotion();
   const motion =
@@ -124,7 +137,9 @@ export function primeArMediaPermissions(): Promise<ArMediaPermissionResult> {
         : requestMotionAccess();
 
   return Promise.all([camera, motion]).then(([cameraState, motionGranted]) => {
-    persistCameraChoice(cameraState);
+    if (cameraMode === 'request') {
+      persistCameraChoice(cameraState);
+    }
     if (storedMotion === 'undecided') {
       permissionChoiceLocalDatasource.saveMotion(
         motionGranted ? 'granted' : 'denied',
@@ -142,17 +157,25 @@ export function shouldRequestArMotionPermission(): boolean {
   return permissionChoiceLocalDatasource.loadMotion() === 'undecided';
 }
 
+export type ArMediaPermissionPrimeOptions = {
+  camera?: 'request' | 'reuse-only';
+};
+
 /** Start the camera prompt from the AR click without blocking the rest of the flow. */
-export function beginArMediaPermissionPrime(): Promise<ArMediaPermissionResult> {
+export function beginArMediaPermissionPrime(
+  options?: ArMediaPermissionPrimeOptions,
+): Promise<ArMediaPermissionResult> {
   if (!inFlightPrime) {
-    inFlightPrime = primeArMediaPermissions();
+    inFlightPrime = primeArMediaPermissions(options);
   }
   return inFlightPrime;
 }
 
 /** Wait for the in-flight prime (or start one) and clear it for the next AR open. */
-export async function consumeArMediaPermissionPrime(): Promise<ArMediaPermissionResult> {
-  const result = await (inFlightPrime ?? primeArMediaPermissions());
+export async function consumeArMediaPermissionPrime(
+  options?: ArMediaPermissionPrimeOptions,
+): Promise<ArMediaPermissionResult> {
+  const result = await (inFlightPrime ?? primeArMediaPermissions(options));
   inFlightPrime = null;
   return result;
 }

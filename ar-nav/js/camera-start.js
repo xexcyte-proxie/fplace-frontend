@@ -88,9 +88,46 @@
     }
   }
 
-  function recoverStuckXrStart() {
+  function hasTransientUserActivation() {
+    try {
+      return !!navigator.userActivation?.isActive;
+    } catch {
+      return false;
+    }
+  }
+
+  function clearParentStartNow() {
+    window.__fplacesStartXrNow = false;
+  }
+
+  let xrStartFailCount = 0;
+
+  function ensurePendingStartCallback() {
+    if (pendingCallback) return;
+    const canRunXr =
+      typeof window.__fplacesRunXrEngine === 'function' &&
+      (window.__fplacesXrPipelineReady || window.__fplacesXrSyncStart);
+    if (canRunXr) {
+      window.__fplacesXrSyncStart = true;
+      pendingCallback = () => {
+        window.__fplacesRunXrEngine();
+        return 'xr-run';
+      };
+      return;
+    }
+    window.__fplacesXrSyncStart = false;
+    pendingCallback = () => startPreviewCamera();
+  }
+
+  function recoverStuckXrStart(options) {
     if (started) return;
+    const countFailure = options?.countFailure !== false;
+    const hadXrAttempt =
+      !!window.__fplacesXrRunCalled ||
+      !!window.__fplacesXrAwaitingOnStart ||
+      starting;
     starting = false;
+    clearParentStartNow();
     window.__fplacesXrAwaitingOnStart = false;
     if (window.__fplacesXrRunCalled && !window.__fplacesXrSessionActive) {
       try {
@@ -100,6 +137,26 @@
       }
       window.__fplacesXrRunCalled = false;
     }
+
+    if (countFailure && hadXrAttempt) {
+      xrStartFailCount += 1;
+    }
+    // After a failed XR8.run (often from a stale parent gesture), Start must still
+    // have a callback. Two XR failures → open the preview camera so the user is
+    // not trapped on this card.
+    if (xrStartFailCount >= 2 || !window.__fplacesXrPipelineReady) {
+      window.__fplacesXrSyncStart = false;
+      pendingCallback = () => startPreviewCamera();
+      showLayer(
+        xrStartFailCount >= 2
+          ? 'AR camera stalled. Tap Start to open the camera.'
+          : 'Tap Start to open the camera.',
+      );
+      postToParent('fplaces_ar_needs_tap');
+      return;
+    }
+
+    ensurePendingStartCallback();
     showLayer('Camera needs a tap. Tap Start to open it.');
     postToParent('fplaces_ar_needs_tap');
   }
@@ -131,12 +188,57 @@
     return storedCameraChoice() === 'granted';
   }
 
+  function clearStoredCameraDenial() {
+    try {
+      if (localStorage.getItem(CAMERA_CHOICE_KEY) === 'denied') {
+        localStorage.removeItem(CAMERA_CHOICE_KEY);
+      }
+    } catch {
+      /* private mode */
+    }
+  }
+
+  function isPermissionDeniedError(error) {
+    const name =
+      error && typeof error === 'object' && 'name' in error
+        ? String(error.name)
+        : '';
+    return name === 'NotAllowedError' || name === 'PermissionDeniedError';
+  }
+
+  function cameraFailureMessage(error) {
+    const name =
+      error && typeof error === 'object' && 'name' in error
+        ? String(error.name)
+        : '';
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+      return 'Camera blocked - allow access in Settings, then tap Start again';
+    }
+    if (name === 'NotReadableError' || name === 'AbortError') {
+      return 'Camera is busy. Close other camera apps, then tap Start again.';
+    }
+    if (name === 'SecurityError') {
+      return 'Camera needs HTTPS. Open the https:// link, then tap Start.';
+    }
+    return 'Could not open the camera. Tap Start to try again.';
+  }
+
   function applyParentPermissions(data) {
     const camera = data && data.camera;
     if (camera === 'granted') {
       window.__fplacesCameraPermissionGranted = true;
       persistCameraGranted(true);
-      if (starting || window.__fplacesStartXrNow) return;
+      // Mid-flight XR start from a stale parent gesture: keep waiting for the
+      // watchdog / Start tap instead of silently ignoring the grant.
+      if (starting || window.__fplacesStartXrNow) {
+        if (window.__fplacesXrSyncStart && !hasTransientUserActivation()) {
+          clearParentStartNow();
+          if (!started) {
+            showLayer('Hold your phone up and tap Start to open the camera.');
+          }
+        }
+        return;
+      }
       if (!started && window.__fplacesXrSyncStart) {
         showLayer('Hold your phone up and tap Start to open the camera.');
         return;
@@ -150,7 +252,10 @@
       persistCameraGranted(false);
       window.__fplacesCameraPermissionGranted = false;
       if (!started) {
-        showLayer('Camera blocked - allow access in Settings, then tap Start again');
+        ensurePendingStartCallback();
+        showLayer(
+          'Camera was blocked. Tap Start to try again, or enable Camera in Settings.',
+        );
         postToParent('fplaces_ar_needs_tap');
       }
     }
@@ -217,6 +322,7 @@
   function markStarted() {
     clearStartWatchdog();
     started = true;
+    xrStartFailCount = 0;
     pendingCallback = null;
     persistCameraGranted(true);
     hideLayer();
@@ -272,12 +378,14 @@
           attempts: xrAttempts,
         });
         window.__fplacesXrSyncStart = false;
-        showLayer('AR could not start. Tap Start to retry');
+        pendingCallback = () => startPreviewCamera();
+        showLayer('AR engine not ready. Tap Start to open the camera.');
         if (btn) {
           btn.disabled = false;
           btn.textContent = 'Start Live View';
         }
         starting = false;
+        postToParent('fplaces_ar_needs_tap');
         return;
       }
       if (typeof window.__fplacesRunXrEngine !== 'function') {
@@ -311,6 +419,7 @@
         const result = cb();
         if (result === 'xr-run') {
           window.__fplacesXrAwaitingOnStart = true;
+          clearParentStartNow();
           armStartWatchdog(XR_CAMERA_FEED_WATCHDOG_MS);
           window.FplacesArDebug?.log('Camera', 'XR8.run() invoked');
           SLOG()?.log?.('camera', 'XR8.run() invoked - waiting for XR camera feed');
@@ -334,7 +443,14 @@
   }
 
   function handleStart(source) {
-    if (started || starting || !pendingCallback) return;
+    if (started || starting) return;
+    // Stale "denied" from a busy-camera race must not block a fresh Start tap.
+    clearStoredCameraDenial();
+    ensurePendingStartCallback();
+    if (!pendingCallback) {
+      showLayer('Camera could not start. Close Live View and try again.');
+      return;
+    }
     starting = true;
     showLoading('Hold still while the camera opens.');
     window.FplacesArDebug?.log('Camera', 'Start tapped', { source, syncXr: !!window.__fplacesXrSyncStart });
@@ -368,10 +484,17 @@
           }
         })
         .catch((error) => {
-          persistCameraGranted(false);
-          window.__fplacesCameraPermissionGranted = false;
-          window.FplacesArDebug?.warn('Camera', 'Camera start failed', { error: String(error) });
-          showLayer('Camera blocked - allow access in Settings, then tap Start again');
+          const denied = isPermissionDeniedError(error);
+          if (denied) {
+            persistCameraGranted(false);
+            window.__fplacesCameraPermissionGranted = false;
+          }
+          window.FplacesArDebug?.warn('Camera', 'Camera start failed', {
+            error: String(error),
+            name: error && typeof error === 'object' && 'name' in error ? String(error.name) : '',
+          });
+          ensurePendingStartCallback();
+          showLayer(cameraFailureMessage(error));
         })
         .finally(() => {
           starting = false;
@@ -428,8 +551,10 @@
       return;
     }
     if (state === 'denied' || storedCameraChoice() === 'denied') {
-      persistCameraGranted(false);
-      showLayer('Camera blocked - allow access in Settings, then tap Start again');
+      ensurePendingStartCallback();
+      showLayer(
+        'Camera was blocked. Tap Start to try again, or enable Camera in Settings.',
+      );
       return;
     }
     showLayer(fallbackMessage);
@@ -456,9 +581,18 @@
     });
 
     if (options && options.startNow) {
-      showLoading('Opening the camera…');
-      handleStart('parent-gesture');
-      return;
+      // Parent AR click can only drive XR8.run while the transient gesture is
+      // still active (same-origin sync activate). Delayed preload activate /
+      // async camera prime often lands here with no gesture → XR8 hangs on
+      // "Starting camera…". Fall through to an iframe Start tap instead.
+      const canStartFromParent =
+        !window.__fplacesXrSyncStart || hasTransientUserActivation();
+      if (canStartFromParent) {
+        showLoading('Opening the camera…');
+        handleStart('parent-gesture');
+        return;
+      }
+      clearParentStartNow();
     }
 
     if (shouldAutoStartCamera()) {
@@ -468,7 +602,10 @@
     }
 
     if (storedCameraChoice() === 'denied') {
-      showLayer('Camera blocked - allow access in Settings, then tap Start again');
+      ensurePendingStartCallback();
+      showLayer(
+        'Camera was blocked. Tap Start to try again, or enable Camera in Settings.',
+      );
       return;
     }
 
@@ -506,20 +643,23 @@
     resetForXrRetry() {
       started = false;
       starting = false;
-      pendingCallback = null;
+      // Keep / restore Start callback - clearing it left the Start card as a no-op.
       clearStartWatchdog();
       window.__fplacesXrSyncStart = true;
       window.__fplacesXrAwaitingOnStart = false;
-      window.__fplacesAwaitingCameraStart = false;
-      document.body.classList.remove('lv-awaiting-camera');
+      ensurePendingStartCallback();
+      showLayer('Camera needs a tap. Tap Start to open it.');
       SLOG()?.log?.('camera', 'Reset for XR retry');
     },
     recoverIfWaiting() {
-      recoverStuckXrStart();
+      // Parent boot overlay timed out - restore a working Start tap without
+      // counting this as an XR failure.
+      recoverStuckXrStart({ countFailure: false });
     },
     resetForReuse() {
       started = false;
       starting = false;
+      xrStartFailCount = 0;
       pendingCallback = null;
       clearStartWatchdog();
       window.__fplacesXrSyncStart = false;

@@ -31,7 +31,7 @@ describe('selectWsOrigin', () => {
     });
   });
 
-  it('flags mixed content on public HTTPS + ws:// backend', () => {
+  it('fails closed to same-origin wss on public HTTPS + ws:// backend', () => {
     const selected = selectWsOrigin({
       configured: FPLACES_BACKEND_WS_ORIGIN,
       api: '',
@@ -40,8 +40,8 @@ describe('selectWsOrigin', () => {
       fallback: FPLACES_BACKEND_WS_ORIGIN,
     });
     expect(selected).toEqual({
-      origin: FPLACES_BACKEND_WS_ORIGIN,
-      mixedContent: true,
+      origin: 'wss://fplaces.netlify.app',
+      mixedContent: false,
     });
   });
 

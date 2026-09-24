@@ -2,10 +2,9 @@
   command = "npm ci --prefix mappedin-pwa && npm run build --prefix mappedin-pwa"
   publish = "mappedin-pwa/dist"
 
-# Netlify cannot proxy WebSocket upgrades - connect the PWA directly to the backend WS host.
-# ALB is HTTP-only today (ws://). HTTPS pages block mixed-content sockets until TLS is on the ALB.
-[build.environment]
-  VITE_WS_URL = "ws://fplaces-alb-1964416382.us-east-1.elb.amazonaws.com"
+# Configure VITE_WS_URL in the deployment environment only after the backend
+# exposes a certificate-valid wss:// endpoint. The client refuses ws:// from
+# HTTPS pages and otherwise fails closed to same-origin wss://.
 
 # Fresh shell after every deploy (SPA routes + index.html + SW).
 # Hashed /assets/* override below so bundles stay immutable.
@@ -13,6 +12,10 @@
   for = "/*"
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(self), geolocation=(self), microphone=()"
 
 [[headers]]
   for = "/assets/*"

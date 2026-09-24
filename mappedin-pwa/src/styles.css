@@ -557,7 +557,8 @@ body,
   opacity: 0.65;
 }
 
-.location-dialog-backdrop {
+.location-dialog-backdrop,
+.arrival-dialog-backdrop {
   position: absolute;
   inset: 0;
   z-index: 20;
@@ -569,6 +570,76 @@ body,
   background: rgba(21, 21, 31, 0.45);
   /* Keep taps on the dialog only - underlying Continue / forms stay frozen. */
   pointer-events: auto;
+}
+
+.arrival-dialog-backdrop {
+  z-index: 40;
+  background: rgba(21, 21, 31, 0.58);
+}
+
+.arrival-dialog {
+  width: min(100%, 400px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 36px 28px 28px;
+  border-radius: 28px;
+  background: #ffffff;
+  color: #15151f;
+  box-shadow: 0 24px 56px rgba(21, 21, 31, 0.28);
+}
+
+.arrival-dialog-icon {
+  width: 72px;
+  height: 72px;
+  margin-bottom: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(46, 180, 110, 0.14);
+  color: #1f9d5a;
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.arrival-dialog-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.4px;
+}
+
+.arrival-dialog-body {
+  margin: 12px 0 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: #5c5c6a;
+}
+
+.arrival-dialog-ok {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 60px;
+  margin-top: 28px;
+  padding: 16px 24px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--brand-orange);
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.arrival-dialog-ok:active {
+  filter: brightness(0.96);
 }
 
 .location-dialog {
@@ -3034,4 +3105,10 @@ button.is-loading:disabled,
   background: linear-gradient(90deg, #22d3ee, #3b82f6);
   border-radius: inherit;
   transition: width 120ms linear;
+}
+
+.route-tracking-status {
+  margin: 8px 0;
+  color: #92400e;
+  font-size: 0.875rem;
 }

@@ -102,11 +102,8 @@ describe('media-permission-service', () => {
     expect(getUserMedia).toHaveBeenCalledTimes(1);
   });
 
-  it('does not call getUserMedia again after the first grant', async () => {
-    const stop = vi.fn();
-    const getUserMedia = vi.fn().mockResolvedValue({
-      getTracks: () => [{ stop }],
-    });
+  it('skips getUserMedia in reuse-only mode for same-origin Live View', async () => {
+    const getUserMedia = vi.fn();
     vi.stubGlobal('isSecureContext', true);
     vi.stubGlobal('navigator', {
       mediaDevices: { getUserMedia },
@@ -114,11 +111,10 @@ describe('media-permission-service', () => {
     vi.stubGlobal('DeviceOrientationEvent', undefined);
     vi.stubGlobal('DeviceMotionEvent', undefined);
 
-    await primeArMediaPermissions();
-    getUserMedia.mockClear();
-
-    await expect(primeArMediaPermissions()).resolves.toEqual({
-      camera: 'granted',
+    await expect(
+      primeArMediaPermissions({ camera: 'reuse-only' }),
+    ).resolves.toEqual({
+      camera: 'prompt',
       motionGranted: true,
     });
     expect(getUserMedia).not.toHaveBeenCalled();

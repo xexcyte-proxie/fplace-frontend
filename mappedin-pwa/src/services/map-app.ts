@@ -24,10 +24,16 @@ import { coordinateTransformationService } from "../routing/coordinate-transform
 import { navigationStateSynchronizer } from "../routing/navigation-state-synchronizer";
 import { routeLifecycleManager } from "../routing/route-lifecycle-manager";
 import {
+  advanceContinuousAlongMeters,
   computeLiveRemainingMeters,
   hasArrivedAtDestination,
   LiveAlongPathStabilizer,
+  resolveLiveNavigationStartAlongMeters,
 } from "../routing/route-progress";
+import { isUsableLiveFix, isUsableRouteSnap } from "../position/domain/live-fix-quality";
+import type { PositionProviderStatus } from "../position/positionProvider";
+import { DEFAULT_MAX_ALONG_DELTA_METERS } from "../routing/snap-along-continuity";
+import { isArrivalLocked } from "../routing/arrival-lock";
 import {
   parseCoordinateNumber,
   shouldPublishUserLocation,
@@ -135,9 +141,8 @@ import {
   type ProductTourSurface,
 } from "./product-tour-service";
 import {
-  conversationLocationIdsForSections,
   createForumComment,
-  createLocationMessage,
+  createForumPost,
   deleteForumComment,
   deleteForumPost,
   flagForumPost,
@@ -149,20 +154,15 @@ import {
   loadAllVenueConversations,
   loadForumCommentCounts,
   loadInitialVenueFeed,
-  loadLocationConversation,
   loadVenueCatalog,
   listActiveInterestNames,
-  sectionIdForLocation,
-  subscribeLocationLiveFeed,
   subscribeVenueLiveFeed,
   toggleForumPostUpvote,
   updateForumPost,
-  LOCATION_MESSAGE_CONTENT_MAX_LENGTH,
+  FORUM_POST_CONTENT_MAX_LENGTH,
   type ForumComment,
   type ForumPost,
-  type LocationLiveEvent,
   type LocationLiveSubscription,
-  type LocationMessage,
   type VenueLiveEvent,
   type VenueLiveSubscription,
 } from "./forum-service";
@@ -271,7 +271,6 @@ import {
   isConversationFeedItem,
   mapForumPostToVenueFeed,
   mapForumPostsToVenueFeed,
-  mapLocationMessageToVenueFeed,
   mapLocationMessagesToVenueFeed,
   nextFeedPageFromUrl,
   VENUE_ALL_CONVERSATIONS_NEXT,
@@ -335,10 +334,13 @@ export class MapApp {
   private liveRouteTracking = false;
   /** Holds remaining distance/time while indoor GPS jitters and the user is standing still. */
   private readonly alongPathStabilizer = new LiveAlongPathStabilizer();
+  /** Last route-snap along meters from a live fix (used to seed Begin without yanking to 0). */
+  private lastProjectedAlongMeters: number | null = null;
+  private lastAlongPublishAt = 0;
   private stopUserLocationWatch: (() => void) | null = null;
   private lastPublishedUserLocation: UserLocationCoords | null = null;
   private lastUserLocationPublishAt = 0;
-  private lastProviderFix: { latitude: number; longitude: number } | null =
+  private lastProviderFix: { latitude: number; longitude: number; timestamp?: number } | null =
     null;
   private mapGestureGuard: {
     dispose: () => void;
@@ -364,10 +366,6 @@ export class MapApp {
   /** Receive-only venue room socket; opened right after the initial feed fetch. */
   private venueLiveSubscription: VenueLiveSubscription | null = null;
   private locationLiveSubscription: LocationLiveSubscription | null = null;
-  private connectedLocationLive: {
-    venueId: number;
-    locationId: string;
-  } | null = null;
   /** Receive-only personal notifications socket (cross-venue, account-level). */
   private personalNotificationsSubscription: PersonalNotificationSubscription | null =
     null;
@@ -396,6 +394,7 @@ export class MapApp {
   private restoringVenueView = false;
   private mapContainer: HTMLElement | null = null;
   private loadedMapKey: string | null = null;
+  private loadedVenueMapId: string | null = null;
   private mapLoadGeneration = 0;
   private mapLoadInFlight: Promise<void> | null = null;
   private mapLoadInFlightKey: string | null = null;
@@ -427,6 +426,13 @@ export class MapApp {
     }
   }
 
+  private syncSocialMapMarkers(state = this.store.get()): void {
+    const posts = state.socialLocation
+      ? this.homeFeedSnapshot?.posts ?? []
+      : state.venueFeedPosts;
+    this.socialMapMarkers?.syncState({ ...state, venueFeedPosts: posts });
+  }
+
   async start(mapContainer: HTMLElement): Promise<void> {
     this.mapContainer = mapContainer;
     this.splashShownAt = Date.now();
@@ -444,7 +450,7 @@ export class MapApp {
     this.socialMarkerSyncUnsub?.();
     this.socialMarkerSyncUnsub = this.store.subscribe((state) => {
       if (state.mapStatus !== "ready") return;
-      this.socialMapMarkers?.syncState(state);
+      this.syncSocialMapMarkers(state);
     });
 
     this.revealStartupShell();
@@ -607,6 +613,7 @@ export class MapApp {
     this.mapView = null;
     this.mapData = null;
     this.loadedMapKey = null;
+    this.loadedVenueMapId = null;
   }
 
   private async loadMappedinScene(
@@ -677,6 +684,7 @@ export class MapApp {
         return;
       }
       this.mapView = mapView;
+      this.loadedVenueMapId = mapCredentials.mapId;
       this.loadedMapKey = venueMapLoadKey({
         mapId: mapCredentials.mapId,
       });
@@ -888,9 +896,10 @@ export class MapApp {
     }
 
     const openingSocialTab = tab === "social";
+    const wasInConversation = Boolean(state.socialLocation);
     const leavingSocial = state.activeTab === "social" && tab !== "social";
 
-    if (openingSocialTab) {
+    if (!state.socialLocation) {
       this.captureHomeFeedSnapshot(state);
     }
 
@@ -903,18 +912,12 @@ export class MapApp {
       socialLocationName: openingSocialTab ? null : state.socialLocationName,
       socialDraft: this.captureSocialDraft(),
       venueFeedDraft: this.captureVenueFeedDraft(),
-      ...(openingSocialTab
-        ? {
-            venueFeedPosts: [],
-            forumFeedNext: null,
-            forumFeedCount: 0,
-            venueFeedLoading: true,
-          }
-        : {}),
+      ...(openingSocialTab ? { postCommentsOpen: false } : {}),
     });
 
-    if (openingSocialTab) {
-      void this.loadAllConversationFeed();
+    if (openingSocialTab && wasInConversation) {
+      this.restoreHomeFeedSnapshot();
+      this.venueWideFeedSnapshot = null;
     } else if (leavingSocial) {
       this.restoreHomeFeedSnapshot();
     }
@@ -970,6 +973,7 @@ export class MapApp {
 
   private async retryMapLoadThenEnterNavigate(): Promise<void> {
     this.loadedMapKey = null;
+    this.loadedVenueMapId = null;
     await this.waitForMapReadyThenEnterNavigate();
   }
 
@@ -1873,24 +1877,13 @@ export class MapApp {
 
   /** Discover / See all posts from the first-visit venue home. */
   openVenueDiscover(): void {
-    this.store.patch({
-      activeTab: "social",
-      notificationsOpen: false,
-      profileView: "main",
-      settingsConfirm: null,
-    });
+    this.setActiveTab("social");
   }
 
   /** Try AR from the first-visit venue home. */
   async openVenueArFromHome(): Promise<void> {
     await this.ensureUserLocationForVenuePresence();
-    if (this.isAwayFromSelectedVenue()) {
-      this.store.patch({
-        arRoutePromptOpen: false,
-        arNotAtVenuePromptOpen: true,
-      });
-      return;
-    }
+    if (this.blockNavigationOutsideVenue()) return;
 
     if (isGuestMode()) {
       this.store.patch({ guestArGateLoading: true });
@@ -1944,6 +1937,32 @@ export class MapApp {
       (item) => String(item.id) === state.selectedVenueId,
     );
     this.showToast(postingNotAtVenueCopy(venue?.name).body);
+    return true;
+  }
+
+  /** Require venue presence for route point selection and AR, while allowing map browsing. */
+  private blockNavigationOutsideVenue(): boolean {
+    const state = this.store.get();
+    const venue = state.forumVenues.find(
+      (item) => String(item.id) === state.selectedVenueId,
+    );
+    const presence = userVenuePresence(
+      state.locationPermission,
+      state.userLocation,
+      venuePresenceAnchor(venue, this.mapPresenceCoordinate()),
+    );
+    if (presence === "at-venue") return false;
+    this.store.patch({
+      arRoutePromptOpen: false,
+      arRouteSetupActive: false,
+      guestArGatePrompt: null,
+      guestArGateLoading: false,
+    });
+    this.showToast(
+      presence === "away"
+        ? `Setting start/end points and using AR are only available at ${venue?.name || "the location"}. Head there to continue.`
+        : "We couldn't verify that you're at the location. Enable location access and try again to set start/end points or use AR.",
+    );
     return true;
   }
 
@@ -2004,6 +2023,7 @@ export class MapApp {
 
   /** Confirm Try AR dialog → map with search ready for start/end. */
   confirmArRoutePrompt(): void {
+    if (this.blockNavigationOutsideVenue()) return;
     this.pendingMapSearchFocus = true;
     this.store.patch({
       arRoutePromptOpen: false,
@@ -2689,38 +2709,10 @@ export class MapApp {
     this.store.patch({ venueLiveStatus: "idle" });
   }
 
-  private connectLocationLiveFeed(venueId: number, locationId: string): void {
-    if (
-      this.connectedLocationLive?.venueId === venueId &&
-      this.connectedLocationLive.locationId === locationId &&
-      this.locationLiveSubscription
-    ) {
-      return;
-    }
-    this.disconnectLocationLiveFeed();
-    this.connectedLocationLive = { venueId, locationId };
-    this.locationLiveSubscription = subscribeLocationLiveFeed(
-      venueId,
-      locationId,
-      (event) => {
-        this.applyLocationConversationLiveEvent(event);
-      },
-      (status) => {
-        this.store.patch({ locationLiveStatus: status });
-      },
-    );
-  }
-
   private disconnectLocationLiveFeed(): void {
     this.locationLiveSubscription?.disconnect();
     this.locationLiveSubscription = null;
-    this.connectedLocationLive = null;
     this.store.patch({ locationLiveStatus: "idle" });
-  }
-
-  private applyLocationConversationLiveEvent(event: LocationLiveEvent): void {
-    if (event.type !== "new_location_message") return;
-    this.mergeLocationMessageIntoFeed(event.message);
   }
 
   private async bootstrapPersonalNotifications(): Promise<void> {
@@ -2804,16 +2796,16 @@ export class MapApp {
         const state = this.store.get();
         const postId = String(event.update.postId);
         const upvoted = event.update.upvoted;
-        this.patchParkedFeedPosts(postId, (post) => ({
-          ...post,
-          upvotes: event.update.upvotesCount,
-          ...(typeof upvoted === "boolean" ? { hasUpvoted: upvoted } : {}),
-        }));
         const authUser = this.withUpvotedRecentPosts(
           state.authUser,
           postId,
           event.update.upvotesCount,
         );
+        this.patchParkedFeedPosts(postId, (post) => ({
+          ...post,
+          upvotes: event.update.upvotesCount,
+          ...(typeof upvoted === "boolean" ? { hasUpvoted: upvoted } : {}),
+        }));
         if (state.socialLocation) {
           this.store.patch({
             authUser,
@@ -2852,6 +2844,7 @@ export class MapApp {
         this.removeFromVenueWideSnapshot(postId);
         if (this.store.get().socialLocation) return;
         this.removeVenueFeedPost(postId);
+        this.syncSocialMapMarkers();
         return;
       }
       case "section_heat_update": {
@@ -4269,32 +4262,18 @@ export class MapApp {
   }
 
   setSocialLocation(
-    locationId: string | null,
-    locationName?: string | null,
+    _locationId: string | null,
+    _locationName?: string | null,
   ): void {
-    if (!locationId) return;
-    const state = this.store.get();
-    if (state.socialLocation === locationId) return;
-    const sectionId = sectionIdForLocation(state.forumSections, locationId);
-    const sectionName =
-      state.forumSections.find((section) => section.id === sectionId)?.name ??
-      null;
-    const trimmedName = locationName?.trim() || "";
-    this.captureVenueWideFeedSnapshot(state);
     this.store.patch({
       activeTab: "social",
-      socialLocation: locationId,
-      socialLocationName: trimmedName || sectionName,
+      socialLocation: null,
+      socialLocationName: null,
       venueFeedDraft: this.captureVenueFeedDraft(),
-      venueFeedLoading: true,
-      venueFeedPosts: [],
-      forumFeedNext: null,
-      forumFeedCount: 0,
     });
-    void this.loadConversationFeed(locationId);
   }
 
-  /** Back to every section conversation from a single location thread. */
+  /** Back to all venue posts from a single location thread. */
   clearSocialLocation(): void {
     this.store.patch({
       socialLocation: null,
@@ -4305,7 +4284,7 @@ export class MapApp {
       this.restoreVenueWideFeed();
       return;
     }
-    void this.loadAllConversationFeed();
+    this.restoreHomeFeedSnapshot();
   }
 
   private captureHomeFeedSnapshot(state: AppState): void {
@@ -4342,16 +4321,6 @@ export class MapApp {
     return nextByLocation.size ? VENUE_ALL_CONVERSATIONS_NEXT : null;
   }
 
-  private captureVenueWideFeedSnapshot(state: AppState): void {
-    if (this.venueWideFeedSnapshot) return;
-    this.venueWideFeedSnapshot = {
-      posts: state.venueFeedPosts,
-      next: state.forumFeedNext,
-      count: state.forumFeedCount,
-      conversationNextPages: new Map(this.allConversationNextPages),
-    };
-  }
-
   private restoreVenueWideFeed(): void {
     this.disconnectLocationLiveFeed();
     const snapshot = this.venueWideFeedSnapshot;
@@ -4370,85 +4339,6 @@ export class MapApp {
       forumFeedCount: snapshot.count,
       venueFeedLoading: false,
     });
-  }
-
-  private async loadAllConversationFeed(): Promise<void> {
-    const state = this.store.get();
-    const venueId = Number(state.selectedVenueId);
-    if (!Number.isFinite(venueId) || venueId <= 0) {
-      this.store.patch({ venueFeedLoading: false });
-      return;
-    }
-
-    const locationIds = conversationLocationIdsForSections(state.forumSections);
-    const generation = ++this.venueFeedScopeGeneration;
-    this.disconnectLocationLiveFeed();
-    this.store.patch({
-      venueFeedLoading: true,
-      venueFeedPosts: [],
-      forumFeedNext: null,
-      forumFeedCount: 0,
-    });
-    try {
-      const feed = await loadAllVenueConversations(venueId, locationIds);
-      if (generation !== this.venueFeedScopeGeneration) return;
-      if (this.store.get().socialLocation) {
-        this.store.patch({ venueFeedLoading: false });
-        return;
-      }
-      this.store.patch({
-        venueFeedPosts: mapLocationMessagesToVenueFeed(feed.results),
-        forumFeedNext: this.applyConversationNextPages(feed.nextByLocation),
-        forumFeedCount: feed.count,
-        venueFeedLoading: false,
-      });
-    } catch (error) {
-      if (generation !== this.venueFeedScopeGeneration) return;
-      this.store.patch({ venueFeedLoading: false });
-      appWarn("Forum", "Load venue conversations failed", error);
-      this.showToast("Could not load conversations. Please try again.");
-    }
-  }
-
-  private async loadConversationFeed(locationId: string): Promise<void> {
-    const state = this.store.get();
-    const venueId = Number(state.selectedVenueId);
-    if (!Number.isFinite(venueId) || venueId <= 0) {
-      this.store.patch({ venueFeedLoading: false });
-      return;
-    }
-
-    this.captureVenueWideFeedSnapshot(state);
-    const generation = ++this.venueFeedScopeGeneration;
-
-    this.store.patch({
-      venueFeedLoading: true,
-      venueFeedPosts: [],
-      forumFeedNext: null,
-      forumFeedCount: 0,
-    });
-    try {
-      const feed = await loadLocationConversation(venueId, locationId);
-      if (generation !== this.venueFeedScopeGeneration) return;
-      const current = this.store.get();
-      if (current.socialLocation !== locationId) {
-        this.store.patch({ venueFeedLoading: false });
-        return;
-      }
-
-      this.store.patch({
-        venueFeedPosts: mapLocationMessagesToVenueFeed(feed.results),
-        forumFeedNext: feed.next,
-        forumFeedCount: feed.count,
-        venueFeedLoading: false,
-      });
-      this.connectLocationLiveFeed(venueId, locationId);
-    } catch (error) {
-      if (generation !== this.venueFeedScopeGeneration) return;
-      this.store.patch({ venueFeedLoading: false });
-      appWarn("Forum", "Load conversation feed failed", error);
-      this.showToast("Could not load this conversation. Please try again.");
-    }
   }
 
   handleLocationCardSelect(selection: LocationCardSelection): void {
@@ -4482,6 +4372,7 @@ export class MapApp {
     selection: LocationCardSelection,
   ): Promise<void> {
     if (!this.routePlanner) return;
+    if (this.blockNavigationOutsideVenue()) return;
 
     try {
       if (this.store.get().route) {
@@ -4533,6 +4424,7 @@ export class MapApp {
     selection: LocationCardSelection,
   ): Promise<void> {
     if (!this.routePlanner) return;
+    if (this.blockNavigationOutsideVenue()) return;
 
     try {
       if (this.store.get().route) {
@@ -4566,11 +4458,65 @@ export class MapApp {
     }
   }
 
-  setVenueFeedFilter(filter: VenueFeedFilter): void {
+  async setVenueFeedFilter(filter: VenueFeedFilter): Promise<void> {
+    const categoryId = filter === "all" ? undefined : Number(filter);
+    if (filter !== "all" && (!Number.isFinite(categoryId) || categoryId! <= 0)) {
+      return;
+    }
+    const state = this.store.get();
+    if (
+      filter !== "all" &&
+      !state.forumCategories.some((category) => category.id === categoryId)
+    ) {
+      return;
+    }
+    const venueId = Number(state.selectedVenueId);
     this.store.patch({
       venueFeedFilter: filter,
       venueFeedDraft: this.captureVenueFeedDraft(),
+      socialLocation: null,
+      socialLocationName: null,
     });
+    if (!Number.isFinite(venueId) || venueId <= 0) return;
+
+    const generation = ++this.venueFeedScopeGeneration;
+    this.disconnectLocationLiveFeed();
+    this.store.patch({
+      venueFeedLoading: true,
+      venueFeedPosts: [],
+      forumFeedNext: null,
+      forumFeedCount: 0,
+    });
+    try {
+      const response = await listVenuePosts({
+        venue: venueId,
+        category: categoryId,
+        latest: true,
+        page: 1,
+      });
+      if (generation !== this.venueFeedScopeGeneration) return;
+      const current = this.store.get();
+      if (current.venueFeedFilter !== filter) return;
+      const venueFeedPosts = mapForumPostsToVenueFeed(
+        response.results,
+        current.forumSections,
+        current.forumCategories,
+      );
+      this.store.patch({
+        venueFeedPosts,
+        forumFeedNext: response.next,
+        forumFeedCount: response.count,
+        venueFeedLoading: false,
+      });
+      void this.hydrateVenueFeedCommentCounts(
+        venueFeedPosts.map((post) => Number(post.id)),
+      );
+    } catch (error) {
+      if (generation !== this.venueFeedScopeGeneration) return;
+      this.store.patch({ venueFeedLoading: false });
+      appWarn("Forum", "Load category feed failed", error);
+      this.showToast("Could not load that category. Please try again.");
+    }
   }
 
   setVenueFeedDraft(draft: string): void {
@@ -4770,6 +4716,10 @@ export class MapApp {
 
       const response = await listVenuePosts({
         venue: venueId,
+        category:
+          state.venueFeedFilter === "all"
+            ? undefined
+            : Number(state.venueFeedFilter),
         latest: true,
         page,
       });
@@ -4819,13 +4769,19 @@ export class MapApp {
     if (await this.blockPostingWhenAwayFromVenue()) return;
 
     const state = this.store.get();
-    if (!state.socialLocation) {
-      this.showToast("Pick a section to start chatting.");
+    const categoryId = Number(state.venueFeedFilter);
+    if (
+      state.venueFeedFilter === "all" ||
+      !Number.isFinite(categoryId) ||
+      categoryId <= 0 ||
+      !state.forumCategories.some((category) => category.id === categoryId)
+    ) {
+      this.showToast("Pick a category before posting.");
       return;
     }
     const content = this.captureVenueFeedDraft()
       .trim()
-      .slice(0, LOCATION_MESSAGE_CONTENT_MAX_LENGTH);
+      .slice(0, FORUM_POST_CONTENT_MAX_LENGTH);
     if (!content) return;
 
     const venueId = Number(state.selectedVenueId);
@@ -4834,25 +4790,23 @@ export class MapApp {
       return;
     }
 
-    const locationName = state.socialLocationName?.trim();
     this.venueFeedCreateInFlight = true;
     this.store.patch({ venueFeedDraft: "", venueFeedSubmitting: true });
     try {
-      const created = await createLocationMessage({
+      const created = await createForumPost({
         venue: venueId,
-        location_id: state.socialLocation,
+        category: categoryId,
         content,
-        ...(locationName ? { location_name: locationName } : {}),
       });
-      this.mergeLocationMessageIntoFeed(created);
+      this.mergeForumPostIntoFeed(created);
     } catch (error) {
       this.store.patch({ venueFeedDraft: content });
       const message =
         error instanceof AuthApiError
           ? error.summary
-          : "Could not send that message. Please try again.";
+          : "Could not publish that post. Please try again.";
       this.showToast(message);
-      appWarn("Forum", "Create location message failed", error);
+      appWarn("Forum", "Create category post failed", error);
     } finally {
       this.venueFeedCreateInFlight = false;
       this.store.patch({ venueFeedSubmitting: false });
@@ -5124,17 +5078,20 @@ export class MapApp {
         ?.upvotes_count ??
       0;
 
+    const authUser = this.withUpvotedRecentPosts(
+      state.authUser, postId, nextCount(currentCount),
+    );
     const posts = state.venueFeedPosts.map((entry) => {
       if (entry.id !== postId) return entry;
       return {
         ...entry,
-        upvotes: nextCount(entry.upvotes),
+        upvotes: nextCount(currentCount),
         hasUpvoted: upvoted,
       };
     });
     this.patchParkedFeedPosts(postId, (post) => ({
       ...post,
-      upvotes: nextCount(post.upvotes),
+      upvotes: nextCount(currentCount),
       hasUpvoted: upvoted,
     }));
 
@@ -5143,11 +5100,7 @@ export class MapApp {
       upvotedPostIds: upvoted
         ? [...new Set([...state.upvotedPostIds, postId])]
         : state.upvotedPostIds.filter((id) => id !== postId),
-      authUser: this.withUpvotedRecentPosts(
-        state.authUser,
-        postId,
-        nextCount(currentCount),
-      ),
+      authUser,
       venueFeedDraft: this.captureVenueFeedDraft(),
     });
   }
@@ -5163,8 +5116,22 @@ export class MapApp {
       Number(postId),
       upvotesCount,
     );
-    if (recent_posts === user.recent_posts) return user;
-    return { ...user, recent_posts };
+    const recent = user.recent_posts?.find((post) => String(post.id) === postId);
+    const feedPost = this.store.get().venueFeedPosts.find((post) => post.id === postId)
+      ?? this.venueWideFeedSnapshot?.posts.find((post) => post.id === postId)
+      ?? this.homeFeedSnapshot?.posts.find((post) => post.id === postId);
+    const previousCount = recent?.upvotes_count ?? feedPost?.upvotes;
+    const ownsPost = Boolean(recent) || feedPost?.authorId === user.id;
+    const delta = ownsPost && previousCount != null
+      ? Math.max(0, Math.floor(upvotesCount)) - previousCount : 0;
+    if (recent_posts === user.recent_posts && (!delta || !user.stat)) return user;
+    return {
+      ...user,
+      recent_posts,
+      stat: user.stat && delta
+        ? { ...user.stat, upvotes_count: Math.max(0, user.stat.upvotes_count + delta) }
+        : user.stat,
+    };
   }
 
   /** Merge a REST `Post` into the feed (create / upvote / flag). WS events also dedupe by id. */
@@ -5181,6 +5148,9 @@ export class MapApp {
       postId,
       post.upvotes_count,
     );
+    this.patchParkedFeedPosts(postId, (entry) => ({
+      ...entry, upvotes: post.upvotes_count, hasUpvoted: post.has_upvoted,
+    }));
     const venueId = Number(state.selectedVenueId);
     const otherVenue =
       Number.isFinite(venueId) &&
@@ -5195,7 +5165,7 @@ export class MapApp {
     }
 
     const showingConversations =
-      Boolean(state.socialLocation) || state.activeTab === "social";
+      Boolean(state.socialLocation);
     const existing = showingConversations
       ? this.homeFeedSnapshot?.posts.find((entry) => entry.id === postId)
       : state.venueFeedPosts.find((entry) => entry.id === postId);
@@ -5239,7 +5209,7 @@ export class MapApp {
       ? [...new Set([...state.upvotedPostIds, postId])]
       : state.upvotedPostIds.filter((id) => id !== postId);
 
-    if (state.socialLocation || state.activeTab === "social") {
+    if (state.socialLocation) {
       this.store.patch({ authUser, upvotedPostIds });
       return;
     }
@@ -5257,45 +5227,6 @@ export class MapApp {
         : state.forumFeedCount + 1,
       upvotedPostIds,
       authUser,
-    });
-  }
-
-  private mergeLocationMessageIntoFeed(message: LocationMessage): void {
-    const state = this.store.get();
-    const onAllConversations =
-      state.activeTab === "social" && !state.socialLocation;
-    if (state.socialLocation) {
-      if (message.location_id !== state.socialLocation) return;
-    } else if (onAllConversations) {
-      const allowed = new Set(
-        conversationLocationIdsForSections(state.forumSections),
-      );
-      if (!allowed.has(message.location_id)) return;
-    } else {
-      return;
-    }
-
-    const venueId = Number(state.selectedVenueId);
-    if (Number.isFinite(venueId) && venueId > 0 && message.venue !== venueId) {
-      return;
-    }
-
-    const messageId = String(message.id);
-    const existing = state.venueFeedPosts.find(
-      (entry) => entry.id === messageId,
-    );
-    const mapped = mapLocationMessageToVenueFeed(message);
-    const venueFeedPosts = existing
-      ? state.venueFeedPosts.map((entry) =>
-          entry.id === messageId ? mapped : entry,
-        )
-      : [mapped, ...state.venueFeedPosts];
-
-    this.store.patch({
-      venueFeedPosts,
-      forumFeedCount: existing
-        ? state.forumFeedCount
-        : state.forumFeedCount + 1,
     });
   }
 
@@ -5365,7 +5296,6 @@ export class MapApp {
     if (this.venueFeedCommentCountsInFlight) return;
     if (!hasStoredAuthTokens()) return;
     if (this.store.get().socialLocation) return;
-    if (this.store.get().activeTab === "social") return;
     const feedIds = this.store
       .get()
       .venueFeedPosts.filter((post) => !isConversationFeedItem(post))
@@ -5401,6 +5331,9 @@ export class MapApp {
 
     const postId = String(comment.post);
     const state = this.store.get();
+    this.patchParkedFeedPosts(postId, (post) => ({
+      ...post, comments: post.comments + 1,
+    }));
     const threadOpen =
       state.postCommentsOpen && state.postCommentsPostId === postId;
     const venueFeedPosts = state.venueFeedPosts.map((post) =>
@@ -5537,6 +5470,7 @@ export class MapApp {
     floorName?: string,
   ): Promise<void> {
     if (!this.mapData || !this.routePlanner) return;
+    if (this.blockNavigationOutsideVenue()) return;
 
     try {
       const target = resolveMapTarget(this.mapData, locationId);
@@ -5872,6 +5806,7 @@ export class MapApp {
   }
 
   async openAr(): Promise<void> {
+    if (this.blockNavigationOutsideVenue()) return;
     const state = this.store.get();
     if (!state.route) {
       this.showToast("Generate a route before opening AR.");
@@ -5879,8 +5814,11 @@ export class MapApp {
     }
 
     if (!isGuestMode()) {
-      // Start Chrome's camera prompt on this click before any guest/network awaits.
-      beginArMediaPermissionPrime();
+      // Same-origin Live View owns getUserMedia in the iframe. Parent priming
+      // races the iframe on iOS and surfaces as "Camera blocked".
+      beginArMediaPermissionPrime({
+        camera: isArSameOrigin() ? 'reuse-only' : 'request',
+      });
     }
 
     if (isGuestMode()) {
@@ -5927,6 +5865,7 @@ export class MapApp {
    * backend immediately, then open AR.
    */
   async confirmGuestArOneTimeTrial(): Promise<void> {
+    if (this.blockNavigationOutsideVenue()) return;
     if (!isGuestMode()) {
       this.store.patch({ guestArGatePrompt: null });
       await this.openAr();
@@ -5939,7 +5878,9 @@ export class MapApp {
       return;
     }
 
-    beginArMediaPermissionPrime();
+    beginArMediaPermissionPrime({
+      camera: isArSameOrigin() ? 'reuse-only' : 'request',
+    });
 
     this.store.patch({ guestArGateLoading: true });
     try {
@@ -5975,6 +5916,7 @@ export class MapApp {
   }
 
   private async enterArFullscreen(): Promise<void> {
+    if (this.blockNavigationOutsideVenue()) return;
     const state = this.store.get();
     if (!state.route) {
       this.showToast("Generate a route before opening AR.");
@@ -6029,7 +5971,9 @@ export class MapApp {
     this.resumeRouteNavigation(progress);
     appLog("AR", "Opened", { url, alongPathMeters: progress.alongPathMeters });
 
-    void consumeArMediaPermissionPrime().then((permissions) => {
+    void consumeArMediaPermissionPrime({
+      camera: isArSameOrigin() ? 'reuse-only' : 'request',
+    }).then((permissions) => {
       const cameraReady = shouldReuseGrantedArCamera(
         permissions.camera,
         isArSameOrigin(),
@@ -6067,6 +6011,7 @@ export class MapApp {
     if (!isArSessionActive(this.store.get().arPresentation)) return;
     setArMinimized();
     this.store.patch({ arPresentation: "minimized" });
+    this.maybeRevealArrivalDialog(this.store.get().routeSimulationComplete);
     appLog("AR", "Minimized to picture-in-picture");
   }
 
@@ -6081,6 +6026,8 @@ export class MapApp {
   closeAr(): void {
     closeArFullscreen();
     this.store.patch({ arPresentation: "closed" });
+    // Arrival already locked from AR or 2D progress - reveal the 2D dialog
+    // now that fullscreen AR chrome is gone (unless the user already cleared).
     this.maybeRevealArrivalDialog(this.store.get().routeSimulationComplete);
   }
 
@@ -6092,9 +6039,34 @@ export class MapApp {
     await this.clearRoutePoints();
   }
 
-  /** Exit AR and clear the active route (Figma “End navigation”). */
+  /**
+   * AR reported arrival - permanently lock 2D navigation progress so GPS
+   * jitter cannot reopen turn-by-turn / "End point" chrome.
+   */
+  lockNavigationArrival(): void {
+    const state = this.store.get();
+    if (state.arrivalDialogHandled) return;
+    this.liveRouteTracking = false;
+    const showDialog = state.arPresentation !== "fullscreen";
+    this.store.patch({
+      routeSimulating: false,
+      routeSimulationComplete: true,
+      routeRemainingMeters: 0,
+      ...(showDialog && !state.arrivalDialogOpen
+        ? { arrivalDialogOpen: true }
+        : {}),
+    });
+  }
+
+  /** Exit AR and clear the active route (arrival Okay / End navigation). */
   async endArNavigation(): Promise<void> {
-    this.closeAr();
+    closeArFullscreen();
+    this.liveRouteTracking = false;
+    this.store.patch({
+      arPresentation: "closed",
+      arrivalDialogOpen: false,
+      arrivalDialogHandled: true,
+    });
     await this.clearRoutePoints();
   }
 
@@ -6114,7 +6086,7 @@ export class MapApp {
   }
 
   private resolveNavigationSource(): PositionSourceType {
-    return PositionProviderRegistry.resolveNavigationSource();
+    return PositionProviderRegistry.resolveNavigationSource(this.loadedVenueMapId ?? undefined);
   }
 
   /**
@@ -6129,10 +6101,15 @@ export class MapApp {
     const resumeNavigating = options.resumeNavigating === true;
     const alongPathMeters =
       options.alongPathMeters ?? this.store.get().routeTraveledMeters;
-    const remainingHint =
-      this.store.get().routeRemainingMeters ??
+    const totalPathMeters =
       this.store.get().route?.distanceMeters ??
-      null;
+      coordinateTransformationService.totalPathLengthMeters(options.path);
+    const remainingHint =
+      Number.isFinite(totalPathMeters) && totalPathMeters > 0
+        ? Math.max(0, totalPathMeters - alongPathMeters)
+        : (this.store.get().routeRemainingMeters ??
+          this.store.get().route?.distanceMeters ??
+          null);
 
     const nextSource = this.resolveNavigationSource();
     const canReuseLiveProvider =
@@ -6169,6 +6146,7 @@ export class MapApp {
     }
 
     this.liveRouteTracking = true;
+    this.lastAlongPublishAt = performance.now();
     this.blueDotService?.follow();
     void this.blueDotService?.enableHeading({ forceDuringSimulator: true });
     this.store.patch({
@@ -6178,6 +6156,7 @@ export class MapApp {
       routeTraveledMeters: alongPathMeters,
       routeRemainingMeters: remainingHint,
     });
+    this.snapBlueDotToAlongPath(alongPathMeters);
     if (isArSessionActive(this.store.get().arPresentation)) {
       syncNavigationToAr(this.getNavigationProgressSnapshot());
     }
@@ -6235,6 +6214,27 @@ export class MapApp {
       floorId: point.floorId ?? projected.floorId,
       alongPathMeters: alongMeters,
     };
+  }
+
+  /** Place the glowing blue-dot on the route at the navigation seed / odometer. */
+  private snapBlueDotToAlongPath(alongMeters: number): void {
+    const path = this.store.get().route?.pathCoordinates;
+    if (!path?.length) return;
+    const point = coordinateTransformationService.snapAtDistanceAlongPath(
+      path,
+      alongMeters,
+    );
+    if (!point || point.latitude == null || point.longitude == null) return;
+    this.blueDotService?.applySimulatorFrame({
+      latitude: point.latitude,
+      longitude: point.longitude,
+      heading: this.blueDotService.getLastPosition()?.heading ?? 0,
+      accuracy: 4,
+      source: "gps",
+      floorId: point.floorId,
+      alongPathMeters: alongMeters,
+      timestamp: Date.now(),
+    });
   }
 
   private getNavigationProgressSnapshot(): NavigationProgressSnapshot {
@@ -6322,7 +6322,12 @@ export class MapApp {
     const targetAlong =
       typeof options?.alongPathMeters === "number"
         ? options.alongPathMeters
-        : 0;
+        : options?.resetProgress === true
+          ? 0
+          : resolveLiveNavigationStartAlongMeters({
+              lastProjectedAlongMeters: this.lastProjectedAlongMeters,
+              routeTraveledMeters: state.routeTraveledMeters,
+            });
 
     if (this.store.get().locationPermission !== "granted") {
       this.showToast("Turn on location to track as you walk.");
@@ -6402,6 +6407,18 @@ export class MapApp {
     if (!this.liveRouteTracking && !state.routeSimulating && !force)
       return null;
 
+    // Once arrival is locked, keep navigation frozen until Okay / clearRoute.
+    if (isArrivalLocked(state)) {
+      this.liveRouteTracking = false;
+      this.store.patch({
+        routeSimulating: false,
+        routeSimulationComplete: true,
+        routeRemainingMeters: 0,
+      });
+      this.maybeRevealArrivalDialog(true);
+      return state.routeTraveledMeters;
+    }
+
     const total =
       state.route.distanceMeters ??
       coordinateTransformationService.totalPathLengthMeters(
@@ -6412,27 +6429,59 @@ export class MapApp {
       offRouteMeters: options?.offRouteMeters,
       accuracyMeters: options?.accuracyMeters,
     });
-    const traveled = Math.max(0, Math.min(total, stabilizedAlong));
+    const now = performance.now();
+    const dtSeconds =
+      this.lastAlongPublishAt > 0
+        ? (now - this.lastAlongPublishAt) / 1000
+        : 0.5;
+    this.lastAlongPublishAt = now;
+    // Continuous forward GPS snaps (within the L-path window) must advance the
+    // published odometer; otherwise Begin seeds correctly then freezes again.
+    const continuousAlong = advanceContinuousAlongMeters({
+      previousAlongMeters: stabilizedAlong,
+      rawAlongMeters: alongPathMeters,
+      dtSeconds,
+      maxAlongDeltaMeters: DEFAULT_MAX_ALONG_DELTA_METERS,
+    });
+    const traveled = Math.max(
+      0,
+      Math.min(total, Math.max(stabilizedAlong, continuousAlong)),
+    );
+    if (traveled > stabilizedAlong) {
+      this.alongPathStabilizer.alignTo(traveled, now);
+    }
     const remaining = computeLiveRemainingMeters({
       totalPathMeters: total,
       alongPathMeters: traveled,
       offRouteMeters: options?.offRouteMeters,
     });
-    const atEnd = hasArrivedAtDestination({
+    const atEnd = options?.accuracyMeters != null && options.accuracyMeters <= 10 && hasArrivedAtDestination({
       totalPathMeters: total,
       alongPathMeters: traveled,
       offRouteMeters: options?.offRouteMeters,
     });
 
-    this.liveRouteTracking = !atEnd;
+    if (atEnd && traveled > 0) {
+      this.liveRouteTracking = false;
+      this.store.patch({
+        routeTraveledMeters: traveled,
+        routeRemainingMeters: 0,
+        routeSimulating: false,
+        routeSimulationComplete: true,
+      });
+      this.routePlanner?.updateDestinationProximity(0, total);
+      this.maybeRevealArrivalDialog(true);
+      return traveled;
+    }
+
+    this.liveRouteTracking = true;
     this.store.patch({
       routeTraveledMeters: traveled,
       routeRemainingMeters: remaining,
-      routeSimulating: !atEnd,
-      routeSimulationComplete: atEnd && traveled > 0,
+      routeSimulating: true,
+      routeSimulationComplete: false,
     });
     this.routePlanner?.updateDestinationProximity(remaining, total);
-    this.maybeRevealArrivalDialog(atEnd && traveled > 0);
     return traveled;
   }
 
@@ -6467,6 +6516,7 @@ export class MapApp {
       }
 
       if (!this.routePlanner || this.routePlanner.isRoutePlanningPaused) return;
+      if (this.blockNavigationOutsideVenue()) return;
       const tapCoordinate =
         this.resolveTapCoordinateFromPointer(pointer) ?? event?.coordinate;
       if (!tapCoordinate) return;
@@ -6526,7 +6576,8 @@ export class MapApp {
       mapLanguages: getSupportedMapLanguages(this.mapData),
       searchChips: getLocationChips(this.mapData),
     });
-    this.socialMapMarkers?.refreshForLanguageChange(this.store.get());
+    this.syncSocialMapMarkers();
+    this.socialMapMarkers?.refreshForLanguageChange();
   }
 
   private publishFloors(): void {
@@ -6605,6 +6656,8 @@ export class MapApp {
     this.liveRouteTracking = false;
     const progress = this.seedRouteProgressFromUser(route);
     this.alongPathStabilizer.reset(progress.traveled);
+    this.lastProjectedAlongMeters = progress.traveled;
+    this.lastAlongPublishAt = 0;
 
     this.store.patch({
       route,
@@ -6773,7 +6826,8 @@ export class MapApp {
       path,
       floorId: originFloorId,
       expectedFloorId: originFloorId,
-      venueMapId: appConfig.mappedin.mapId,
+      venueMapId: this.loadedVenueMapId ?? undefined,
+      onStatus: (status) => this.handleLivePositionStatus(status),
     });
 
     appLog("Position", "Provider started", {
@@ -6790,6 +6844,8 @@ export class MapApp {
     this.lastArStreamAt = 0;
     this.lastArProviderStreamAt = 0;
     this.lastProviderFix = null;
+    this.lastProjectedAlongMeters = null;
+    this.lastAlongPublishAt = 0;
     this.floorOrchestrator.reset();
     positionTelemetry.setOrchestratorState(this.floorOrchestrator.getState());
     positionTelemetry.setActiveSource("none");
@@ -6899,8 +6955,32 @@ export class MapApp {
     }
   }
 
+  private handleLivePositionStatus(status: PositionProviderStatus): void {
+    if (status === 'active') return; // Only accepted fixes restore live UI status.
+    const previous = this.store.get().blueDotStatus;
+    this.store.patch({ blueDotStatus: status });
+    if ((status === 'error' || status === 'inactive') && previous !== status) {
+      this.lastProviderFix = null;
+      this.lastProjectedAlongMeters = null;
+      this.showToast(status === 'error'
+        ? 'Location unavailable. Check location permission and try again.'
+        : 'Location signal is weak or lost. Progress is paused until it recovers.');
+    }
+  }
+
   private handleProviderFrame(frame: FplacesPositionFrame): void {
-    if (isHeadingOnlyPositionFix(this.lastProviderFix, frame)) {
+    if (!isUsableLiveFix(frame)) {
+      this.handleLivePositionStatus('inactive');
+      return;
+    }
+    const projected = this.projectFrameOntoRoute(frame);
+    if (this.store.get().route && !isUsableRouteSnap(projected)) {
+      this.handleLivePositionStatus('inactive');
+      return;
+    }
+    this.store.patch({ blueDotStatus: 'active' });
+    if (isHeadingOnlyPositionFix(this.lastProviderFix, frame) &&
+        frame.timestamp === this.lastProviderFix?.timestamp) {
       this.blueDotService?.applyHeadingOnly(frame.heading);
       if (
         isArFrameVisible() ||
@@ -6921,6 +7001,7 @@ export class MapApp {
     this.lastProviderFix = {
       latitude: frame.latitude,
       longitude: frame.longitude,
+      timestamp: frame.timestamp,
     };
 
     this.publishUserLocation({
@@ -6929,7 +7010,9 @@ export class MapApp {
       accuracy: frame.accuracy ?? null,
     });
 
-    const projected = this.projectFrameOntoRoute(frame);
+    if (typeof projected.alongPathMeters === "number") {
+      this.lastProjectedAlongMeters = projected.alongPathMeters;
+    }
 
     let display = projected;
     if (typeof projected.alongPathMeters === "number") {
@@ -6938,7 +7021,14 @@ export class MapApp {
         accuracyMeters: projected.accuracy,
       });
       if (traveled != null) {
-        display = this.bindFrameToStabilizedAlong(projected, traveled);
+        const rawAlong = projected.alongPathMeters;
+        const continuous =
+          Math.abs(rawAlong - traveled) <= DEFAULT_MAX_ALONG_DELTA_METERS;
+        // Follow the live snap when continuous (pre-Begin feel). Only pin to
+        // the odometer when the snap would teleport across an L-corner.
+        display = continuous
+          ? projected
+          : this.bindFrameToStabilizedAlong(projected, traveled);
       }
     }
 
@@ -6974,6 +7064,7 @@ export class MapApp {
   }
 
   private handleBlueDotStatus(status: BlueDotStatus): void {
+    if (this.positionProvider?.isRunning) return;
     this.store.patch({
       blueDotStatus: status,
       blueDotFollowing: this.blueDotService?.isFollowing ?? false,

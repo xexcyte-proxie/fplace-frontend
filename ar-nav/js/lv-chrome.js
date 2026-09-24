@@ -111,6 +111,10 @@
     postToParent('fplaces_ar_back');
   });
 
+  document.getElementById('arrival-ok-btn')?.addEventListener('click', () => {
+    postToParent('fplaces_ar_arrived_done');
+  });
+
   window.addEventListener('message', (event) => {
     if (event.origin !== parentOrigin()) return;
     const data = event.data;

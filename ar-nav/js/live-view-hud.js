@@ -6,10 +6,9 @@
   const WALK_MPS = 1.4;
 
   function symbolHtml(name, sizeClass) {
-    return (
-      `<span class="material-symbols-rounded ${sizeClass || 'lv-sym-sm'}" aria-hidden="true">` +
-      `${name}</span>`
-    );
+    const size = sizeClass || 'lv-sym-sm';
+    const svg = window.FplacesUiIcons?.svg?.(name, size) || '';
+    return `<span class="lv-icon ${size}" data-lv-icon="${name}" aria-hidden="true">${svg}</span>`;
   }
 
   function formatDistance(meters) {
@@ -115,65 +114,6 @@
     document.body.classList.toggle('lv-active', active);
   }
 
-  let cueWasVisible = false;
-  let lastCueSide = '';
-  let lastCueLabel = '';
-  let lastCueSymbol = '';
-
-  function hideAlignCue(alignBanner) {
-    cueWasVisible = false;
-    lastCueSide = '';
-    lastCueLabel = '';
-    lastCueSymbol = '';
-    if (!alignBanner) return;
-    alignBanner.classList.add('hidden');
-    alignBanner.classList.remove(
-      'lv-align--left',
-      'lv-align--right',
-      'lv-align--around',
-    );
-  }
-
-  function applyAlignCue(alignBanner, alignText, deltaDeg) {
-    const resolve = window.FplacesTurnCue?.resolveTurnCue;
-    const cue = resolve
-      ? resolve(deltaDeg, cueWasVisible)
-      : { visible: false };
-    cueWasVisible = !!cue.visible;
-
-    if (!alignBanner) return !cue.visible;
-    if (!cue.visible) {
-      hideAlignCue(alignBanner);
-      return true;
-    }
-
-    const sideClass = `lv-align--${cue.side}`;
-    if (lastCueSide !== sideClass) {
-      alignBanner.classList.remove(
-        'lv-align--left',
-        'lv-align--right',
-        'lv-align--around',
-      );
-      alignBanner.classList.add(sideClass);
-      lastCueSide = sideClass;
-    }
-    alignBanner.classList.remove('hidden');
-    alignBanner.style.setProperty('--cue-intensity', cue.intensity.toFixed(3));
-    alignBanner.style.setProperty('--cue-scale', cue.scale.toFixed(3));
-    alignBanner.style.setProperty('--cue-tilt', `${cue.tiltDeg.toFixed(1)}deg`);
-
-    const icon = document.getElementById('align-icon');
-    if (icon && lastCueSymbol !== cue.symbol) {
-      icon.textContent = cue.symbol;
-      lastCueSymbol = cue.symbol;
-    }
-    if (alignText && lastCueLabel !== cue.label) {
-      alignText.textContent = cue.label;
-      lastCueLabel = cue.label;
-    }
-    return false;
-  }
-
   function setScanOverlay(visible, message) {
     const overlay = document.getElementById('scan-overlay');
     const copy = document.getElementById('scan-copy');
@@ -224,8 +164,6 @@
       const statusEl = document.getElementById('status');
       const tripFooter = document.getElementById('trip-footer');
       const offPathEl = document.getElementById('offPath');
-      const alignBanner = document.getElementById('align-banner');
-      const alignText = document.getElementById('align-text');
       const arrivalCard = document.getElementById('arrival-card');
       const arrivalDest = document.getElementById('arrival-dest');
       if (!liveNav) return;
@@ -235,7 +173,6 @@
         liveNav.classList.add('hidden');
         tripFooter?.classList.add('hidden');
         arrivalCard?.classList.add('hidden');
-        hideAlignCue(alignBanner);
         setNavigating(false);
         return;
       }
@@ -247,7 +184,6 @@
         liveNav.classList.add('hidden');
         tripFooter?.classList.add('hidden');
         arrivalCard?.classList.add('hidden');
-        hideAlignCue(alignBanner);
         setNavigating(false);
         return;
       }
@@ -282,10 +218,15 @@
       if (state.arrived) {
         liveNav.classList.add('hidden');
         tripFooter?.classList.add('hidden');
-        hideAlignCue(alignBanner);
         statusEl?.classList.add('hidden');
         arrivalCard?.classList.remove('hidden');
-        if (arrivalDest) arrivalDest.textContent = destName;
+        arrivalCard?.setAttribute('aria-hidden', 'false');
+        if (arrivalDest) {
+          arrivalDest.textContent =
+            destName && destName !== 'End point' && destName !== 'Destination'
+              ? `You've gotten there: ${destName}.`
+              : "You've gotten there.";
+        }
         if (offPathEl) offPathEl.classList.add('hidden');
         setNavigating(false);
         return;
@@ -293,10 +234,14 @@
 
       setNavigating(true);
       arrivalCard?.classList.add('hidden');
+      arrivalCard?.setAttribute('aria-hidden', 'true');
       liveNav.classList.remove('hidden');
       tripFooter?.classList.remove('hidden');
       statusEl?.classList.add('hidden');
-      const aligned = applyAlignCue(alignBanner, alignText, headingDelta);
+      const aligned =
+        headingDelta == null ||
+        !Number.isFinite(headingDelta) ||
+        Math.abs(headingDelta) < 18;
 
       const turnIconEl = document.getElementById('turn-icon');
       const turnTextEl = document.getElementById('turn-text');
@@ -397,7 +342,6 @@
         setScanOverlay(false);
         document.getElementById('live-nav')?.classList.add('hidden');
         document.getElementById('arrival-card')?.classList.add('hidden');
-        hideAlignCue(document.getElementById('align-banner'));
         setNavigating(false);
         return;
       }

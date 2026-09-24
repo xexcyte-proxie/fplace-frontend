@@ -43,7 +43,7 @@ export function renderProfileScreen(state: AppState): string {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path d="M12 5l6 7h-4v7H10v-7H6l6-7z" fill="currentColor"></path>
                 </svg>
-                ${escapeHtml(post.upvotesLabel)}
+                <span class="profile-post-upvote-count">${escapeHtml(post.upvotesLabel)}</span>
               </button>
             </div>
           </article>

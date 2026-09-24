@@ -10,16 +10,26 @@ describe('arrival dialog', () => {
     });
   });
 
-  it('renders done and dismiss hooks', () => {
+  it('renders okay and dismiss hooks', () => {
     const html = renderArrivalDialog('Gate A');
     expect(html).toContain("You've arrived");
     expect(html).toContain("You've gotten there: Gate A.");
     expect(html).toContain('id="arrival-dialog-done-btn"');
+    expect(html).toContain('Okay');
     expect(html).toContain('id="arrival-dialog-dismiss"');
+    expect(html).toContain('arrival-dialog-backdrop');
+    expect(html).toContain('arrival-dialog-ok');
   });
 
   it('falls back when the destination name is missing', () => {
     expect(arrivalDialogCopy('  ')).toEqual({
+      title: "You've arrived",
+      body: "You've gotten there.",
+    });
+  });
+
+  it('hides generic End point labels from the body copy', () => {
+    expect(arrivalDialogCopy('End point')).toEqual({
       title: "You've arrived",
       body: "You've gotten there.",
     });

@@ -1,4 +1,5 @@
 import { WALKING_SPEED_MPS } from './constants';
+import { DEFAULT_MAX_ALONG_DELTA_METERS } from './snap-along-continuity';
 
 /** Ignore tiny GPS/snap jitter when adding off-route distance to the ETA. */
 const OFF_ROUTE_ETA_THRESHOLD_M = 4;
@@ -6,7 +7,7 @@ const OFF_ROUTE_ETA_THRESHOLD_M = 4;
 /**
  * Beyond this, off-route is treated as an unusable outdoor/cached GPS fix
  * (not a walkable detour). Common indoors when WGS84 GPS is kilometers from
- * the Mappedin polyline: do not inflate ETA or block arrival.
+ * the Mappedin polyline: reject these fixes before updating live progress.
  */
 export const OFF_ROUTE_PLAUSIBLE_MAX_M = 250;
 
@@ -136,8 +137,9 @@ export function hasArrivedAtDestination(options: {
   if (total <= 0) return false;
   const along = Math.max(0, options.alongPathMeters);
   const rawOff = options.offRouteMeters ?? 0;
-  // Implausible GPS (multi-km) must not block arrival forever indoors.
-  const off = isPlausibleOffRouteMeters(rawOff) ? rawOff : 0;
+  if (!Number.isFinite(total) || !Number.isFinite(along) ||
+      !isPlausibleOffRouteMeters(rawOff)) return false;
+  const off = rawOff;
   // A brand-new route with along=0 can satisfy `along >= total - 0.75` when
   // the path is shorter than the tolerance. Require real progress first.
   const minTravel = Math.min(3, Math.max(ARRIVAL_ALONG_PATH_TOLERANCE_M, total * 0.35));
@@ -169,6 +171,46 @@ export function shouldRevealDestinationMarker(options: {
 }
 
 /**
+ * Begin must resume at the walker's current route snap, not path origin.
+ * Resetting to 0 yanked the blue-dot backward and froze the odometer there.
+ */
+export function resolveLiveNavigationStartAlongMeters(options: {
+  lastProjectedAlongMeters?: number | null;
+  routeTraveledMeters?: number | null;
+}): number {
+  const projected = options.lastProjectedAlongMeters;
+  if (typeof projected === 'number' && Number.isFinite(projected) && projected >= 0) {
+    return projected;
+  }
+  const traveled = options.routeTraveledMeters;
+  if (typeof traveled === 'number' && Number.isFinite(traveled) && traveled >= 0) {
+    return traveled;
+  }
+  return 0;
+}
+
+/**
+ * Crawl the published odometer toward a continuous forward snap so 2D ETA /
+ * avatar can follow live GPS without adopting L-corner teleports.
+ */
+export function advanceContinuousAlongMeters(options: {
+  previousAlongMeters: number;
+  rawAlongMeters: number;
+  dtSeconds: number;
+  maxAlongDeltaMeters?: number;
+  maxWalkMps?: number;
+}): number {
+  const prev = Math.max(0, options.previousAlongMeters);
+  const raw = Math.max(0, options.rawAlongMeters);
+  const maxDelta = options.maxAlongDeltaMeters ?? DEFAULT_MAX_ALONG_DELTA_METERS;
+  const maxWalk = options.maxWalkMps ?? MAX_WALK_MPS;
+  if (raw <= prev) return prev;
+  if (raw - prev > maxDelta) return prev;
+  const dt = Math.max(0.05, Math.min(4, options.dtSeconds));
+  return prev + Math.min(raw - prev, maxWalk * dt);
+}
+
+/**
  * Holds along-path meters while the user is standing still so remaining
  * distance/time do not drift with indoor GPS / snap jitter.
  */
@@ -189,6 +231,18 @@ export class LiveAlongPathStabilizer {
     this.forwardStreak = 0;
   }
 
+  /** Keep the stabilizer aligned after a continuous catch-up publish. */
+  alignTo(alongMeters: number, nowMs?: number): void {
+    const now =
+      nowMs ??
+      (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    this.alongMeters = Math.max(0, alongMeters);
+    this.lastRawAlongMeters = this.alongMeters;
+    this.baselineMovedAtMs = now;
+    this.forwardStreak = 0;
+    if (this.atMs == null) this.atMs = now;
+  }
+
   update(options: {
     nextAlongMeters: number;
     /** Ignored for the odometer: remaining metres add this separately. */
@@ -205,18 +259,16 @@ export class LiveAlongPathStabilizer {
     if (this.atMs == null) {
       this.atMs = now;
       this.baselineMovedAtMs = now;
-      this.lastRawAlongMeters = next;
-      // Keep the reset baseline (0 at Begin). The first indoor GPS snap is
-      // often the nearest point on a short path; adopting it teleports the
-      // odometer to the destination while the user is still standing still.
+      // Anchor motion checks to the published baseline, not the first snap.
+      // Indoor GPS often nearest-snaps to the destination on Begin; storing
+      // that as lastRaw made every later near-start fix look like a reverse
+      // jump, so remaining distance/ETA never advanced on 2D.
+      this.lastRawAlongMeters = this.alongMeters;
       return this.alongMeters;
     }
 
     const dt = Math.max(0.05, Math.min(4, (now - this.atMs) / 1000));
-    this.atMs = now;
-
     const previousRaw = this.lastRawAlongMeters ?? this.alongMeters;
-    this.lastRawAlongMeters = next;
 
     // Off-route distance belongs on remaining metres (`computeLiveRemainingMeters`),
     // not this odometer. Adopting `next` when off-route is what teleported the
@@ -228,8 +280,14 @@ export class LiveAlongPathStabilizer {
     const sampleRate = (next - previousRaw) / dt;
     if (Math.abs(sampleRate) > GPS_JUMP_MPS) {
       this.forwardStreak = 0;
+      // Drop the sample entirely. Updating lastRaw to the jump poisoned the
+      // next real fix (near the baseline) as another "jump" and froze 2D.
       return this.alongMeters;
     }
+
+    this.atMs = now;
+    this.lastRawAlongMeters = next;
+
     if (Math.abs(sampleRate) < STATIONARY_ALONG_MPS) {
       this.forwardStreak = 0;
       return this.alongMeters;

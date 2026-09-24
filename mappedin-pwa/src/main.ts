@@ -94,6 +94,8 @@ const ui = new UiRoot(uiContainer);
   closeAr: () => app.closeAr(),
   minimizeAr: () => app.minimizeAr(),
   maximizeAr: () => app.maximizeAr(),
+  lockNavigationArrival: () => app.lockNavigationArrival(),
+  endArNavigation: () => app.endArNavigation(),
 };
 
 if (appConfig.debug.positionHud) {

@@ -18,12 +18,19 @@ export class GpsPositionProvider extends PositionProvider {
   private lastLat: number | null = null;
   private lastLng: number | null = null;
   private lastOrientationEmitAt = 0;
+  private lastFixTimestamp = 0;
 
   protected onStart(_options?: PositionProviderStartOptions): void {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      this.reportStatus('error');
+      return;
+    }
+    const generation = this.generation;
 
     this.watchId = navigator.geolocation.watchPosition(
       (position) => {
+        if (!this.running || generation !== this.generation) return;
+        this.lastFixTimestamp = position.timestamp;
         this.lastAccuracy = position.coords.accuracy ?? this.lastAccuracy;
         this.lastLat = position.coords.latitude;
         this.lastLng = position.coords.longitude;
@@ -33,9 +40,14 @@ export class GpsPositionProvider extends PositionProvider {
           longitude: position.coords.longitude,
           ...(heading != null ? { heading } : {}),
           accuracy: this.lastAccuracy,
+          timestamp: this.lastFixTimestamp,
         });
       },
       (error) => {
+        if (!this.running || generation !== this.generation) return;
+        this.lastLat = null;
+        this.lastLng = null;
+        this.reportStatus(error.code === 1 ? 'error' : 'inactive');
         // Surface why live tracking is silent (permission denied, timeout…).
         appWarn('GPS', 'watchPosition error', {
           code: error.code,
@@ -58,11 +70,14 @@ export class GpsPositionProvider extends PositionProvider {
     this.lastHeading = null;
     this.lastLat = null;
     this.lastLng = null;
+    this.lastFixTimestamp = 0;
+    this.lastOrientationEmitAt = 0;
   }
 
   private async attachOrientationListeners(): Promise<void> {
+    const generation = this.generation;
     const granted = await this.requestOrientationPermission();
-    if (!granted || !this.running) return;
+    if (!granted || !this.running || generation !== this.generation) return;
 
     this.orientationHandler = (event: DeviceOrientationEvent) => {
       const heading = this.compass.ingest(
@@ -95,6 +110,7 @@ export class GpsPositionProvider extends PositionProvider {
         longitude: this.lastLng,
         heading: this.lastHeading,
         accuracy: this.lastAccuracy,
+        timestamp: this.lastFixTimestamp,
       });
     };
 

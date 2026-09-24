@@ -6,7 +6,7 @@
 
   window.FPLACES_AR_CONFIG = {
     /** Bumped when AR camera/SLAM boot changes - check console on load. */
-    buildId: "20260910-slam-resume-v1",
+    buildId: "20260921-camera-unblocked-v3",
     eighthWallAppKey: "",
     xrMode: "auto",
     arrowDistanceM: 2.5,

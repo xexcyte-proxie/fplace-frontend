@@ -37,6 +37,7 @@ import {
 import { renderVenueFeedScreen } from "./venue-feed-screen";
 import { renderPostCommentsScreen } from "./post-comments-screen";
 import { renderProfileScreen } from "./profile-screen";
+import { canPatchProfileUpvotes, patchProfileUpvotes } from "./profile-upvote-patch";
 import { renderSettingsScreen } from "./settings-screen";
 import { renderLanguageSettingsScreen } from "./language-settings-screen";
 import { renderEditProfileSettingsScreen } from "./edit-profile-settings-screen";
@@ -77,6 +78,7 @@ import {
 } from "./bottom-nav-icons";
 import {
   applyLiveNavigationUiPatch,
+  liveTrackingMessage,
   applyMyLocationFabPatch,
   applyNotifyBadgeUiPatch,
   applyToastUiPatch,
@@ -191,6 +193,10 @@ export class UiRoot {
     }
 
     if (this.lastRenderedState) {
+      if (canPatchProfileUpvotes(this.lastRenderedState, state) && patchProfileUpvotes(this.root, state)) {
+        this.lastRenderedState = state;
+        return;
+      }
       const kind = classifyUiStateChange(this.lastRenderedState, state);
       if (kind === "live") {
         applyLiveNavigationUiPatch(this.root, state);
@@ -1048,6 +1054,7 @@ export class UiRoot {
             <div class="route-sheet-distance">${escapeHtml(summary.walkDistance)}</div>
           </div>
         </div>
+        <p class="route-tracking-status" role="status" ${liveTrackingMessage(state) ? "" : "hidden"}>${escapeHtml(liveTrackingMessage(state))}</p>
         <div class="route-sheet-actions ${summary.needsReset ? "route-sheet-actions--needs-reset" : ""}">
           ${
             summary.needsReset

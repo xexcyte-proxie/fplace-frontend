@@ -1,9 +1,5 @@
 import type { ForumPost, LocationMessage } from '../forum/domain/entities';
-import {
-  conversationLocationIdForSection,
-  sectionIdForLocation,
-  sectionMatchesConversationLocation,
-} from '../forum/domain/section-locations';
+import { sectionIdForLocation } from '../forum/domain/section-locations';
 import type {
   ForumCategorySummary,
   ForumSectionSummary,
@@ -98,32 +94,6 @@ export function categoryFiltersFromApi(
       id: String(category.id),
       label: category.name,
       helpIcon: category.slug === 'help',
-    })),
-  ];
-}
-
-export interface VenueFeedSectionChip {
-  /** Null is the venue-wide post feed. */
-  locationId: string | null;
-  label: string;
-  active: boolean;
-}
-
-/**
- * Section switcher for the social tab. `All` lists every section conversation;
- * every other chip opens that section's location thread.
- */
-export function venueFeedSectionChips(
-  sections: ForumSectionSummary[],
-  socialLocation: string | null,
-): VenueFeedSectionChip[] {
-  const activeSections = sections.filter((section) => section.is_active !== false);
-  return [
-    { locationId: null, label: 'All', active: !socialLocation },
-    ...activeSections.map((section) => ({
-      locationId: conversationLocationIdForSection(section),
-      label: section.name,
-      active: sectionMatchesConversationLocation(section, socialLocation),
     })),
   ];
 }

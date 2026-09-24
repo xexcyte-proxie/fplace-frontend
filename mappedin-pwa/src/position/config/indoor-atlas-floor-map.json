@@ -1,20 +1,4 @@
 {
-  "venueMapId": "65c0ff7430b94e3fabd5bb8c",
-  "floors": [
-    {
-      "iaLevel": 0,
-      "mappedinFloorId": "m_1fc5f0f7fae65ba6",
-      "label": "Ground / Level 1"
-    },
-    {
-      "iaLevel": 1,
-      "mappedinFloorId": "m_1fc5f0f7fae65ba6",
-      "label": "First Floor (sequential placeholder)"
-    },
-    {
-      "iaLevel": 2,
-      "mappedinFloorId": "m_1fc5f0f7fae65ba6",
-      "label": "Second Floor (sequential placeholder)"
-    }
-  ]
+  "venueMapId": "",
+  "floors": []
 }

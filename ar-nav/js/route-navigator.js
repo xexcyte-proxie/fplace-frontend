@@ -9,8 +9,6 @@
   const PARENT_SIM_EXTRAP_CAP_S = 0.12;
   /** Enter "You've arrived" at this remaining distance. */
   const ARRIVE_ENTER_M = 5;
-  /** Leave arrival only after walking this far away (stops HUD flicker). */
-  const ARRIVE_EXIT_M = 22;
 
   function haversineMeters(a, b) {
     return geo().haversineMeters(a, b);
@@ -176,6 +174,7 @@
       this._simDisplayAlongPathM = null;
       this._lastSimDisplayTickAt = null;
       this.arrived = false;
+      this._arrivalNotifiedToParent = false;
       this.offPathMessage = "";
       this._warnedShortPath = false;
       this._lastExternalAt = null;
@@ -188,24 +187,41 @@
     }
 
     /**
-     * Latch arrival so GPS / parent remaining jitter cannot flip the HUD
-     * between turn-by-turn and "You've arrived" every frame.
+     * Latch arrival permanently once triggered. GPS / parent remaining jitter
+     * must not flip the HUD between turn-by-turn ("End point") and
+     * "You've arrived". Only forceClear / a new route resets the latch.
      */
     applyArrivalLatch(remainingMeters, options) {
       if (options?.forceClear) {
         this.arrived = false;
+        this._arrivalNotifiedToParent = false;
         return;
       }
       if (options?.forceComplete) {
-        this.arrived = true;
+        this.lockArrived();
         return;
       }
+      if (this.arrived) return;
       if (remainingMeters == null || !Number.isFinite(remainingMeters)) return;
-      if (this.arrived) {
-        if (remainingMeters > ARRIVE_EXIT_M) this.arrived = false;
-        return;
+      if (remainingMeters <= ARRIVE_ENTER_M) this.lockArrived();
+    }
+
+    lockArrived() {
+      if (this.arrived) return;
+      this.arrived = true;
+      this.notifyParentArrived();
+    }
+
+    notifyParentArrived() {
+      if (this._arrivalNotifiedToParent) return;
+      this._arrivalNotifiedToParent = true;
+      try {
+        const cfg = window.FPLACES_AR_CONFIG || {};
+        const origin = cfg.pwaOrigin || window.location.origin;
+        window.parent?.postMessage?.({ type: "fplaces_ar_arrived" }, origin);
+      } catch {
+        /* ignore */
       }
-      if (remainingMeters <= ARRIVE_ENTER_M) this.arrived = true;
     }
 
     setRoute(route) {
@@ -223,6 +239,7 @@
           ) || route.pathCoordinates;
       }
       this.arrived = false;
+      this._arrivalNotifiedToParent = false;
       this.offPathMessage = "";
       this._warnedShortPath = false;
       this.lastPosition = null;
@@ -584,6 +601,7 @@
       }
 
       this.arrived = false;
+      this._arrivalNotifiedToParent = false;
       this._displayAlongPathM = alongM ?? 0;
       this._lastAlongTickAt = performance.now();
       this._smoothDistRemaining = null;

@@ -148,7 +148,7 @@ body.lv-compass-camera #camerafeed canvas {
   flex-shrink: 0;
 }
 
-.camera-start-icon .material-symbols-rounded {
+.camera-start-icon .lv-icon {
   font-size: 26px;
 }
 
@@ -223,8 +223,7 @@ body.lv-compass-camera #camerafeed canvas {
 body.lv-awaiting-camera .lv-mode-badge,
 body.lv-awaiting-camera #status,
 body.lv-awaiting-camera #hud .lv-status,
-body.lv-awaiting-camera #scan-overlay,
-body.lv-awaiting-camera #align-banner {
+body.lv-awaiting-camera #scan-overlay {
   display: none !important;
 }
 
@@ -330,7 +329,7 @@ body.lv-awaiting-camera #hud::before {
   cursor: pointer;
 }
 
-.lv-chrome-btn .material-symbols-rounded {
+.lv-chrome-btn .lv-icon {
   font-size: 22px;
 }
 
@@ -418,10 +417,8 @@ body.lv-active #hud::before {
 }
 
 #hud > .lv-instruction-card,
-#hud > .lv-align,
 #hud > .lv-floor,
-#hud > .lv-warn,
-#hud > .lv-arrival {
+#hud > .lv-warn {
   position: absolute;
 }
 
@@ -429,13 +426,18 @@ body.lv-active #hud::before {
   display: none !important;
 }
 
-.material-symbols-rounded {
-  font-family: 'Material Symbols Rounded';
-  font-weight: normal;
-  font-style: normal;
-  font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 48;
-  line-height: 1;
-  user-select: none;
+.lv-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.lv-icon-svg {
+  display: block;
+  width: 1em;
+  height: 1em;
+  overflow: visible;
 }
 
 .lv-sym-lg {
@@ -577,79 +579,6 @@ body.lv-active #hud::before {
   display: none !important;
 }
 
-/* Alignment cue, Google Live View style: left/right of camera, not under Level */
-.lv-align {
-  --cue-intensity: 1;
-  --cue-scale: 1;
-  --cue-tilt: 0deg;
-  position: absolute;
-  z-index: 8;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 0;
-  background: transparent;
-  box-shadow: none;
-  pointer-events: none;
-  will-change: transform, opacity;
-}
-
-.lv-align-glyph {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 0;
-  filter: drop-shadow(0 6px 22px rgba(255, 214, 10, 0.55));
-}
-
-.lv-align-glyph .material-symbols-rounded {
-  font-size: clamp(64px, 18vw, 104px);
-  color: #ffd60a;
-  font-variation-settings: 'FILL' 1, 'wght' 700, 'GRAD' 0, 'opsz' 48;
-  transform: rotate(var(--cue-tilt));
-}
-
-.lv-align-label {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: #ffd60a;
-  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85);
-  white-space: nowrap;
-}
-
-.lv-align--left {
-  top: 38%;
-  left: max(6px, calc(env(safe-area-inset-left, 0px) + (1 - var(--cue-intensity)) * 22px));
-  right: auto;
-  transform: translateX(calc(-6px * (1 - var(--cue-intensity))))
-    scale(var(--cue-scale));
-  transform-origin: left center;
-}
-
-.lv-align--right {
-  top: 38%;
-  right: max(6px, calc(env(safe-area-inset-right, 0px) + (1 - var(--cue-intensity)) * 22px));
-  left: auto;
-  transform: translateX(calc(6px * (1 - var(--cue-intensity))))
-    scale(var(--cue-scale));
-  transform-origin: right center;
-}
-
-.lv-align--around {
-  left: 50%;
-  right: auto;
-  top: auto;
-  bottom: max(236px, calc(env(safe-area-inset-bottom, 0px) + 216px));
-  transform: translateX(-50%) scale(var(--cue-scale));
-  transform-origin: center bottom;
-}
-
-.lv-align--around .lv-align-glyph .material-symbols-rounded {
-  font-size: clamp(52px, 14vw, 80px);
-}
-
 /* Floor banner */
 .lv-floor {
   position: absolute;
@@ -674,7 +603,7 @@ body.lv-active #hud::before {
   font-weight: 500;
 }
 
-.lv-floor .material-symbols-rounded {
+.lv-floor .lv-icon {
   font-size: 18px;
 }
 
@@ -793,7 +722,7 @@ body.lv-active #hud::before {
   justify-content: center;
 }
 
-.lv-dest-icon .material-symbols-rounded {
+.lv-dest-icon .lv-icon {
   font-size: 22px;
   color: var(--lv-green);
 }
@@ -882,7 +811,7 @@ body.lv-active #hud::before {
   box-shadow: 0 4px 16px rgba(232, 106, 106, 0.35);
 }
 
-.lv-end-nav-btn .material-symbols-rounded {
+.lv-end-nav-btn .lv-icon {
   font-size: 20px;
 }
 
@@ -890,39 +819,83 @@ body.lv-active #hud::before {
   transform: scale(0.98);
 }
 
-/* Arrival */
+/* Arrival - locked centered modal until Okay */
 .lv-arrival {
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: max(16px, calc(env(safe-area-inset-bottom) + 8px));
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 18px 20px;
-  border-radius: 20px;
-  background: var(--lv-sheet-bg);
-  color: var(--lv-text-primary);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
-  z-index: 7;
+  justify-content: center;
+  padding: max(24px, env(safe-area-inset-top)) 20px
+    max(24px, env(safe-area-inset-bottom));
+  background: rgba(0, 0, 0, 0.62);
   pointer-events: auto;
 }
 
+.lv-arrival.hidden {
+  display: none !important;
+}
+
+.lv-arrival-card {
+  width: min(100%, 380px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 36px 28px 28px;
+  border-radius: 28px;
+  background: rgba(28, 28, 30, 0.98);
+  color: var(--lv-text-primary);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.45);
+}
+
 .lv-arrival-icon {
-  font-size: 40px;
+  font-size: 64px;
   color: var(--lv-green);
+  margin-bottom: 12px;
 }
 
 .lv-arrival-title {
-  font-size: 18px;
-  font-weight: 600;
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
 }
 
 .lv-arrival-dest {
-  margin-top: 2px;
-  font-size: 14px;
+  margin: 10px 0 0;
+  font-size: 16px;
   color: var(--lv-text-secondary);
   font-weight: 500;
+  line-height: 1.4;
+  max-width: 100%;
+}
+
+.lv-arrival-ok {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 56px;
+  margin-top: 28px;
+  padding: 14px 24px;
+  border: none;
+  border-radius: 18px;
+  background: var(--lv-cyan);
+  color: #042028;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(69, 212, 240, 0.35);
+  pointer-events: auto;
+}
+
+.lv-arrival-ok:active {
+  filter: brightness(0.96);
+  transform: scale(0.99);
 }
 
 /* Ground chevrons */
@@ -1063,6 +1036,7 @@ body.lv-active #hud::before {
 body.lv-minimized #lv-chrome,
 body.lv-minimized #hud,
 body.lv-minimized #trip-footer,
+body.lv-minimized #arrival-card,
 body.lv-minimized .camera-start-layer,
 body.lv-minimized .lv-dialog-layer,
 body.lv-minimized #fplaces-orientation-compass,

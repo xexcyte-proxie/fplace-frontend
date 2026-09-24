@@ -108,9 +108,12 @@
     if (mode === 'fallback') {
       activeMode = 'xr';
       window.__fplacesArMode = 'slam';
-      promptForCamera('AR needs HTTPS. Tap Start to retry.', {
-        syncXr: true,
-      });
+      promptForCamera(
+        window.isSecureContext
+          ? 'Tap Start to open the camera.'
+          : 'AR needs HTTPS. Open this app over https:// then tap Start.',
+        { syncXr: false },
+      );
       return;
     }
     activeMode = 'xr';
@@ -565,9 +568,13 @@
     if (mode === 'fallback') {
       activeMode = 'xr';
       window.__fplacesArMode = 'slam';
-      promptForCamera('AR needs HTTPS. Tap Start to retry.', {
-        syncXr: true,
-      });
+      // Preview getUserMedia - not XR8.run (engine was not injected).
+      promptForCamera(
+        window.isSecureContext
+          ? 'Tap Start to open the camera.'
+          : 'AR needs HTTPS. Open this app over https:// then tap Start.',
+        { syncXr: false },
+      );
       window.FplacesLiveViewHud?.setTrackingMode?.(
         'slam-loading',
         !window.isSecureContext ? 'Need HTTPS for AR' : 'Starting AR…',

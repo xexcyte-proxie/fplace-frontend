@@ -52,6 +52,8 @@ export interface ArMessageBridgeHost {
   closeAr(): void;
   minimizeAr(): void;
   maximizeAr(): void;
+  lockNavigationArrival(): void;
+  endArNavigation(): void | Promise<void>;
   forceFloor?(floorId: string): void;
 }
 
@@ -1141,6 +1143,14 @@ export function installArMessageBridge(host: ArMessageBridgeHost): void {
       case "fplaces_ar_close":
         appLog("PWA Bridge", `${message.type} received`);
         host.closeAr();
+        break;
+      case "fplaces_ar_arrived":
+        appLog("PWA Bridge", "fplaces_ar_arrived received");
+        host.lockNavigationArrival();
+        break;
+      case "fplaces_ar_arrived_done":
+        appLog("PWA Bridge", "fplaces_ar_arrived_done received");
+        void host.endArNavigation();
         break;
       case "fplaces_ar_minimize":
         appLog("PWA Bridge", "fplaces_ar_minimize received");

@@ -2,13 +2,71 @@ import { describe, expect, it } from 'vitest';
 
 import { WALKING_SPEED_MPS } from './constants';
 import {
+  advanceContinuousAlongMeters,
   computeLiveRemainingMeters,
   estimateLiveWalkSeconds,
   hasArrivedAtDestination,
   resolveCanonicalRouteDistanceMeters,
+  resolveLiveNavigationStartAlongMeters,
   shouldRevealDestinationMarker,
   LiveAlongPathStabilizer,
 } from './route-progress';
+
+describe('resolveLiveNavigationStartAlongMeters', () => {
+  it('seeds Begin from the last projected snap so the blue-dot does not yank to 0', () => {
+    expect(
+      resolveLiveNavigationStartAlongMeters({
+        lastProjectedAlongMeters: 4.2,
+        routeTraveledMeters: 0,
+      }),
+    ).toBe(4.2);
+  });
+
+  it('falls back to stored traveled meters when no projected snap exists', () => {
+    expect(
+      resolveLiveNavigationStartAlongMeters({
+        lastProjectedAlongMeters: null,
+        routeTraveledMeters: 11,
+      }),
+    ).toBe(11);
+  });
+
+  it('falls back to the path origin when nothing is known yet', () => {
+    expect(resolveLiveNavigationStartAlongMeters({})).toBe(0);
+  });
+});
+
+describe('advanceContinuousAlongMeters', () => {
+  it('crawls forward with continuous GPS snaps', () => {
+    const advanced = advanceContinuousAlongMeters({
+      previousAlongMeters: 5,
+      rawAlongMeters: 7,
+      dtSeconds: 1,
+    });
+    expect(advanced).toBeGreaterThan(5);
+    expect(advanced).toBeLessThanOrEqual(7);
+  });
+
+  it('ignores L-corner teleports beyond the continuity window', () => {
+    expect(
+      advanceContinuousAlongMeters({
+        previousAlongMeters: 5,
+        rawAlongMeters: 40,
+        dtSeconds: 1,
+      }),
+    ).toBe(5);
+  });
+
+  it('does not move backward', () => {
+    expect(
+      advanceContinuousAlongMeters({
+        previousAlongMeters: 8,
+        rawAlongMeters: 6,
+        dtSeconds: 1,
+      }),
+    ).toBe(8);
+  });
+});
 
 describe('resolveCanonicalRouteDistanceMeters', () => {
   it('prefers the geometric path length used by live remaining', () => {
@@ -124,14 +182,14 @@ describe('hasArrivedAtDestination', () => {
     ).toBe(false);
   });
 
-  it('still arrives when GPS is kilometers off the Mappedin path', () => {
+  it('does not arrive when GPS is kilometers off the Mappedin path', () => {
     expect(
       hasArrivedAtDestination({
         totalPathMeters: 100,
         alongPathMeters: 99.5,
         offRouteMeters: 16251,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 
@@ -212,6 +270,44 @@ describe('LiveAlongPathStabilizer', () => {
     expect(
       stabilizer.update({ nextAlongMeters: 48, nowMs: 1_000 }),
     ).toBe(0);
+  });
+
+  it('still advances after a bogus first destination snap (does not poison lastRaw)', () => {
+    const stabilizer = new LiveAlongPathStabilizer();
+    stabilizer.reset(0);
+    expect(
+      stabilizer.update({ nextAlongMeters: 48, nowMs: 1_000 }),
+    ).toBe(0);
+
+    // Real fixes near the start must not look like reverse GPS jumps.
+    expect(
+      stabilizer.update({ nextAlongMeters: 1.5, nowMs: 2_000 }),
+    ).toBe(0);
+    const advanced = stabilizer.update({
+      nextAlongMeters: 3.0,
+      nowMs: 3_000,
+    });
+    expect(advanced).toBeGreaterThan(0);
+    expect(advanced).toBeLessThanOrEqual(3.0);
+  });
+
+  it('recovers walking after a single corridor jump without poisoning the next fix', () => {
+    const stabilizer = new LiveAlongPathStabilizer();
+    stabilizer.reset(40);
+    stabilizer.update({ nextAlongMeters: 40, nowMs: 1_000 });
+    expect(
+      stabilizer.update({ nextAlongMeters: 52, nowMs: 1_200 }),
+    ).toBe(40);
+
+    expect(
+      stabilizer.update({ nextAlongMeters: 41.5, nowMs: 2_200 }),
+    ).toBe(40);
+    const advanced = stabilizer.update({
+      nextAlongMeters: 43.0,
+      nowMs: 3_200,
+    });
+    expect(advanced).toBeGreaterThan(40);
+    expect(advanced).toBeLessThanOrEqual(43.0);
   });
 
   it('freezes along-path meters while standing still with snap jitter', () => {

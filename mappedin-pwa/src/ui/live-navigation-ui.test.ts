@@ -5,6 +5,7 @@ import {
   classifyUiStateChange,
   isLiveNavigationTelemetryOnlyChange,
   myLocationFabPresentation,
+  liveTrackingMessage,
   renderToastHtml,
 } from './live-navigation-ui';
 
@@ -476,5 +477,25 @@ describe('renderToastHtml', () => {
     const html = renderToastHtml('<img src=x onerror=alert(1)>');
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
     expect(html).not.toContain('<img src=x onerror=alert(1)>');
+  });
+});
+
+
+describe('tracking signal feedback', () => {
+  it('keeps an unavailable message until tracking recovers', () => {
+    const state = initialAppState();
+    state.route = {} as NonNullable<typeof state.route>;
+    state.blueDotStatus = 'inactive';
+    expect(liveTrackingMessage(state)).toContain('Waiting for an accurate location');
+    state.blueDotStatus = 'active';
+    expect(liveTrackingMessage(state)).toBe('');
+  });
+  it('does not label an inactive position as live or following', () => {
+    const state = initialAppState();
+    state.blueDotStatus = 'inactive';
+    state.blueDotFollowing = true;
+    expect(myLocationFabPresentation(state)).toMatchObject({
+      trackingActive: false, following: false, label: 'Location unavailable — tap to retry',
+    });
   });
 });

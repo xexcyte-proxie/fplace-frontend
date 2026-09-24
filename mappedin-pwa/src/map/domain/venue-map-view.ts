@@ -10,13 +10,14 @@ export const SHOW_VENUE_MAP_OPTIONS = {
 } as const;
 
 /**
- * One-finger drag should pan the floor plan. Tilt/rotate fights that on
- * touch and is why guests fall back to the zoom buttons.
+ * Standard Mappedin camera gestures for the venue floor plan.
+ * Keep all of these on so drag-pan, pinch-zoom, and two-finger
+ * tilt/rotate work together without falling back to zoom buttons only.
  */
 export const VENUE_CAMERA_INTERACTIONS = {
   pan: true,
   zoom: true,
-  bearingAndPitch: false,
+  bearingAndPitch: true,
 } as const;
 
 export function isWorldScaleZoom(zoomLevel: number | null | undefined): boolean {
