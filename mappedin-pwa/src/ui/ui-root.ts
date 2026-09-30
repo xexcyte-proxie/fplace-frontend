@@ -84,6 +84,7 @@ import {
   applyToastUiPatch,
   classifyUiStateChange,
   myLocationFabPresentation,
+  routeNavigationPresencePresentation,
   renderToastHtml,
 } from "./live-navigation-ui";
 import { buildReturningHomeViewModel } from "../home/presentation/returning-home-data";
@@ -516,7 +517,9 @@ export class UiRoot {
         guestContinueLoading: state.guestContinueLoading,
       }) : ""}
       ${
-        showCreateAccount && state.createAccountPrompt === "invalid-token"
+        showCreateAccount &&
+        state.createAccountPrompt === "invalid-token" &&
+        state.guestAccessAllowed !== false
           ? renderInvalidTokenDialog()
           : ""
       }
@@ -936,7 +939,7 @@ export class UiRoot {
     return `<div class="search-results">${items}</div>`;
   }
 
-  private fabs(state: AppState, _app: MapApp): string {
+  private fabs(state: AppState, app: MapApp): string {
     // Keep FABs clear of route sheet, or of the route-hint pill when that is showing.
     const hintVisible = !state.showRouteSheet || !state.route;
     const bottom =
@@ -945,7 +948,10 @@ export class UiRoot {
         : hintVisible
           ? "calc(var(--bottom-nav-height) + 108px + env(safe-area-inset-bottom))"
           : "calc(var(--bottom-nav-height) + 48px + env(safe-area-inset-bottom))";
-    const locationFab = myLocationFabPresentation(state);
+    const locationFab = myLocationFabPresentation(
+      state,
+      app.selectedVenuePresenceAnchor(),
+    );
     const aboveSheetClass = state.showRouteSheet ? " fabs--above-sheet" : "";
 
     return `
@@ -1032,13 +1038,19 @@ export class UiRoot {
 
   private routeSheet(state: AppState, _app: MapApp): string {
     const summary = buildRouteSheetSummary(state);
+    const navigationPresence = routeNavigationPresencePresentation(state);
     const resetDisabled = summary.isCalculating;
     const beginDisabled =
       summary.isCalculating ||
       state.routeSimulating ||
       summary.needsReset ||
-      !state.route;
-    const arDisabled = summary.isCalculating || summary.needsReset || !state.route;
+      !state.route ||
+      !navigationPresence.enabled;
+    const arDisabled =
+      summary.isCalculating ||
+      summary.needsReset ||
+      !state.route ||
+      !navigationPresence.enabled;
 
     return `
       <div class="route-sheet ${summary.isCalculating ? "route-sheet--calculating" : ""} ${summary.needsReset ? "route-sheet--needs-reset" : ""}">
@@ -1070,6 +1082,7 @@ export class UiRoot {
             type="button"
             id="begin-route-btn"
             class="route-sheet-begin-btn ${beginDisabled ? "is-disabled" : ""}"
+            title="${escapeHtml(navigationPresence.label)}"
             ${beginDisabled ? "disabled" : ""}
           >${escapeHtml(summary.beginLabel)}</button>
           <button
@@ -1078,7 +1091,7 @@ export class UiRoot {
             class="route-sheet-reset-btn ${resetDisabled ? "is-disabled" : ""}"
             ${resetDisabled ? "disabled" : ""}
           >Reset</button>
-          <button type="button" id="open-ar-btn" class="route-sheet-ar-btn" ${arDisabled ? "disabled" : ""}>
+          <button type="button" id="open-ar-btn" class="route-sheet-ar-btn" title="${escapeHtml(navigationPresence.label)}" ${arDisabled ? "disabled" : ""}>
             <svg class="ar-nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 3.5 20 8v8l-8 4.5L4 16V8l8-4.5Z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
               <path d="M12 12.5 20 8M12 12.5v8.5M12 12.5 4 8" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>

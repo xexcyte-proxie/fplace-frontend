@@ -153,7 +153,7 @@ The PWA reads venue records through `/api/forum/venues/`. Set the intended recor
 
 This is a response excerpt, **not a documented create/update request**. Use your backend's existing administration process. This checkout establishes the frontend read contract; it does not establish the backend's admin write endpoint or secret configuration names. See [venue entities](../mappedin-pwa/src/forum/domain/entities.ts) and [API datasource](../mappedin-pwa/src/forum/data/datasources/forum-remote-datasource.ts).
 
-**Current fallback behavior:** `.env.example` advertises `VITE_MAPPEDIN_MAP_ID`, and `config.ts` reads it. However, `selectedVenueMapLoadRequest()` calls `venueMapLoadRequest()` without passing that configured fallback. The helper defaults to the hard-coded demo map `65c0ff7430b94e3fabd5bb8c`. Therefore, set the backend venue's `mappedin_map_id`; changing the environment variable alone does not switch this venue-selection flow. See [venue-map-source.ts](../mappedin-pwa/src/forum/domain/venue-map-source.ts) and [map-app.ts](../mappedin-pwa/src/services/map-app.ts).
+**Current fallback behavior:** `.env.example` advertises `VITE_MAPPEDIN_MAP_ID`, and `config.ts` reads it. `selectedVenueMapLoadRequest()` now passes that configured fallback into `venueMapLoadRequest()`, so changing `VITE_MAPPEDIN_MAP_ID` switches the default map used when the selected venue has no `mappedin_map_id`. Catalog venues should still set the backend venue's `mappedin_map_id` so each venue loads its own map. See [venue-map-source.ts](../mappedin-pwa/src/forum/domain/venue-map-source.ts) and [map-app.ts](../mappedin-pwa/src/services/map-app.ts).
 
 ### B. Ensure backend tokens can read the new map
 

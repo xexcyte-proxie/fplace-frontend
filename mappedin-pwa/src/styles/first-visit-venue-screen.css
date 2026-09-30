@@ -317,6 +317,12 @@
   color: #444444;
 }
 
+.first-visit-post-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
 .first-visit-post-meta {
   display: inline-flex;
   align-items: center;
@@ -335,11 +341,24 @@
   touch-action: manipulation;
 }
 
+.first-visit-post-comment {
+  color: var(--fv-muted);
+}
+
+.first-visit-post-meta.is-upvoted {
+  color: var(--fv-orange);
+}
+
 .first-visit-post-meta svg {
   display: block;
   width: 14px;
   height: 14px;
+  color: var(--app-accent-green, #2e9e68);
   pointer-events: none;
+}
+
+.first-visit-post-comment svg {
+  color: currentColor;
 }
 
 div.first-visit-post-meta {

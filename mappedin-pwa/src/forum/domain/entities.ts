@@ -31,6 +31,7 @@ export interface ForumCategory {
   slug: string;
   description: string;
   disclaimer: string;
+  icon_url?: string | null;
   order: number;
   is_active: boolean;
   created_at: string;

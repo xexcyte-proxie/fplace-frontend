@@ -53,6 +53,7 @@ export interface FirstVisitCrowdPost {
   categoryTone: FirstVisitCategoryTone;
   content: string;
   upvotes: number;
+  comments: number;
   upvoted: boolean;
   /** False for location-conversation rows that have no post upvote API. */
   upvoteable: boolean;

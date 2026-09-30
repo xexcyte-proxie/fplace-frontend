@@ -4,7 +4,7 @@
   --profile-text: #15151f;
   --profile-text-muted: #5c5f69;
   --profile-accent-purple: #7c5cbf;
-  --profile-accent-green: #2e9e68;
+  --profile-upvote-accent: var(--brand-orange, #e07a33);
   --profile-accent-blue: #3a5ba0;
   --profile-surface: #ffffff;
   --profile-border: #c7cad1;
@@ -127,7 +127,7 @@
 }
 
 .profile-stat-value--green {
-  color: var(--profile-accent-green);
+  color: var(--profile-upvote-accent);
 }
 
 .profile-stat-label {
@@ -224,19 +224,20 @@
   font-size: 13px;
   font-weight: 600;
   line-height: 1;
-  color: var(--profile-accent-green);
+  color: var(--profile-upvote-accent);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
 
 .profile-post-upvotes.is-active {
-  color: var(--profile-accent-green);
+  color: var(--profile-upvote-accent);
 }
 
 .profile-post-upvotes svg {
   display: block;
   flex-shrink: 0;
+  color: var(--app-accent-green, #2e9e68);
   pointer-events: none;
 }
 

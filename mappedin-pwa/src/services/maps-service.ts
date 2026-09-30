@@ -87,10 +87,15 @@ export async function resolveMappedinMapCredentials(options?: {
       if (!isAuthCredentialFailure(error)) {
         throw error;
       }
+      const wasGuestAuth = tokenLocalDatasource.isGuestToken();
       // Invalid/expired session: drop user tokens (notifies → sign-in or
       // create-account) and continue as guest so the map can finish loading.
       clearAuthSessionLocally(
-        isInvalidAccessTokenFailure(error) ? 'invalid-token' : 'expired',
+        wasGuestAuth
+          ? 'guest-expired'
+          : isInvalidAccessTokenFailure(error)
+            ? 'invalid-token'
+            : 'expired',
       );
     }
   }

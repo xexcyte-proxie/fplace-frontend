@@ -160,6 +160,8 @@ export type AppTab = "map" | "social" | "profile";
 /** Navigate tab: venue home dashboard vs indoor map. */
 export type NavigateView = "home" | "map";
 
+export type SocialPageTab = "live-feed" | "what-to-expect";
+
 export type ProfileView =
   | "main"
   | "settings"
@@ -289,6 +291,7 @@ export interface ForumCategorySummary {
   slug: string;
   description: string;
   disclaimer: string;
+  iconUrl?: string | null;
   order: number;
   is_active: boolean;
 }
@@ -536,6 +539,8 @@ export interface AppState {
   mapLanguageName: string | null;
   mapLanguageChanging: boolean;
   socialCategory: SocialCategory;
+  socialPageTab: SocialPageTab;
+  socialExpectTopic: string | null;
   /** Map location slug (or section id) used to scope the venue feed. */
   socialLocation: string | null;
   /** Human-readable name of the tapped conversation area, from the map. */
@@ -690,6 +695,8 @@ export const initialAppState = (): AppState => ({
   mapLanguageName: null,
   mapLanguageChanging: false,
   socialCategory: "all",
+  socialPageTab: "live-feed",
+  socialExpectTopic: null,
   socialLocation: null,
   socialLocationName: null,
   socialTag: null,

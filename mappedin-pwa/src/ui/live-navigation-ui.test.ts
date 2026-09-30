@@ -5,6 +5,7 @@ import {
   classifyUiStateChange,
   isLiveNavigationTelemetryOnlyChange,
   myLocationFabPresentation,
+  routeNavigationPresencePresentation,
   liveTrackingMessage,
   renderToastHtml,
 } from './live-navigation-ui';
@@ -457,6 +458,40 @@ describe('myLocationFabPresentation', () => {
     ).toEqual({
       trackingActive: false,
       following: false,
+      enabled: false,
+      label: "You're not at this venue",
+    });
+  });
+
+  it('disables the control using the map anchor when venue coordinates are missing', () => {
+    expect(
+      myLocationFabPresentation(
+        {
+          ...away,
+          forumVenues: [
+            {
+              id: 1,
+              name: 'LTV-8',
+              location: 'Lagos',
+              latitude: null,
+              longitude: null,
+            },
+          ],
+          blueDotStatus: 'active',
+          blueDotFollowing: true,
+        },
+        { latitude: 6.5244, longitude: 3.3792 },
+      ),
+    ).toEqual({
+      trackingActive: false,
+      following: false,
+      enabled: false,
+      label: "You're not at this venue",
+    });
+  });
+
+  it('disables route navigation controls when the user is away from the venue', () => {
+    expect(routeNavigationPresencePresentation(away)).toEqual({
       enabled: false,
       label: "You're not at this venue",
     });

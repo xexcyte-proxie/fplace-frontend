@@ -298,8 +298,11 @@ export async function apiRequest<T>(
   const parsed = await parseBody<T>(response);
 
   if (response.status === 401 && auth && !skipRefresh) {
+    const wasGuestAuth = tokenLocalDatasource.isGuestToken();
     const nextAccess = await refreshAccessToken(
-      sessionClearedReasonFromBody(parsed as ApiErrorBody),
+      wasGuestAuth
+        ? 'guest-expired'
+        : sessionClearedReasonFromBody(parsed as ApiErrorBody),
     );
     if (nextAccess) {
       return apiRequest<T>(path, { ...options, skipRefresh: true });

@@ -299,13 +299,39 @@ describe('applyCommentCounts', () => {
           slug: 'food-and-drinks',
           description: '',
           disclaimer: '',
+          iconUrl: 'https://cdn.example.test/food.svg',
           order: 1,
           is_active: true,
         },
       ])).toEqual([
         { id: 'all', label: 'All' },
-        { id: '2', label: 'Food & Drinks', helpIcon: false },
+        {
+          id: '2',
+          label: 'Food & Drinks',
+          iconUrl: 'https://cdn.example.test/food.svg',
+          helpIcon: false,
+        },
       ]);
+    });
+
+    it('keeps raw API icon_url values when categories have not been remapped', () => {
+      expect(categoryFiltersFromApi([
+        {
+          id: 3,
+          name: 'Crowds',
+          slug: 'crowds',
+          description: '',
+          disclaimer: '',
+          icon_url: 'https://cdn.example.test/crowds.svg',
+          order: 1,
+          is_active: true,
+        } as never,
+      ])).toContainEqual({
+        id: '3',
+        label: 'Crowds',
+        iconUrl: 'https://cdn.example.test/crowds.svg',
+        helpIcon: false,
+      });
     });
   });
 

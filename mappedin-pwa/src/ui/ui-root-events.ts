@@ -116,7 +116,7 @@ function handleClick(event: Event, host: UiRootEventHost): void {
 
   const focus = target.closest<HTMLElement>('[data-focus]');
   if (focus?.dataset.focus === 'start') {
-    app.focusRouteStart();
+    void app.focusRouteStart();
     return;
   }
   if (focus?.dataset.focus === 'end') {
@@ -176,6 +176,26 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     return;
   }
 
+  const socialPageTab = target.closest<HTMLButtonElement>('[data-social-page-tab]');
+  if (socialPageTab?.dataset.socialPageTab) {
+    app.setSocialPageTab(
+      socialPageTab.dataset.socialPageTab as AppState['socialPageTab'],
+    );
+    return;
+  }
+
+  const expectTopic = target.closest<HTMLButtonElement>('[data-expect-topic]');
+  if (expectTopic?.dataset.expectTopic) {
+    app.setSocialExpectTopic(expectTopic.dataset.expectTopic);
+    return;
+  }
+
+  const expectTopicsBack = target.closest<HTMLButtonElement>('[data-expect-topics-back]');
+  if (expectTopicsBack) {
+    app.setSocialExpectTopic(null);
+    return;
+  }
+
   const quickReply = target.closest<HTMLButtonElement>('[data-venue-quick-reply]');
   if (quickReply?.dataset.venueQuickReply) {
     app.setVenueQuickReply(quickReply.dataset.venueQuickReply);
@@ -225,7 +245,7 @@ function handleClick(event: Event, host: UiRootEventHost): void {
       void app.openVenueArFromHome();
       return;
     case 'first-visit-ar-open-map-btn':
-      app.confirmArRoutePrompt();
+      void app.confirmArRoutePrompt();
       return;
     case 'first-visit-ar-prompt-dismiss':
       app.dismissArRoutePrompt();
@@ -257,7 +277,7 @@ function handleClick(event: Event, host: UiRootEventHost): void {
       app.routeNextLeg();
       return;
     case 'focus-start-btn':
-      app.focusRouteStart();
+      void app.focusRouteStart();
       return;
     case 'focus-end-btn':
       app.focusRouteEnd();
@@ -288,7 +308,7 @@ function handleClick(event: Event, host: UiRootEventHost): void {
       void app.endArNavigation();
       return;
     case 'begin-route-btn':
-      app.beginOrResetRoute();
+      void app.beginOrResetRoute();
       return;
     case 'onboarding-create-account':
     case 'ar-teaser-skip-btn':

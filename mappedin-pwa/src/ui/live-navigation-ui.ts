@@ -1,5 +1,8 @@
 import type { AppState } from '../types';
-import { userVenuePresence } from '../location/domain/venue-presence';
+import {
+  userVenuePresence,
+  venuePresenceAnchor,
+} from '../location/domain/venue-presence';
 import { buildArNavigationViewModel } from './ar-navigation-data';
 import { escapeHtml } from './escape-html';
 import { formatUnreadBadge } from './notifications-data';
@@ -143,6 +146,7 @@ function isSubset(changed: string[], allowed: Set<string>): boolean {
 function isShowingSocialFeed(state: AppState): boolean {
   return (
     state.activeTab === 'social' &&
+    state.socialPageTab === 'live-feed' &&
     !state.notificationsOpen &&
     !state.postCommentsOpen
   );
@@ -237,6 +241,7 @@ export function myLocationFabPresentation(
     | 'selectedVenueId'
     | 'forumVenues'
   >,
+  mapFallback?: { latitude?: number | null; longitude?: number | null } | null,
 ): {
   trackingActive: boolean;
   following: boolean;
@@ -250,7 +255,7 @@ export function myLocationFabPresentation(
     userVenuePresence(
       state.locationPermission,
       state.userLocation,
-      venue,
+      venuePresenceAnchor(venue, mapFallback),
     ) !== 'away';
   const trackingActive =
     atVenue &&
@@ -269,6 +274,35 @@ export function myLocationFabPresentation(
         : trackingActive
           ? 'Live location active'
           : 'My location',
+  };
+}
+
+export function routeNavigationPresencePresentation(
+  state: Pick<
+    AppState,
+    | 'locationPermission'
+    | 'userLocation'
+    | 'selectedVenueId'
+    | 'forumVenues'
+  >,
+): {
+  enabled: boolean;
+  label: string;
+} {
+  const venue = state.forumVenues.find(
+    (item) => String(item.id) === state.selectedVenueId,
+  );
+  const atVenue =
+    userVenuePresence(
+      state.locationPermission,
+      state.userLocation,
+      venue,
+    ) !== 'away';
+  return {
+    enabled: atVenue,
+    label: atVenue
+      ? 'Start navigation'
+      : "You're not at this venue",
   };
 }
 

@@ -16,6 +16,7 @@ export interface BuildFirstVisitVenueHomeInput {
     feedType: string;
     content: string;
     upvotes: number;
+    comments: number;
     hasUpvoted?: boolean;
     kind?: string;
   }>;
@@ -40,6 +41,7 @@ export function buildFirstVisitVenueHomeContent(
       categoryTone: category.tone,
       content: post.content,
       upvotes: post.upvotes,
+      comments: post.comments,
       upvoted: Boolean(post.hasUpvoted) || upvotedIds.has(post.id),
       upvoteable: post.kind !== 'conversation',
     } satisfies FirstVisitCrowdPost;

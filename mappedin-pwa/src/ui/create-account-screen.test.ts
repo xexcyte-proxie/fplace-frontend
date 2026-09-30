@@ -16,7 +16,7 @@ describe('create account screen (guest CTA)', () => {
     expect(html).toContain('Continue as guest');
   });
 
-  it('hides Continue as guest when the fingerprint gate denies access', () => {
+  it('keeps Continue as guest when the fingerprint gate denies access', () => {
     const html = renderCreateAccountScreen({
       authEmail: '',
       authLoading: false,
@@ -25,8 +25,8 @@ describe('create account screen (guest CTA)', () => {
       guestContinueLoading: false,
     });
 
-    expect(html).not.toContain('id="auth-guest-btn"');
-    expect(html).not.toContain('Continue as guest');
+    expect(html).toContain('id="auth-guest-btn"');
+    expect(html).toContain('Continue as guest');
   });
 
   it('shows a circular spinner on Continue as guest while guest auth is in flight', () => {

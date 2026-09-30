@@ -4,7 +4,6 @@ import { renderBusyLabel } from './content-loading-overlay';
 export function renderOnboardingScreen(
   state: Pick<AppState, 'guestAccessAllowed' | 'authLoading'>,
 ): string {
-  const guestEnabled = state.guestAccessAllowed !== false;
   const disabled = state.authLoading ? 'disabled' : '';
 
   return `
@@ -24,9 +23,6 @@ export function renderOnboardingScreen(
         <button type="button" id="onboarding-login" class="onboarding-cta-secondary" ${disabled}>
           I already have an account
         </button>
-        ${
-          guestEnabled
-            ? `
         <button
           type="button"
           id="auth-guest-btn"
@@ -36,9 +32,6 @@ export function renderOnboardingScreen(
         >
           ${state.authLoading ? renderBusyLabel('Continuing…') : 'Continue as guest'}
         </button>
-        `
-            : ''
-        }
       </div>
     </div>
   `;

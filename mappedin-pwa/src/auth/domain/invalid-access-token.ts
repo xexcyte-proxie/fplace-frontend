@@ -5,7 +5,10 @@
 export const TOKEN_NOT_VALID_DETAIL =
   'Given token not valid for any token type';
 
-export type AuthSessionClearedReason = 'invalid-token' | 'expired';
+export type AuthSessionClearedReason =
+  | 'invalid-token'
+  | 'expired'
+  | 'guest-expired';
 
 export type CreateAccountPrompt = 'invalid-token' | null;
 

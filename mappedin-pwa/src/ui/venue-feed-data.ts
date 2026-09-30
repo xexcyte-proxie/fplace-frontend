@@ -87,14 +87,18 @@ export function resolveVenueFeedAreaName(
 
 export function categoryFiltersFromApi(
   categories: ForumCategorySummary[],
-): Array<{ id: VenueFeedFilter; label: string; helpIcon?: boolean }> {
+): Array<{ id: VenueFeedFilter; label: string; iconUrl?: string | null; helpIcon?: boolean }> {
   return [
     { id: 'all', label: 'All' },
-    ...categories.map((category) => ({
-      id: String(category.id),
-      label: category.name,
-      helpIcon: category.slug === 'help',
-    })),
+    ...categories.map((category) => {
+      const apiIconUrl = (category as { icon_url?: string | null }).icon_url;
+      return {
+        id: String(category.id),
+        label: category.name,
+        iconUrl: category.iconUrl ?? apiIconUrl ?? null,
+        helpIcon: category.slug === 'help',
+      };
+    }),
   ];
 }
 

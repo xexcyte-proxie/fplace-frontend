@@ -17,7 +17,6 @@ import {
   estimateFansLive,
   categoryFiltersFromApi,
   filterVenueFeedPosts,
-  helpDisclaimer,
   VENUE_FEED_QUICK_REPLIES,
   venueFeedTimeAgo,
 } from './venue-feed-data';
@@ -25,6 +24,215 @@ import { escapeHtml } from './escape-html';
 
 function formatLiveCount(count: number): string {
   return count.toLocaleString('en-US');
+}
+
+function categoryIconHtml(
+  iconUrl: string | null | undefined,
+  label: string,
+  className: string,
+): string {
+  const trimmed = iconUrl?.trim();
+  if (!trimmed) return '';
+  return `<img class="${className}" src="${escapeHtml(trimmed)}" alt="" aria-hidden="true" loading="lazy" decoding="async" data-category-icon-label="${escapeHtml(label)}">`;
+}
+
+function categoryBadgeIconHtml(
+  iconUrl: string | null | undefined,
+  label: string,
+): string {
+  const trimmed = iconUrl?.trim();
+  if (!trimmed) return '';
+  return `<span class="venue-feed-badge-icon" style="--venue-category-icon: url(&quot;${escapeHtml(trimmed)}&quot;)" aria-hidden="true" data-category-icon-label="${escapeHtml(label)}"></span>`;
+}
+
+function categoryIconUrl(
+  category: { iconUrl?: string | null; icon_url?: string | null } | null | undefined,
+): string | null {
+  return category?.iconUrl ?? category?.icon_url ?? null;
+}
+
+function categoryToneClass(slug: string | null | undefined): string {
+  const normalized = slug?.trim().toLowerCase() ?? '';
+  if (/help|security|medical/.test(normalized)) return 'venue-feed-badge--help';
+  if (/food|drink|bar|concession/.test(normalized)) return 'venue-feed-badge--food';
+  if (/vibe|fan|energy|hype/.test(normalized)) return 'venue-feed-badge--vibe';
+  if (/line|crowd|wait|queue/.test(normalized)) return 'venue-feed-badge--crowds';
+  return 'venue-feed-badge--default';
+}
+
+function topicIconForSlug(slug: string): string {
+  if (/food|drink|bar|concession/.test(slug)) return '🍔';
+  if (/line|wait|queue/.test(slug)) return '🚶';
+  if (/seat|section|stand/.test(slug)) return '🪑';
+  if (/park|arrival|gate|entry/.test(slug)) return '🅿️';
+  if (/famil|access|ada|kid/.test(slug)) return '👥';
+  if (/first|tip|info/.test(slug)) return '💡';
+  if (/help|security|medical/.test(slug)) return '🛟';
+  return '✨';
+}
+
+function visitedLabel(createdAt?: string): string {
+  if (!createdAt) return 'Visited recently';
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return 'Visited recently';
+  return `Visited ${date.toLocaleDateString('en-US', {
+    month: 'short',
+    year: 'numeric',
+  })}`;
+}
+
+type ExpectTip = {
+  author: string;
+  initials: string;
+  avatarColor: string;
+  visited: string;
+  content: string;
+  upvotes: number;
+};
+
+type ExpectTopicFallback = {
+  name: string;
+  slug: string;
+  tips: ExpectTip[];
+};
+
+const EXPECT_TOPIC_FALLBACKS: ExpectTopicFallback[] = [
+  {
+    name: 'Food and Drinks',
+    slug: 'food-and-drinks',
+    tips: [
+      {
+        author: 'RedKestrel',
+        initials: 'RK',
+        avatarColor: '#c9561f',
+        visited: 'Visited Oct 2025',
+        content: 'The cheesesteak stand at Gate B is worth every cent. Get there before kick-off - line doubles at half time. Cash only.',
+        upvotes: 84,
+      },
+      {
+        author: 'MapleNine',
+        initials: 'MN',
+        avatarColor: '#1f7772',
+        visited: 'Visited Sep 2025',
+        content: 'Skip the main concourse food - overpriced and slow. The hot food stands on Level 2 are half the price and no queue.',
+        upvotes: 61,
+      },
+      {
+        author: 'QuietPelican',
+        initials: 'QP',
+        avatarColor: '#7b5ab6',
+        visited: 'Visited Aug 2025',
+        content: 'Water is expensive inside. Bring an empty bottle through security and fill it at the fountains near Section 108.',
+        upvotes: 129,
+      },
+    ],
+  },
+  {
+    name: 'Lines and Wait Times',
+    slug: 'lines-and-wait-times',
+    tips: [
+      {
+        author: 'GateRunner',
+        initials: 'GR',
+        avatarColor: '#3a5ba0',
+        visited: 'Visited Sep 2025',
+        content: 'North entrance moves fastest after doors open. The east gate looks shorter, but security checks are slower there.',
+        upvotes: 47,
+      },
+      {
+        author: 'AisleScout',
+        initials: 'AS',
+        avatarColor: '#2e9e68',
+        visited: 'Visited Aug 2025',
+        content: 'Restrooms beside the main stairs back up badly at intermission. Walk one section over and you will save ten minutes.',
+        upvotes: 72,
+      },
+    ],
+  },
+  {
+    name: 'Seats and Sections',
+    slug: 'seats-and-sections',
+    tips: [
+      {
+        author: 'SeatSage',
+        initials: 'SS',
+        avatarColor: '#8b63d4',
+        visited: 'Visited Jul 2025',
+        content: 'Rows 12-16 in the lower bowl have the cleanest sightline without paying center-section prices.',
+        upvotes: 55,
+      },
+    ],
+  },
+  {
+    name: 'Parking and Arrival',
+    slug: 'parking-and-arrival',
+    tips: [
+      {
+        author: 'LotPilot',
+        initials: 'LP',
+        avatarColor: '#d97706',
+        visited: 'Visited Oct 2025',
+        content: 'Park one block west if you plan to leave right away. The official lot is convenient going in and slow going out.',
+        upvotes: 39,
+      },
+    ],
+  },
+  {
+    name: 'Families and Access',
+    slug: 'families-and-access',
+    tips: [
+      {
+        author: 'FamilyLane',
+        initials: 'FL',
+        avatarColor: '#0284c7',
+        visited: 'Visited Jun 2025',
+        content: 'Guest services near the south lobby can tag strollers and point you to the quieter elevator.',
+        upvotes: 28,
+      },
+    ],
+  },
+  {
+    name: 'First Timer Tips',
+    slug: 'first-timer-tips',
+    tips: [
+      {
+        author: 'FreshFan',
+        initials: 'FF',
+        avatarColor: '#16a085',
+        visited: 'Visited Sep 2025',
+        content: 'Take your entry photo before the crowd builds. The best backdrop is just inside the west concourse.',
+        upvotes: 64,
+      },
+    ],
+  },
+];
+
+function slugifyTopicName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function fallbackForTopic(name: string, slug: string): ExpectTopicFallback {
+  const normalizedSlug = slug || slugifyTopicName(name);
+  return (
+    EXPECT_TOPIC_FALLBACKS.find(
+      (topic) =>
+        topic.slug === normalizedSlug ||
+        topic.name.toLowerCase() === name.toLowerCase(),
+    ) ?? {
+      name,
+      slug: normalizedSlug,
+      tips: [
+        {
+          author: 'VenueRegular',
+          initials: 'VR',
+          avatarColor: '#3a5ba0',
+          visited: 'Visited recently',
+          content: `Check ${name.toLowerCase()} before the rush. A small detour usually saves time once the venue fills up.`,
+          upvotes: 24,
+        },
+      ],
+    }
+  );
 }
 
 // Keep connection diagnostics out of user-facing copy in every connection state.
@@ -73,32 +281,21 @@ export function renderVenueFeedScreen(state: AppState): string {
   const draftLength = Math.min(state.venueFeedDraft.length, composerMax);
   const venueName = selectedVenue?.name ?? 'Venue';
   const scopeLabel = selectedCategory?.name ?? venueName;
-  const feedTitle = 'Posts';
-  const liveCount = estimateFansLive(
-    posts,
-    state.authUser?.id ?? null,
-  );
   const liveStatus = venueLiveStatusMeta(
     state.venueLiveStatus,
   );
   // Only claim "fans live" while the matching socket is actually connected;
   // otherwise describe the feed as recent posts/messages (idle) or show the status.
   const liveConnection = state.venueLiveStatus;
+  const activeSocialPageTab = state.socialPageTab;
+  const showingLiveFeed = activeSocialPageTab === 'live-feed';
   const liveSubtitle = liveStatus.subtitle
     ? liveStatus.subtitle
     : liveConnection === 'connected'
-      ? `${scopeLabel} · ${formatLiveCount(liveCount)} fan(s) live`
-      : `${scopeLabel} · recent posts`;
+      ? 'Live'
+      : 'Recent activity';
   // The API exposes feed authors, not attendance or event metadata.
   const participantCount = estimateFansLive(state.venueFeedPosts);
-  const contextStatus = state.venueLiveStatus === 'connected'
-    ? 'Live'
-    : state.venueLiveStatus === 'connecting'
-      ? 'Connecting'
-      : state.venueLiveStatus === 'reconnecting'
-        ? 'Reconnecting'
-        : state.venueLiveStatus === 'idle' ? 'Recent activity' : 'Live updates paused';
-  const contextDot = venueLiveStatusMeta(state.venueLiveStatus).dotClass;
   const filters = categoryFiltersFromApi(state.forumCategories)
     .map(
       (filter) => `
@@ -108,6 +305,7 @@ export function renderVenueFeedScreen(state: AppState): string {
         data-venue-filter="${escapeHtml(filter.id)}"
         aria-selected="${filter.id === state.venueFeedFilter ? 'true' : 'false'}"
       >
+        ${categoryIconHtml(filter.iconUrl, filter.label, 'venue-feed-filter-icon-img')}
         ${escapeHtml(filter.label)}
       </button>
     `,
@@ -141,6 +339,7 @@ export function renderVenueFeedScreen(state: AppState): string {
             (item) => String(item.id) === post.categoryId,
           );
           const chipLabel = category?.name ?? post.feedType.replaceAll('-', ' ');
+          const chipTone = categoryToneClass(category?.slug ?? post.feedType);
           return `
         <article class="venue-feed-card ${isHelp ? 'venue-feed-card--help' : ''}">
           <div class="venue-feed-card-header">
@@ -153,7 +352,7 @@ export function renderVenueFeedScreen(state: AppState): string {
                 <div class="venue-feed-meta">${escapeHtml(venueName)} · ${escapeHtml(venueFeedTimeAgo(post))}</div>
               </div>
             </div>
-            <span class="venue-feed-badge venue-feed-badge--category">${escapeHtml(chipLabel)}</span>
+            <span class="venue-feed-badge venue-feed-badge--category ${chipTone}">${categoryBadgeIconHtml(categoryIconUrl(category), chipLabel)}${escapeHtml(chipLabel)}</span>
           </div>
           <p class="venue-feed-card-content">${escapeHtml(post.content)}</p>
           <div class="venue-feed-card-footer">
@@ -227,48 +426,157 @@ export function renderVenueFeedScreen(state: AppState): string {
       `
     : '';
 
-  const emergencyText =
-    helpDisclaimer(state.forumCategories, state.venueFeedFilter) ??
-    helpDisclaimer(state.forumCategories, 'all') ??
-    'For medical or security emergencies, please contact stadium staff directly.';
-  const emergencyBanner = `
-        <div class="venue-feed-emergency" role="note">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.75"></circle>
-            <path d="M12 8v5M12 16h.01" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
-          </svg>
-          <span>${escapeHtml(emergencyText)}</span>
+  const socialPageTabs = `
+        <div class="venue-feed-page-tabs ${showingLiveFeed ? '' : 'venue-feed-page-tabs--expect'}" role="tablist" aria-label="Social sections">
+          <button
+            type="button"
+            class="venue-feed-page-tab ${showingLiveFeed ? 'is-active' : ''}"
+            data-social-page-tab="live-feed"
+            role="tab"
+            aria-selected="${showingLiveFeed ? 'true' : 'false'}"
+          >Live Feed</button>
+          <button
+            type="button"
+            class="venue-feed-page-tab ${!showingLiveFeed ? 'is-active' : ''}"
+            data-social-page-tab="what-to-expect"
+            role="tab"
+            aria-selected="${!showingLiveFeed ? 'true' : 'false'}"
+          >What to Expect</button>
         </div>
+      `;
+  const categoriesForExpect =
+    state.forumCategories.length > 0
+      ? state.forumCategories
+      : EXPECT_TOPIC_FALLBACKS.map((topic, index) => ({
+          id: index + 1,
+          name: topic.name,
+          slug: topic.slug,
+          description: '',
+          disclaimer: '',
+          iconUrl: null,
+          order: index + 1,
+          is_active: true,
+        }));
+  const expectTopics = categoriesForExpect.map((category) => {
+    const categoryPosts = state.venueFeedPosts.filter(
+      (post) => post.categoryId === String(category.id),
+    );
+    const fallback = fallbackForTopic(category.name, category.slug);
+    return {
+      id: String(category.id),
+      name: category.name,
+      slug: category.slug || fallback.slug,
+      iconUrl: categoryIconUrl(category),
+      count: categoryPosts.length || fallback.tips.length,
+      posts: categoryPosts,
+      fallbackTips: fallback.tips,
+    };
+  });
+  const selectedExpectTopic =
+    expectTopics.find((topic) => topic.id === state.socialExpectTopic) ??
+    null;
+  const expectTopicGrid = expectTopics.length
+    ? expectTopics
+        .map(
+          (topic, index) => `
+          <button
+            type="button"
+            class="venue-feed-expect-topic ${index === 0 ? 'is-featured' : ''}"
+            data-expect-topic="${escapeHtml(topic.id)}"
+          >
+            <span class="venue-feed-expect-topic-icon" aria-hidden="true">${categoryIconHtml(topic.iconUrl, topic.name, 'venue-feed-expect-topic-icon-img') || topicIconForSlug(topic.slug)}</span>
+            <span class="venue-feed-expect-topic-name">${escapeHtml(topic.name)}</span>
+            <span class="venue-feed-expect-topic-count">${formatLiveCount(topic.count)} ${topic.count === 1 ? 'tip' : 'tips'}</span>
+          </button>
+        `,
+        )
+        .join('')
+    : `<p class="venue-feed-expect-empty">Topics will appear here when this venue publishes them.</p>`;
+  const expectTopicPosts = selectedExpectTopic?.posts.length
+    ? selectedExpectTopic.posts
+        .map((post) => {
+          const category = categoriesForExpect.find(
+            (item) => String(item.id) === post.categoryId,
+          );
+          return `
+            <article class="venue-feed-expect-card">
+              <div class="venue-feed-expect-card-top">
+                <div class="venue-feed-expect-author">
+                  <span class="venue-feed-expect-avatar" style="background:${escapeHtml(post.avatarColor)}">${escapeHtml(post.initials)}</span>
+                  <strong>${escapeHtml(post.author)}</strong>
+                </div>
+                <span class="venue-feed-expect-visited">✓ ${escapeHtml(visitedLabel(post.createdAt))}</span>
+              </div>
+              <p>${escapeHtml(post.content)}</p>
+              <div class="venue-feed-expect-card-meta">
+                <span class="venue-feed-expect-upvotes">▲ ${formatLiveCount(post.upvotes)}</span>
+                <span class="venue-feed-expect-chip">${categoryIconHtml(categoryIconUrl(category), category?.name ?? post.feedType, 'venue-feed-expect-chip-icon')}${escapeHtml(category?.name ?? post.feedType)}</span>
+              </div>
+            </article>
+          `;
+        })
+        .join('')
+    : selectedExpectTopic
+      ? selectedExpectTopic.fallbackTips
+          .map(
+            (tip) => `
+            <article class="venue-feed-expect-card">
+              <div class="venue-feed-expect-card-top">
+                <div class="venue-feed-expect-author">
+                  <span class="venue-feed-expect-avatar" style="background:${escapeHtml(tip.avatarColor)}">${escapeHtml(tip.initials)}</span>
+                  <strong>${escapeHtml(tip.author)}</strong>
+                </div>
+                <span class="venue-feed-expect-visited">✓ ${escapeHtml(tip.visited)}</span>
+              </div>
+              <p>${escapeHtml(tip.content)}</p>
+              <div class="venue-feed-expect-card-meta">
+                <span class="venue-feed-expect-upvotes">▲ ${formatLiveCount(tip.upvotes)}</span>
+                <span class="venue-feed-expect-chip">${categoryIconHtml(selectedExpectTopic.iconUrl, selectedExpectTopic.name, 'venue-feed-expect-chip-icon')}${escapeHtml(selectedExpectTopic.name)}</span>
+              </div>
+            </article>
+          `,
+          )
+          .join('')
+      : `<p class="venue-feed-expect-empty">No tips yet for this topic.</p>`;
+  const whatToExpect = selectedExpectTopic
+    ? `
+        <section class="venue-feed-expect" aria-label="What to Expect">
+          <div class="venue-feed-expect-detail-head">
+            <button type="button" class="venue-feed-expect-back" data-expect-topics-back>← All topics</button>
+            <h2><span aria-hidden="true">${topicIconForSlug(selectedExpectTopic.slug)}</span> ${escapeHtml(selectedExpectTopic.name)}</h2>
+            <span>${formatLiveCount(selectedExpectTopic.count)} ${selectedExpectTopic.count === 1 ? 'tip' : 'tips'}</span>
+          </div>
+          <div class="venue-feed-expect-cards">${expectTopicPosts}</div>
+        </section>
+      `
+    : `
+        <section class="venue-feed-expect" aria-label="What to Expect">
+          <p class="venue-feed-expect-intro">From people who've been here. Tap a topic to read their tips.</p>
+          <div class="venue-feed-expect-grid">${expectTopicGrid}</div>
+        </section>
       `;
 
   return `
     <div class="venue-feed">
       <div class="venue-feed-scroll">
-        <section class="venue-feed-context" aria-label="Event context">
-          <div class="venue-feed-context-top">
-            <span class="venue-feed-context-eyebrow">At this venue</span>
-            <span class="venue-feed-context-status" role="status">
-              <span class="venue-feed-live-dot ${contextDot}" aria-hidden="true"></span>
-              ${contextStatus}
-            </span>
-          </div>
-          <p class="venue-feed-context-venue">${escapeHtml(venueName)}</p>
-          <p class="venue-feed-context-event">Event details unavailable</p>
-          <div class="venue-feed-context-crowd">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.75"></circle>
-              <path d="M3 20v-2a6 6 0 0112 0v2M16 5a3 3 0 010 6M21 20v-2a6 6 0 00-3-5.2" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
-            </svg>
-            <span><strong>${formatLiveCount(participantCount)}</strong> ${participantCount === 1 ? 'participant' : 'participants'} in loaded feed</span>
-          </div>
-        </section>
         <header class="venue-feed-header">
           <div class="venue-feed-header-copy">
-            <h1 class="venue-feed-title">${escapeHtml(feedTitle)}</h1>
-            <p class="venue-feed-subtitle" role="status" aria-live="polite" aria-atomic="true">
-              <span class="venue-feed-live-dot ${liveStatus.dotClass}" aria-hidden="true"></span>
-              ${escapeHtml(liveSubtitle)}
-            </p>
+            <span class="venue-feed-eyebrow">At this venue</span>
+            <h1 class="venue-feed-title">${escapeHtml(venueName)}</h1>
+            <div class="venue-feed-header-meta" aria-label="Venue activity">
+              <p class="venue-feed-subtitle" role="status" aria-live="polite" aria-atomic="true">
+                <span class="venue-feed-live-dot ${liveStatus.dotClass}" aria-hidden="true"></span>
+                ${escapeHtml(liveSubtitle)}
+              </p>
+              <span class="venue-feed-meta-divider" aria-hidden="true"></span>
+              <p class="venue-feed-participants">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.75"></circle>
+                  <path d="M3 20v-2a6 6 0 0112 0v2M16 5a3 3 0 010 6M21 20v-2a6 6 0 00-3-5.2" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
+                </svg>
+                <span><strong>${formatLiveCount(participantCount)}</strong> ${participantCount === 1 ? 'participant' : 'participants'}</span>
+              </p>
+            </div>
           </div>
           <button
             type="button"
@@ -292,9 +600,11 @@ export function renderVenueFeedScreen(state: AppState): string {
           </button>
         </header>
 
+        ${socialPageTabs}
+        ${showingLiveFeed
+          ? `
         <div class="venue-feed-filters" role="tablist" aria-label="Post categories">${filters}</div>
-        ${emergencyBanner}
-        <div class="venue-feed-list screen-loading-host">
+        <div class="venue-feed-list screen-loading-host" role="tabpanel" aria-label="Live Feed">
           ${feed}
           ${
             feedLoading
@@ -304,9 +614,12 @@ export function renderVenueFeedScreen(state: AppState): string {
               : ''
           }
         </div>
-        ${loadMore}
+        ${loadMore}`
+          : whatToExpect}
       </div>
 
+      ${showingLiveFeed
+        ? `
       <div class="venue-feed-composer" data-tour-id="venue-composer">
         ${
           !canPostHere
@@ -358,7 +671,8 @@ export function renderVenueFeedScreen(state: AppState): string {
             ? `<div class="venue-feed-char-count">${draftLength} / ${composerMax}</div>`
             : ''
         }
-      </div>
+      </div>`
+        : ''}
     </div>
   `;
 }

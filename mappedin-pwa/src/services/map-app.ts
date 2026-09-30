@@ -39,6 +39,7 @@ import {
   shouldPublishUserLocation,
 } from "../location/domain/user-relative-distance";
 import {
+  arNotAtVenueCopy,
   myLocationNotAtVenueCopy,
   userVenuePresence,
   venuePresenceAnchor,
@@ -92,7 +93,6 @@ import {
   guestDenialUserMessage,
   initializeFingerprint,
   isGuestMode,
-  markGuest2dViewTried,
   markGuestArViewTried,
   registerCurrentGuestFingerprint,
   resolveGuestArEligibility,
@@ -244,6 +244,7 @@ import type {
   RouteCoordinate,
   RoutePayload,
   SocialCategory,
+  SocialPageTab,
   UserLocationCoords,
   VenueFeedFilter,
   VenueFeedPost,
@@ -559,6 +560,7 @@ export class MapApp {
     );
     return venueMapLoadRequest({
       mappedinMapId: venue?.mappedinMapId,
+      defaultMapId: appConfig.mappedin.mapId,
     });
   }
 
@@ -754,21 +756,28 @@ export class MapApp {
       if (isAuthCredentialFailure(error)) {
         clearStoredAuthTokens();
         clearStoredAuthUser();
-        clearReturningSession();
         markDeviceHasUsedApp();
-        const recovery: AuthSessionClearedReason = isInvalidAccessTokenFailure(
-          error,
-        )
-          ? "invalid-token"
-          : "expired";
+        const isGuestReadonly = this.shouldRecoverAuthFailureAsReadonlyGuest();
+        if (!isGuestReadonly) {
+          clearReturningSession();
+        }
+        const recovery: AuthSessionClearedReason = isGuestReadonly
+          ? "guest-expired"
+          : isInvalidAccessTokenFailure(error)
+            ? "invalid-token"
+            : "expired";
         this.pendingSessionRecovery = recovery;
         const recoveryMessage =
-          recovery === "invalid-token"
+          recovery === "guest-expired"
+            ? "Your guest trial has ended. You can still view the map."
+            : recovery === "invalid-token"
             ? "Create an account to continue."
             : "Your session expired. Please log in again.";
         this.store.patch({
           authUser: null,
-          onboardingComplete: false,
+          onboardingComplete: isGuestReadonly
+            ? this.store.get().onboardingComplete
+            : false,
           mapStatus: "error",
           mapError: recoveryMessage,
           loadingMessage: recoveryMessage,
@@ -927,6 +936,17 @@ export class MapApp {
     }
   }
 
+  setSocialPageTab(tab: SocialPageTab): void {
+    this.store.patch({
+      socialPageTab: tab,
+      venueFeedDraft: this.captureVenueFeedDraft(),
+    });
+  }
+
+  setSocialExpectTopic(topicId: string | null): void {
+    this.store.patch({ socialExpectTopic: topicId });
+  }
+
   setHomeVenueSearchQuery(query: string): void {
     this.store.patch({ homeVenueSearchQuery: query });
   }
@@ -950,7 +970,6 @@ export class MapApp {
       navigateView: "map",
       homeVenueSearchQuery: "",
     });
-    void this.consumeGuest2dMapTrial();
   }
 
   private async waitForMapReadyThenEnterNavigate(): Promise<void> {
@@ -968,7 +987,6 @@ export class MapApp {
       navigateView: "map",
       homeVenueSearchQuery: "",
     });
-    void this.consumeGuest2dMapTrial();
   }
 
   private async retryMapLoadThenEnterNavigate(): Promise<void> {
@@ -1064,7 +1082,6 @@ export class MapApp {
         homeVenueSearchQuery: "",
       });
       this.showToast(`Welcome to ${venueName}. You're in.`);
-      void this.consumeGuest2dMapTrial();
     } catch (error) {
       appWarn("Home", "Could not open venue", error);
       const message = resolveUserFacingApiErrorMessage(
@@ -1883,7 +1900,7 @@ export class MapApp {
   /** Try AR from the first-visit venue home. */
   async openVenueArFromHome(): Promise<void> {
     await this.ensureUserLocationForVenuePresence();
-    if (this.blockNavigationOutsideVenue()) return;
+    if (await this.blockNavigationOutsideVenue("ar")) return;
 
     if (isGuestMode()) {
       this.store.patch({ guestArGateLoading: true });
@@ -1940,9 +1957,26 @@ export class MapApp {
     return true;
   }
 
-  /** Require venue presence for route point selection and AR, while allowing map browsing. */
-  private blockNavigationOutsideVenue(): boolean {
+  /**
+   * Require an active guest trial plus venue presence for route point selection
+   * and AR, while allowing read-only map browsing.
+   */
+  private async blockNavigationOutsideVenue(
+    action: "route" | "ar" = "route",
+  ): Promise<boolean> {
+    await this.ensureUserLocationForVenuePresence();
     const state = this.store.get();
+    if (!state.authUser && state.guestAccessAllowed === false) {
+      this.store.patch({
+        arRoutePromptOpen: false,
+        arRouteSetupActive: false,
+        guestArGatePrompt: null,
+        guestArGateLoading: false,
+      });
+      this.showToast(guestDenialUserMessage(state.guestAccessReason));
+      return true;
+    }
+
     const venue = state.forumVenues.find(
       (item) => String(item.id) === state.selectedVenueId,
     );
@@ -1958,6 +1992,11 @@ export class MapApp {
       guestArGatePrompt: null,
       guestArGateLoading: false,
     });
+    if (action === "ar" && presence === "away") {
+      this.store.patch({ arNotAtVenuePromptOpen: true });
+      this.showToast(arNotAtVenueCopy(venue?.name).body);
+      return true;
+    }
     this.showToast(
       presence === "away"
         ? `Setting start/end points and using AR are only available at ${venue?.name || "the location"}. Head there to continue.`
@@ -1978,6 +2017,23 @@ export class MapApp {
         venuePresenceAnchor(venue, this.mapPresenceCoordinate()),
       ) === "away"
     );
+  }
+
+  selectedVenuePresenceAnchor(): {
+    latitude: number;
+    longitude: number;
+  } | null {
+    const state = this.store.get();
+    const venue = state.forumVenues.find(
+      (item) => String(item.id) === state.selectedVenueId,
+    );
+    const anchor = venuePresenceAnchor(venue, this.mapPresenceCoordinate());
+    return anchor?.latitude != null &&
+      anchor.longitude != null &&
+      Number.isFinite(anchor.latitude) &&
+      Number.isFinite(anchor.longitude)
+      ? { latitude: anchor.latitude, longitude: anchor.longitude }
+      : null;
   }
 
   private mapPresenceCoordinate(): {
@@ -2007,14 +2063,18 @@ export class MapApp {
   private async ensureUserLocationForVenuePresence(): Promise<void> {
     const state = this.store.get();
     if (state.locationPermission !== "granted") return;
-    if (state.userLocation) return;
+    const now =
+      typeof performance !== "undefined" ? performance.now() : Date.now();
+    const ageMs = this.lastUserLocationPublishAt
+      ? now - this.lastUserLocationPublishAt
+      : Number.POSITIVE_INFINITY;
+    if (state.userLocation && ageMs < 15_000) return;
     try {
       const coords = await this.locationService.requestLocation({
         timeoutMs: 8_000,
       });
       this.lastPublishedUserLocation = coords;
-      this.lastUserLocationPublishAt =
-        typeof performance !== "undefined" ? performance.now() : Date.now();
+      this.lastUserLocationPublishAt = now;
       this.store.patch({ userLocation: coords });
     } catch {
       // Presence stays unknown if GPS is unavailable.
@@ -2022,8 +2082,8 @@ export class MapApp {
   }
 
   /** Confirm Try AR dialog → map with search ready for start/end. */
-  confirmArRoutePrompt(): void {
-    if (this.blockNavigationOutsideVenue()) return;
+  async confirmArRoutePrompt(): Promise<void> {
+    if (await this.blockNavigationOutsideVenue("route")) return;
     this.pendingMapSearchFocus = true;
     this.store.patch({
       arRoutePromptOpen: false,
@@ -2454,6 +2514,11 @@ export class MapApp {
   }
 
   submitVenueSelect(): void {
+    if (this.store.get().guestAccessAllowed === false) {
+      this.showToast("Your guest trial has ended. You can still view the map.");
+      void this.routeExpiredGuestToReadonlyMap();
+      return;
+    }
     void this.enterSelectedVenue({ skipLocationGate: true });
   }
 
@@ -2516,6 +2581,7 @@ export class MapApp {
           slug: category.slug,
           description: category.description,
           disclaimer: category.disclaimer,
+          iconUrl: category.icon_url ?? null,
           order: category.order,
           is_active: category.is_active,
         })),
@@ -2602,6 +2668,7 @@ export class MapApp {
           slug: category.slug,
           description: category.description,
           disclaimer: category.disclaimer,
+          iconUrl: category.icon_url ?? null,
           order: category.order,
           is_active: category.is_active,
         }));
@@ -3070,14 +3137,6 @@ export class MapApp {
       }
     }
 
-    if (this.store.get().guestAccessAllowed === false) {
-      clearReturningSession();
-      this.redirectToCreateAccountForGuestDenial(
-        this.store.get().guestAccessReason ?? "Guest limit reached",
-      );
-      return;
-    }
-
     if (venueId && gateId) {
       this.store.patch({
         selectedVenueId: venueId,
@@ -3098,8 +3157,8 @@ export class MapApp {
 
   /**
    * Generate the browser fingerprint and obtain/refresh a guest JWT via
-   * POST /api/users/guest/. Returns false when the trial is exhausted and the
-   * user was redirected to create account / sign-in.
+   * POST /api/users/guest/. Expired guests continue into read-only map
+   * browsing; route point selection and AR are blocked closer to those actions.
    */
   private async resolveGuestFingerprintGate(): Promise<boolean> {
     try {
@@ -3121,23 +3180,11 @@ export class MapApp {
         trialExpiresAt: result.session?.trialExpiresAt,
       });
 
-      // Authenticated sessions bypass the guest denial redirect.
       if (!result.allowed && !hasStoredAuthTokens()) {
-        if (hasDeviceUsedApp() || Boolean(loadStoredUser())) {
-          markDeviceHasUsedApp();
-          this.store.patch({
-            authLoading: false,
-            guestAccessAllowed: false,
-            guestAccessReason: result.reason,
-          });
-          this.showLogin();
-          this.showToast(guestDenialUserMessage(result.reason));
-          return false;
-        }
-        this.redirectToCreateAccountForGuestDenial(
-          result.reason ?? "Guest trial expired",
+        markDeviceHasUsedApp();
+        this.showToast(
+          `${guestDenialUserMessage(result.reason)} You can still view the map.`,
         );
-        return false;
       }
 
       return true;
@@ -3158,18 +3205,6 @@ export class MapApp {
       });
       return true;
     }
-  }
-
-  private redirectToCreateAccountForGuestDenial(reason: string): void {
-    this.store.patch({
-      authStep: "create",
-      authLoading: false,
-      authFieldErrors: {},
-      guestAccessAllowed: false,
-      guestAccessReason: reason,
-      guestContinueLoading: false,
-    });
-    this.showToast(guestDenialUserMessage(reason));
   }
 
   private async resumeAuthSession(): Promise<void> {
@@ -3244,10 +3279,6 @@ export class MapApp {
    */
   async continueAsGuest(): Promise<void> {
     const state = this.store.get();
-    if (state.guestAccessAllowed === false) {
-      this.showToast(guestDenialUserMessage(state.guestAccessReason));
-      return;
-    }
 
     markDeviceHasUsedApp();
     const fromWelcome = state.authStep === "none";
@@ -3269,9 +3300,10 @@ export class MapApp {
       });
 
       if (!result.allowed) {
-        this.redirectToCreateAccountForGuestDenial(
-          result.reason ?? "Guest trial expired",
+        this.showToast(
+          `${guestDenialUserMessage(result.reason)} You can still view the map.`,
         );
+        await this.routeExpiredGuestToReadonlyMap();
         return;
       }
 
@@ -3302,13 +3334,28 @@ export class MapApp {
   }
 
   dismissCreateAccount(): void {
-    // Guests denied by fingerprint must stay on account creation / sign-in.
-    if (this.store.get().guestAccessAllowed === false) {
+    const state = this.store.get();
+    if (state.guestAccessAllowed === false && state.selectedVenueId) {
       this.store.patch({
-        authStep: "create",
+        authStep: "none",
         authFieldErrors: {},
         authLegalDocument: null,
         legalWebView: null,
+        createAccountPrompt: null,
+        onboardingComplete: true,
+        activeTab: "map",
+        navigateView: "map",
+      });
+      return;
+    }
+
+    if (state.guestAccessAllowed === false) {
+      this.store.patch({
+        authStep: "venue-select",
+        authFieldErrors: {},
+        authLegalDocument: null,
+        legalWebView: null,
+        createAccountPrompt: null,
       });
       return;
     }
@@ -3997,13 +4044,18 @@ export class MapApp {
       this.disconnectVenueLiveFeed();
       this.disconnectLocationLiveFeed();
       this.disconnectPersonalNotifications();
-      clearReturningSession();
+      if (reason !== "guest-expired") {
+        clearReturningSession();
+      }
       clearStoredAuthUser();
       markDeviceHasUsedApp();
       this.pendingSessionRecovery = reason;
       this.store.patch({
         authUser: null,
-        onboardingComplete: false,
+        onboardingComplete:
+          reason === "guest-expired"
+            ? this.store.get().onboardingComplete
+            : false,
         authLoading: false,
       });
 
@@ -4027,6 +4079,17 @@ export class MapApp {
     const recovery = this.pendingSessionRecovery;
     if (!recovery) return;
     this.pendingSessionRecovery = null;
+    if (recovery === "guest-expired") {
+      void this.routeExpiredGuestToReadonlyMap();
+      this.store.patch({
+        authLoading: false,
+        guestAccessAllowed: false,
+        guestAccessReason: "Guest trial expired",
+        createAccountPrompt: null,
+      });
+      this.showToast("Your guest trial has ended. You can still view the map.");
+      return;
+    }
     if (recovery === "invalid-token") {
       this.routeToCreateAccountForInvalidToken();
       return;
@@ -4041,6 +4104,7 @@ export class MapApp {
   private finishIfInvalidTokenRecovery(): boolean {
     if (
       this.pendingSessionRecovery !== "invalid-token" &&
+      this.pendingSessionRecovery !== "guest-expired" &&
       this.store.get().createAccountPrompt !== "invalid-token"
     ) {
       return false;
@@ -4065,6 +4129,34 @@ export class MapApp {
     this.store.patch({
       guestAccessAllowed: false,
     });
+  }
+
+  private async routeExpiredGuestToReadonlyMap(): Promise<void> {
+    const state = this.store.get();
+    this.store.patch({
+      authLoading: false,
+      guestContinueLoading: false,
+      guestAccessAllowed: false,
+      guestAccessReason: "Guest trial expired",
+      createAccountPrompt: null,
+      authFieldErrors: {},
+      authLegalDocument: null,
+      legalWebView: null,
+    });
+
+    if (state.selectedVenueId && state.selectedGateId) {
+      this.store.patch({
+        authStep: "none",
+        onboardingComplete: true,
+        activeTab: "map",
+        navigateView: "map",
+        showRouteSheet: false,
+      });
+      await this.ensureMapForSelectedVenue();
+      return;
+    }
+
+    this.showVenueSelect();
   }
 
   private persistSessionUser(user: RegisteredUser): void {
@@ -4177,6 +4269,11 @@ export class MapApp {
 
   private handleAuthFailure(error: unknown, fallbackMessage: string): void {
     if (isInvalidAccessTokenFailure(error)) {
+      if (this.shouldRecoverAuthFailureAsReadonlyGuest()) {
+        this.showToast("Your guest trial has ended. You can still view the map.");
+        void this.routeExpiredGuestToReadonlyMap();
+        return;
+      }
       this.routeToCreateAccountForInvalidToken();
       return;
     }
@@ -4229,6 +4326,16 @@ export class MapApp {
       authFieldErrors: { _form: fallbackMessage },
     });
     appWarn("Auth", fallbackMessage, error);
+  }
+
+  private shouldRecoverAuthFailureAsReadonlyGuest(): boolean {
+    const state = this.store.get();
+    return (
+      !state.authUser &&
+      (state.guestAccessAllowed === false ||
+        Boolean(state.guestId) ||
+        state.authStep === "venue-select")
+    );
   }
 
   async resendVerificationCode(): Promise<boolean> {
@@ -4372,7 +4479,7 @@ export class MapApp {
     selection: LocationCardSelection,
   ): Promise<void> {
     if (!this.routePlanner) return;
-    if (this.blockNavigationOutsideVenue()) return;
+    if (await this.blockNavigationOutsideVenue()) return;
 
     try {
       if (this.store.get().route) {
@@ -4424,7 +4531,7 @@ export class MapApp {
     selection: LocationCardSelection,
   ): Promise<void> {
     if (!this.routePlanner) return;
-    if (this.blockNavigationOutsideVenue()) return;
+    if (await this.blockNavigationOutsideVenue()) return;
 
     try {
       if (this.store.get().route) {
@@ -5470,7 +5577,7 @@ export class MapApp {
     floorName?: string,
   ): Promise<void> {
     if (!this.mapData || !this.routePlanner) return;
-    if (this.blockNavigationOutsideVenue()) return;
+    if (await this.blockNavigationOutsideVenue()) return;
 
     try {
       const target = resolveMapTarget(this.mapData, locationId);
@@ -5806,7 +5913,7 @@ export class MapApp {
   }
 
   async openAr(): Promise<void> {
-    if (this.blockNavigationOutsideVenue()) return;
+    if (await this.blockNavigationOutsideVenue("ar")) return;
     const state = this.store.get();
     if (!state.route) {
       this.showToast("Generate a route before opening AR.");
@@ -5865,7 +5972,7 @@ export class MapApp {
    * backend immediately, then open AR.
    */
   async confirmGuestArOneTimeTrial(): Promise<void> {
-    if (this.blockNavigationOutsideVenue()) return;
+    if (await this.blockNavigationOutsideVenue("ar")) return;
     if (!isGuestMode()) {
       this.store.patch({ guestArGatePrompt: null });
       await this.openAr();
@@ -5882,41 +5989,15 @@ export class MapApp {
       camera: isArSameOrigin() ? 'reuse-only' : 'request',
     });
 
-    this.store.patch({ guestArGateLoading: true });
-    try {
-      const preferences = await markGuestArViewTried();
-      this.store.patch({
-        guestHasTriedArView: preferences.hasTriedArView,
-        guestHasTried2dView: preferences.hasTried2dView,
-        guestArGatePrompt: null,
-        guestArGateLoading: false,
-      });
-      await this.enterArFullscreen();
-    } catch (error) {
-      this.store.patch({ guestArGateLoading: false });
-      appWarn("Guest", "Could not mark AR trial as used", error);
-      this.showToast("Could not start your AR trial. Please try again.");
-    }
-  }
-
-  /** PATCH has_tried_2d_view=true the first time a guest opens the 2D map. */
-  private async consumeGuest2dMapTrial(): Promise<void> {
-    if (!isGuestMode()) return;
-    if (this.store.get().guestHasTried2dView) return;
-
-    try {
-      const preferences = await markGuest2dViewTried();
-      this.store.patch({
-        guestHasTriedArView: preferences.hasTriedArView,
-        guestHasTried2dView: preferences.hasTried2dView,
-      });
-    } catch (error) {
-      appWarn("Guest", "Could not mark 2D map trial as used", error);
-    }
+    this.store.patch({
+      guestArGatePrompt: null,
+      guestArGateLoading: false,
+    });
+    await this.enterArFullscreen();
   }
 
   private async enterArFullscreen(): Promise<void> {
-    if (this.blockNavigationOutsideVenue()) return;
+    if (await this.blockNavigationOutsideVenue("ar")) return;
     const state = this.store.get();
     if (!state.route) {
       this.showToast("Generate a route before opening AR.");
@@ -5968,7 +6049,8 @@ export class MapApp {
       guestArGatePrompt: null,
       guestArGateLoading: false,
     });
-    this.resumeRouteNavigation(progress);
+    void this.consumeGuestArTrialAfterLaunch();
+    void this.resumeRouteNavigation(progress);
     appLog("AR", "Opened", { url, alongPathMeters: progress.alongPathMeters });
 
     void consumeArMediaPermissionPrime({
@@ -5987,6 +6069,21 @@ export class MapApp {
       );
     });
     void this.warmArSensors();
+  }
+
+  private async consumeGuestArTrialAfterLaunch(): Promise<void> {
+    if (!isGuestMode()) return;
+    if (this.store.get().guestHasTriedArView) return;
+
+    try {
+      const preferences = await markGuestArViewTried();
+      this.store.patch({
+        guestHasTriedArView: preferences.hasTriedArView,
+        guestHasTried2dView: preferences.hasTried2dView,
+      });
+    } catch (error) {
+      appWarn("Guest", "Could not mark AR trial as used after launch", error);
+    }
   }
 
   private async warmArSensors(): Promise<void> {
@@ -6070,9 +6167,10 @@ export class MapApp {
     await this.clearRoutePoints();
   }
 
-  focusRouteStart(): void {
+  async focusRouteStart(): Promise<void> {
+    if (await this.blockNavigationOutsideVenue()) return;
     this.routePlanner?.focusRoutePoint("start");
-    this.startRouteMovement({ alongPathMeters: 0, resetProgress: true });
+    void this.startRouteMovement({ alongPathMeters: 0, resetProgress: true });
   }
 
   focusRouteEnd(): void {
@@ -6280,7 +6378,9 @@ export class MapApp {
   }
 
   /** Continue or start navigation at the current map progress when AR opens. */
-  private resumeRouteNavigation(progress: NavigationProgressSnapshot): void {
+  private async resumeRouteNavigation(
+    progress: NavigationProgressSnapshot,
+  ): Promise<void> {
     const state = this.store.get();
     if (!state.route?.pathCoordinates?.length) return;
 
@@ -6295,18 +6395,19 @@ export class MapApp {
       progress.alongPathMeters > 0.05 ||
       progress.routeSimulationComplete
     ) {
-      this.startRouteMovement({ alongPathMeters: progress.alongPathMeters });
+      await this.startRouteMovement({ alongPathMeters: progress.alongPathMeters });
       return;
     }
 
-    this.startRouteMovement();
+    await this.startRouteMovement();
   }
 
   /** Kick live GPS / IPS tracking along the active route. */
-  startRouteMovement(options?: {
+  async startRouteMovement(options?: {
     alongPathMeters?: number;
     resetProgress?: boolean;
-  }): void {
+  }): Promise<void> {
+    if (await this.blockNavigationOutsideVenue()) return;
     const state = this.store.get();
     if (!state.route?.pathCoordinates?.length) {
       this.showToast("Generate a route before starting navigation.");
@@ -6350,8 +6451,8 @@ export class MapApp {
     }
   }
 
-  beginOrResetRoute(): void {
-    this.startRouteMovement();
+  async beginOrResetRoute(): Promise<void> {
+    await this.startRouteMovement();
   }
 
   resetRouteSimulation(): void {
@@ -6516,7 +6617,7 @@ export class MapApp {
       }
 
       if (!this.routePlanner || this.routePlanner.isRoutePlanningPaused) return;
-      if (this.blockNavigationOutsideVenue()) return;
+      if (await this.blockNavigationOutsideVenue()) return;
       const tapCoordinate =
         this.resolveTapCoordinateFromPointer(pointer) ?? event?.coordinate;
       if (!tapCoordinate) return;

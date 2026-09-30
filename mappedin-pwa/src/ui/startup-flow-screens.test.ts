@@ -31,13 +31,13 @@ describe('startup flow screens (widget)', () => {
     expect(html).toContain('Continue as guest');
   });
 
-  it('hides Continue as guest when the fingerprint gate denies access', () => {
+  it('keeps Continue as guest when the fingerprint gate denies access', () => {
     const html = renderOnboardingScreen({
       guestAccessAllowed: false,
       authLoading: false,
     });
-    expect(html).not.toContain('id="auth-guest-btn"');
-    expect(html).not.toContain('Continue as guest');
+    expect(html).toContain('id="auth-guest-btn"');
+    expect(html).toContain('Continue as guest');
   });
 
   it('disables Continue as guest while auth is in progress', () => {

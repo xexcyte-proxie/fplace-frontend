@@ -5,7 +5,7 @@ import { initialAppState } from '../types';
 import type { AppState, ForumCategorySummary, VenueFeedPost } from '../types';
 
 const categories: ForumCategorySummary[] = [
-  { id: 1, name: 'Fan Vibe', slug: 'fan-vibe', description: '', disclaimer: '', order: 1, is_active: true },
+  { id: 1, name: 'Fan Vibe', slug: 'fan-vibe', description: '', disclaimer: '', iconUrl: 'https://cdn.example.test/fan.svg', order: 1, is_active: true },
   { id: 2, name: 'Food & Drinks', slug: 'food-and-drinks', description: '', disclaimer: '', order: 2, is_active: true },
 ];
 
@@ -24,6 +24,48 @@ function feedState(overrides?: Partial<AppState>): AppState {
 }
 
 describe('renderVenueFeedScreen', () => {
+  it('splits Social into Live Feed and What to Expect tabs', () => {
+    const live = renderVenueFeedScreen(feedState());
+    expect(live).toContain('data-social-page-tab="live-feed"');
+    expect(live).toContain('data-social-page-tab="what-to-expect"');
+    expect(live).toMatch(/data-social-page-tab="live-feed"[\s\S]*?aria-selected="true"/);
+    expect(live).toContain('id="venue-feed-input"');
+
+    const expectTab = renderVenueFeedScreen(feedState({
+      socialPageTab: 'what-to-expect',
+    }));
+    expect(expectTab).toMatch(/data-social-page-tab="what-to-expect"[\s\S]*?aria-selected="true"/);
+    expect(expectTab).toContain('aria-label="What to Expect"');
+    expect(expectTab).toContain("From people who've been here");
+    expect(expectTab).toContain('data-expect-topic="1"');
+    expect(expectTab).toContain('3 tips');
+    expect(expectTab).not.toContain('id="venue-feed-input"');
+  });
+
+  it('renders What to Expect topic detail cards', () => {
+    const html = renderVenueFeedScreen(feedState({
+      socialPageTab: 'what-to-expect',
+      socialExpectTopic: '1',
+      venueFeedPosts: [post],
+    }));
+    expect(html).toContain('data-expect-topics-back');
+    expect(html).toContain('Fan Vibe');
+    expect(html).toContain('Hello venue');
+    expect(html).toContain('Visited');
+    expect(html).toContain('▲ 2');
+  });
+
+  it('uses dummy tips when a What to Expect topic has no live posts', () => {
+    const html = renderVenueFeedScreen(feedState({
+      socialPageTab: 'what-to-expect',
+      socialExpectTopic: '2',
+      venueFeedPosts: [],
+    }));
+    expect(html).toContain('The cheesesteak stand at Gate B is worth every cent.');
+    expect(html).toContain('RedKestrel');
+    expect(html).toContain('Visited Oct 2025');
+  });
+
   it('renders backend categories as tabs instead of map sections', () => {
     const html = renderVenueFeedScreen(feedState({
       forumSections: [{ id: 8, venue: 1, name: 'North Stand', code: 'N', is_active: true }],
@@ -34,6 +76,8 @@ describe('renderVenueFeedScreen', () => {
     expect(html).toContain('data-venue-filter="2"');
     expect(html).toContain('Fan Vibe');
     expect(html).toContain('Food &amp; Drinks');
+    expect(html).toContain('src="https://cdn.example.test/fan.svg"');
+    expect(html).toContain('class="venue-feed-filter-icon-img"');
     expect(html).not.toContain('data-venue-section');
     expect(html).not.toContain('>North Stand</button>');
   });
@@ -50,7 +94,9 @@ describe('renderVenueFeedScreen', () => {
 
   it('shows each post category in its chip', () => {
     const html = renderVenueFeedScreen(feedState({ venueFeedPosts: [post] }));
-    expect(html).toContain('venue-feed-badge--category">Fan Vibe</span>');
+    expect(html).toContain('class="venue-feed-badge-icon"');
+    expect(html).toContain('venue-feed-badge--vibe');
+    expect(html).toContain('Fan Vibe</span>');
     expect(html).not.toContain('venue-feed-badge--category">North Stand</span>');
   });
 

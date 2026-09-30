@@ -271,11 +271,13 @@ describe('first-visit venue home', () => {
     expect(html).toContain('LiveFan');
     expect(html).toContain('Gate C is moving.');
     expect(html).toContain('data-upvote-id="p1"');
+    expect(html).toContain('class="first-visit-post-upvote-count">4</span>');
+    expect(html).toContain('data-comments-id="p1"');
     expect(html).toContain('class="first-visit-fans"');
     expect(html).toContain('1 fan(s) here right now');
   });
 
-  it('does not attach upvote controls to location conversation rows', () => {
+  it('does not attach post action controls to location conversation rows', () => {
     const html = renderFirstVisitVenueScreen(
       firstVisitScreenState({
         venueFeedPosts: [
@@ -301,6 +303,7 @@ describe('first-visit venue home', () => {
 
     expect(html).toContain('Anyone at the rail?');
     expect(html).not.toContain('data-upvote-id');
+    expect(html).not.toContain('data-comments-id');
   });
 
   it('keeps the see-all posts hook used by ui-root-events', () => {

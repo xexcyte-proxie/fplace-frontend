@@ -1,4 +1,4 @@
-/** Inline SVGs so chrome paints without waiting on mask PNG downloads. */
+/** Lucide icons rendered inline so navigation paints without network requests. */
 
 function navIcon(inner: string): string {
   return `
@@ -7,22 +7,27 @@ function navIcon(inner: string): string {
       width="22"
       height="22"
       viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
       aria-hidden="true"
     >${inner}</svg>
   `;
 }
 
 export const bottomNavNavigateIcon = navIcon(
-  '<path fill="currentColor" d="M12 2.25c-3.59 0-6.5 2.86-6.5 6.38 0 4.92 6.5 12.87 6.5 12.87s6.5-7.95 6.5-12.87c0-3.52-2.91-6.38-6.5-6.38z"/>',
+  '<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/>',
 );
 
 /** @deprecated Prefer bottomNavNavigateIcon - kept for any legacy references. */
 export const bottomNavMapIcon = bottomNavNavigateIcon;
 
 export const bottomNavSocialIcon = navIcon(
-  '<path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" d="M12 4.35a7.15 7.15 0 0 0-5.95 11.05L4.4 19.4l3.65-1.42A7.15 7.15 0 1 0 12 4.35z"/>',
+  '<path d="M16 10a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M20 8a2 2 0 0 1 2 2v12l-4-4h-8a2 2 0 0 1-2-2v-2"/>',
 );
 
 export const bottomNavProfileIcon = navIcon(
-  '<circle cx="12" cy="8" r="3.15" fill="none" stroke="currentColor" stroke-width="1.75"/><path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" d="M5.85 18.65c.95-2.55 3.2-4.05 6.15-4.05s5.2 1.5 6.15 4.05"/>',
+  '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/><path d="M7 20.662V19a5 5 0 0 1 10 0v1.662"/>',
 );

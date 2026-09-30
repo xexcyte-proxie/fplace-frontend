@@ -32,7 +32,6 @@ export function renderCreateAccountScreen(
   const termsError = authFieldError(state.authFieldErrors, 'terms');
   const generalError = authFieldError(state.authFieldErrors, '_form');
   const googleEnabled = isGoogleSignInConfigured();
-  const guestEnabled = state.guestAccessAllowed !== false;
   const guestLoading = Boolean(state.guestContinueLoading);
   const formLoading = state.authLoading && !guestLoading;
 
@@ -222,9 +221,6 @@ export function renderCreateAccountScreen(
               : ''
           }
 
-          ${
-            guestEnabled
-              ? `
             <button
               type="button"
               id="auth-guest-btn"
@@ -234,9 +230,6 @@ export function renderCreateAccountScreen(
             >
               ${guestLoading ? renderBusyLabel('Continuing…') : 'Continue as guest'}
             </button>
-          `
-              : ''
-          }
 
           <p class="auth-footer-text">
             Already have an account?
