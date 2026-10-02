@@ -174,12 +174,12 @@ describe('first-visit venue home', () => {
     expect(html).toContain('North Stand, Level 1');
     expect(html).toContain('Discover');
     expect(html).toContain('Try AR');
-    expect(html).toContain('Live from the crowd');
+    expect(html).toContain('What to expect');
     expect(html).toContain('id="first-visit-discover-btn"');
     expect(html).toContain('id="first-visit-ar-btn"');
     expect(html).toContain('data-tour-id="home-hero"');
-    expect(html).toContain('See all posts');
-    expect(html).toContain('No posts yet. Be the first to shout out.');
+    expect(html).toContain('View category updates');
+    expect(html).toContain('No venue updates yet for this category.');
     expect(html).toContain('Recently visited');
     expect(html).toContain('Other venues');
     expect(html).toContain('data-home-venue-id="1"');
@@ -240,7 +240,7 @@ describe('first-visit venue home', () => {
     expect(html).toContain('aria-label="Loading posts"');
     expect(html).not.toContain('SwiftOtter_21');
     expect(html).not.toContain('class="first-visit-post"');
-    expect(html).not.toContain('No posts yet. Be the first to shout out.');
+    expect(html).not.toContain('No venue updates yet for this category.');
   });
 
   it('does not overlay a feed that already has posts', () => {
@@ -271,7 +271,9 @@ describe('first-visit venue home', () => {
     expect(html).toContain('LiveFan');
     expect(html).toContain('Gate C is moving.');
     expect(html).toContain('data-upvote-id="p1"');
-    expect(html).toContain('class="first-visit-post-upvote-count">4</span>');
+    expect(html).toContain(
+      'class="first-visit-post-upvote-count venue-feed-upvote-count">4</span>',
+    );
     expect(html).toContain('data-comments-id="p1"');
     expect(html).toContain('class="first-visit-fans"');
     expect(html).toContain('1 fan(s) here right now');

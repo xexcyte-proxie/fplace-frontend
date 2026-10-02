@@ -123,6 +123,19 @@ export function parseVenueLiveMessage(raw: unknown): VenueLiveEvent | null {
         .filter((entry): entry is SectionHeatEntry => entry != null);
       return { type: 'section_heat_update', heatmap };
     }
+    case 'presence_update': {
+      const payload =
+        extractObject(message, ['payload', 'data']) ?? message;
+      const onlineCount = Number(
+        (payload as { online_count?: unknown }).online_count ??
+          (payload as { onlineCount?: unknown }).onlineCount,
+      );
+      if (!Number.isFinite(onlineCount)) return null;
+      return {
+        type: 'presence_update',
+        onlineCount: Math.max(0, Math.floor(onlineCount)),
+      };
+    }
     default:
       return null;
   }

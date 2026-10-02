@@ -41,9 +41,10 @@ function shortenLabel(name: string): string {
 
 export function heatVisualState(
   priority: SectionHeatPriority | null,
+  count = 0,
 ): SocialMarkerVisualState {
-  if (!priority) return "heat-neutral";
-  return `heat-${priority}`;
+  if (count <= 0 || !priority) return "heat-neutral";
+  return "heat-medium";
 }
 
 function classNames(model: SocialMarkerModel): string {

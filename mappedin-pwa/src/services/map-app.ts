@@ -1128,6 +1128,7 @@ export class MapApp {
       sectionHeatmap: [],
       sectionHeatmapActive: false,
       venueLiveStatus: "idle",
+      venueOnlineCount: null,
       locationLiveStatus: "idle",
       socialLocation: null,
       socialLocationName: null,
@@ -2709,6 +2710,7 @@ export class MapApp {
         sectionHeatmap: [],
         sectionHeatmapActive: false,
         venueLiveStatus: "idle",
+        venueOnlineCount: null,
         locationLiveStatus: "idle",
         socialLocation: null,
         socialLocationName: null,
@@ -2773,7 +2775,7 @@ export class MapApp {
   private disconnectVenueLiveFeed(): void {
     this.venueLiveSubscription?.disconnect();
     this.venueLiveSubscription = null;
-    this.store.patch({ venueLiveStatus: "idle" });
+    this.store.patch({ venueLiveStatus: "idle", venueOnlineCount: null });
   }
 
   private disconnectLocationLiveFeed(): void {
@@ -2923,6 +2925,10 @@ export class MapApp {
           })),
           sectionHeatmapActive: true,
         });
+        return;
+      }
+      case "presence_update": {
+        this.store.patch({ venueOnlineCount: event.onlineCount });
         return;
       }
       default:
@@ -3981,6 +3987,7 @@ export class MapApp {
       sectionHeatmap: [],
       sectionHeatmapActive: false,
       venueLiveStatus: "idle",
+      venueOnlineCount: null,
       locationLiveStatus: "idle",
       socialLocation: null,
       socialLocationName: null,
@@ -5747,6 +5754,8 @@ export class MapApp {
       return;
     }
 
+    if (!(await this.ensureLocationEnabledForAction())) return;
+
     if (this.isAwayFromSelectedVenue()) {
       const state = this.store.get();
       const venue = state.forumVenues.find(
@@ -6227,7 +6236,6 @@ export class MapApp {
         routeTraveledMeters: alongPathMeters,
         routeRemainingMeters: remainingHint,
       });
-      this.showToast("Turn on location to track as you walk.");
       return;
     }
 
@@ -6430,8 +6438,7 @@ export class MapApp {
               routeTraveledMeters: state.routeTraveledMeters,
             });
 
-    if (this.store.get().locationPermission !== "granted") {
-      this.showToast("Turn on location to track as you walk.");
+    if (!(await this.ensureLocationEnabledForAction())) {
       return;
     }
     this.alongPathStabilizer.reset(targetAlong);
@@ -7210,6 +7217,23 @@ export class MapApp {
     }
   }
 
+  private async ensureLocationEnabledForAction(): Promise<boolean> {
+    const state = this.store.get();
+    if (state.locationPermission === "granted") return true;
+    if (isLocationGateAuthStep(state.authStep)) return false;
+
+    const underlyingStep = state.authStep;
+    const permanentlyDenied = await this.locationService.isPermanentlyDenied();
+    this.store.patch({
+      authStep: permanentlyDenied ? "location-required" : "location-permission",
+      authStepBeforeLocation: underlyingStep,
+      locationGateLoading: false,
+      locationPermanentlyDenied: permanentlyDenied,
+      locationGateError: null,
+    });
+    return false;
+  }
+
   /**
    * Enable Location CTA - request permission via Geolocation API, then read coords.
    */
@@ -7244,7 +7268,12 @@ export class MapApp {
     if (this.store.get().locationGateLoading) return;
 
     const silent = Boolean(options.silent);
-    const currentStep = this.store.get().authStep;
+    const gateStartState = this.store.get();
+    const currentStep = gateStartState.authStep;
+    const returnToApp =
+      gateStartState.onboardingComplete &&
+      isLocationGateAuthStep(gateStartState.authStep);
+    const returnStep = gateStartState.authStepBeforeLocation ?? "none";
     if (!silent) {
       // Show progress immediately and keep the underlying auth screen frozen
       // (authStepBeforeLocation) before any async permission / GPS work.
@@ -7272,6 +7301,15 @@ export class MapApp {
           await this.continueAfterLocationGranted();
           return;
         }
+        if (returnToApp) {
+          this.store.patch({
+            authStep: "location-error",
+            locationGateLoading: false,
+            locationGateError:
+              "Geolocation is not supported in this browser. Try another browser or device.",
+          });
+          return;
+        }
         this.store.patch({
           authStep: "location-error",
           locationGateLoading: false,
@@ -7286,6 +7324,15 @@ export class MapApp {
         if (silent) {
           this.store.patch({ locationGateLoading: false });
           await this.continueAfterLocationGranted();
+          return;
+        }
+        if (returnToApp) {
+          this.store.patch({
+            authStep: "location-required",
+            locationPermanentlyDenied: true,
+            locationGateLoading: false,
+            locationGateError: null,
+          });
           return;
         }
         this.store.patch({
@@ -7306,6 +7353,15 @@ export class MapApp {
         locationGateError: null,
         locationPermanentlyDenied: false,
       });
+      if (returnToApp) {
+        this.store.patch({
+          authStep: returnStep,
+          authStepBeforeLocation: null,
+          locationGateLoading: false,
+        });
+        void this.maybeAutoStartBlueDot();
+        return;
+      }
       await this.continueAfterLocationGranted();
       void this.maybeAutoStartBlueDot();
     } catch (error) {
@@ -7332,6 +7388,14 @@ export class MapApp {
       if (failure.action === "required") {
         this.persistLocationChoice("denied");
         this.store.patch({ locationGateLoading: false });
+        if (returnToApp) {
+          this.store.patch({
+            authStep: "location-required",
+            locationPermanentlyDenied: failure.permanentlyDenied,
+            locationGateError: null,
+          });
+          return;
+        }
         if (silent || !options.fromPermissionRequired) {
           this.showToast(
             "Location is off. Tap ⊕ anytime if you want to turn it on.",

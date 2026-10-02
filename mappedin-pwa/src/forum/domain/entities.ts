@@ -196,6 +196,7 @@ export type VenueLiveEvent =
   | { type: 'upvote_update'; update: UpvoteUpdatePayload }
   | { type: 'post_hidden'; postId: number }
   | { type: 'section_heat_update'; heatmap: SectionHeatEntry[] }
+  | { type: 'presence_update'; onlineCount: number }
   | { type: 'new_comment'; comment: ForumComment };
 
 export type VenueLiveEventHandler = (event: VenueLiveEvent) => void;

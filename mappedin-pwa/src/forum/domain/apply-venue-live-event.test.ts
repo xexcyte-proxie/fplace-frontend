@@ -26,6 +26,7 @@ function snapshot(overrides: Partial<VenueLiveSnapshot> = {}): VenueLiveSnapshot
     posts: [post()],
     heatmap: [],
     heatmapActive: false,
+    onlineCount: null,
     ...overrides,
   };
 }
@@ -73,6 +74,14 @@ describe('applyVenueLiveEvent', () => {
     });
     expect(heat.snapshot.heatmapActive).toBe(true);
     expect(heat.snapshot.heatmap[0]?.postCount).toBe(6);
+  });
+
+  it('updates online presence from presence_update', () => {
+    const next = applyVenueLiveEvent(snapshot(), {
+      type: 'presence_update',
+      onlineCount: 42,
+    });
+    expect(next.snapshot.onlineCount).toBe(42);
   });
 
   it('surfaces new_comment without mutating the post list', () => {

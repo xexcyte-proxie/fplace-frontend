@@ -92,6 +92,14 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     app.dismissLocationActionPrompt();
     return;
   }
+  if (
+    target instanceof HTMLInputElement &&
+    target.id === 'venue-feed-input' &&
+    target.dataset.requiresCategory === 'true'
+  ) {
+    app.showToast('Pick a category before posting.');
+    return;
+  }
 
   const homeVenue = target.closest<HTMLElement>('[data-home-venue-id]');
   if (homeVenue?.dataset.homeVenueId) {

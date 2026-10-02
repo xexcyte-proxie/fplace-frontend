@@ -88,49 +88,61 @@ export function renderFirstVisitVenueScreen(
       ? view.previewPosts
           .map(
             (post) => `
-      <article class="first-visit-post">
-        <div class="first-visit-post-top">
-          <span class="first-visit-post-author">${escapeHtml(post.author)}</span>
-          <span class="first-visit-post-tag first-visit-post-tag--${escapeHtml(post.categoryTone)}">${escapeHtml(post.categoryLabel)}</span>
+      <article class="first-visit-post venue-feed-card ${post.categoryTone === 'help' ? 'venue-feed-card--help' : ''}">
+        <div class="venue-feed-card-header">
+          <div class="venue-feed-user">
+            <span class="venue-feed-avatar" style="background:${escapeHtml(post.avatarColor)}">
+              ${escapeHtml(post.initials)}
+            </span>
+            <div class="venue-feed-user-copy">
+              <div class="venue-feed-author">${escapeHtml(post.author)}</div>
+              <div class="venue-feed-meta">${escapeHtml(view.venueName || 'This venue')}</div>
+            </div>
+          </div>
+          <span class="venue-feed-badge venue-feed-badge--category venue-feed-badge--${escapeHtml(post.categoryTone)}">${escapeHtml(post.categoryLabel)}</span>
         </div>
-        <p class="first-visit-post-body">${escapeHtml(post.content)}</p>
-        <div class="first-visit-post-actions">
-          ${
-            post.upvoteable
-              ? `<button
+        <p class="venue-feed-card-content">${escapeHtml(post.content)}</p>
+        <div class="venue-feed-card-footer">
+          <div class="venue-feed-card-actions">
+            ${
+              post.upvoteable
+                ? `<button
             type="button"
-            class="first-visit-post-meta ${post.upvoted ? 'is-upvoted' : ''}"
+            class="venue-feed-upvote ${post.upvoted ? 'is-active' : ''}"
             data-upvote-id="${escapeHtml(post.id)}"
             aria-pressed="${post.upvoted ? 'true' : 'false'}"
             aria-label="${post.upvoted ? 'Remove upvote' : 'Upvote'}"
           >
-            ${upvoteIcon}
-            <span class="first-visit-post-upvote-count">${post.upvotes}</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 5l6 7h-4v7H10v-7H6l6-7z" fill="currentColor"></path>
+            </svg>
+            <span class="first-visit-post-upvote-count venue-feed-upvote-count">${post.upvotes}</span>
           </button>`
-              : `<div class="first-visit-post-meta">
+                : `<div class="venue-feed-upvote">
             ${upvoteIcon}
-            <span class="first-visit-post-upvote-count">${post.upvotes}</span>
+            <span class="first-visit-post-upvote-count venue-feed-upvote-count">${post.upvotes}</span>
           </div>`
-          }
-          ${
-            post.upvoteable
-              ? `<button
+            }
+            ${
+              post.upvoteable
+                ? `<button
             type="button"
-            class="first-visit-post-meta first-visit-post-comment"
+            class="venue-feed-comment first-visit-post-comment"
             data-comments-id="${escapeHtml(post.id)}"
             aria-label="Open comments"
           >
             ${commentIcon}
             <span>${post.comments}</span>
           </button>`
-              : ''
-          }
+                : ''
+            }
+          </div>
         </div>
       </article>
     `,
           )
           .join('')
-      : `<p class="first-visit-empty" role="status">No posts yet. Be the first to shout out.</p>`;
+      : `<p class="first-visit-empty" role="status">No venue updates yet for this category.</p>`;
 
   const awayCopy = arNotAtVenueCopy(venue?.name);
   const arPrompt = state.arNotAtVenuePromptOpen
@@ -218,7 +230,7 @@ export function renderFirstVisitVenueScreen(
               ${locationIcon}
             </span>
             <span class="first-visit-action-title">Discover</span>
-            <span class="first-visit-action-copy">See what the crowd is saying</span>
+            <span class="first-visit-action-copy">Pick a category to preview the venue</span>
           </button>
           <button type="button" class="first-visit-action first-visit-action--ar" id="first-visit-ar-btn">
             <span class="first-visit-action-icon" aria-hidden="true">
@@ -230,13 +242,13 @@ export function renderFirstVisitVenueScreen(
         </div>
 
         <div class="first-visit-feed">
-          <h2 class="first-visit-feed-title">Live from the crowd</h2>
+          <h2 class="first-visit-feed-title">What to expect</h2>
           <div class="first-visit-post-list screen-loading-host">
             ${postsMarkup}
             ${feedLoading ? renderContentLoadingOverlay('Loading posts') : ''}
           </div>
           <button type="button" class="first-visit-see-all" id="first-visit-see-all-btn">
-            See all posts
+            View category updates
           </button>
         </div>
         ${venueSections}

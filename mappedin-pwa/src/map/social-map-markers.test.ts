@@ -66,14 +66,22 @@ describe('social map marker updates', () => {
       forumSections: [{ id: 4, name: 'North', mappedinLocationId: 'north' }],
       sectionHeatmap: [{ sectionId: 4, postCount: 9, priority: 'high' as const }] };
     service.syncState(heat);
-    expect(active.get('north')).toContain('social-map-marker--heat-high');
+    expect(active.get('north')).toContain('social-map-marker--heat-medium');
     service.syncState({ ...heat, venueLiveStatus: 'reconnecting' });
     expect(active.get('north')).toContain('out of date');
     expect(active.get('north')).toContain('social-map-marker__metric">9');
     service.syncState(heat);
     expect(active.get('north')).toContain('out of date');
     service.syncState({ ...heat, sectionHeatmap: [...heat.sectionHeatmap] });
-    expect(active.get('north')).toContain('social-map-marker--heat-high');
+    expect(active.get('north')).toContain('social-map-marker--heat-medium');
+  });
+  it('keeps zero-count heatmap sections neutral grey', () => {
+    const { service, state, active } = harness();
+    service.syncState({ ...state, venueLiveStatus: 'connected' as const, sectionHeatmapActive: true,
+      forumSections: [{ id: 4, name: 'North', mappedinLocationId: 'north' }],
+      sectionHeatmap: [{ sectionId: 4, postCount: 0, priority: 'high' as const }] });
+    expect(active.get('north')).toContain('social-map-marker--heat-neutral');
+    expect(active.get('north')).toContain('social-map-marker__metric">0');
   });
   it('expires heat without store updates and clears its timer on destroy', () => {
     const { service, state, active, add } = harness();

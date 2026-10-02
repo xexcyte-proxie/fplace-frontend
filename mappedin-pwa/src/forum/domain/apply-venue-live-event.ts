@@ -10,6 +10,7 @@ export interface VenueLiveSnapshot {
   posts: ForumPost[];
   heatmap: SectionHeatEntry[];
   heatmapActive: boolean;
+  onlineCount: number | null;
 }
 
 export interface ApplyVenueLiveEventResult {
@@ -67,6 +68,15 @@ export function applyVenueLiveEvent(
           ...snapshot,
           heatmap: event.heatmap,
           heatmapActive: true,
+        },
+        liveComment: null,
+      };
+    }
+    case 'presence_update': {
+      return {
+        snapshot: {
+          ...snapshot,
+          onlineCount: event.onlineCount,
         },
         liveComment: null,
       };

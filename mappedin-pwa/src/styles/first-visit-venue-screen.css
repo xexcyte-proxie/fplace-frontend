@@ -7,6 +7,13 @@
   --fv-text: #15151f;
   --fv-muted: #6b6f78;
   --fv-padding-x: 20px;
+  --vf-text: #15151f;
+  --vf-text-muted: #5c5f69;
+  --vf-surface: #ffffff;
+  --vf-border: #c7cad1;
+  --vf-card-radius: 18px;
+  --vf-accent-green: #2e9e68;
+  --vf-help-border: rgba(200, 30, 30, 0.28);
 
   position: absolute;
   inset: 0;
@@ -242,13 +249,11 @@
 }
 
 .first-visit-post {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 18px 18px 18px 18px;
-  border-radius: 20px;
-  background: #f8f8f7;
+  display: block;
+  padding: 17px;
+  border: 1px solid var(--vf-border);
+  border-radius: var(--vf-card-radius);
+  background: var(--vf-surface);
 }
 
 .first-visit-post-top {

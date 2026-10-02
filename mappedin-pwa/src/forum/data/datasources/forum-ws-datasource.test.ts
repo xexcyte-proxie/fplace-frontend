@@ -84,6 +84,13 @@ describe('parseVenueLiveMessage', () => {
       type: 'new_comment',
       comment: { id: 8, post: 44, content: 'Facts' },
     });
+
+    expect(
+      parseVenueLiveMessage({
+        type: 'presence_update',
+        payload: { online_count: 42 },
+      }),
+    ).toEqual({ type: 'presence_update', onlineCount: 42 });
   });
 
   it('ignores unknown or malformed frames', () => {

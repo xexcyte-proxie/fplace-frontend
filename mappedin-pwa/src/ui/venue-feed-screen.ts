@@ -51,6 +51,20 @@ function categoryIconUrl(
   return category?.iconUrl ?? category?.icon_url ?? null;
 }
 
+function expectTopicIconHtml(topic: {
+  iconUrl?: string | null;
+  name: string;
+  slug: string;
+}): string {
+  return (
+    categoryIconHtml(
+      topic.iconUrl,
+      topic.name,
+      'venue-feed-expect-topic-icon-img',
+    ) || topicIconForSlug(topic.slug)
+  );
+}
+
 function categoryToneClass(slug: string | null | undefined): string {
   const normalized = slug?.trim().toLowerCase() ?? '';
   if (/help|security|medical/.test(normalized)) return 'venue-feed-badge--help';
@@ -71,16 +85,6 @@ function topicIconForSlug(slug: string): string {
   return '✨';
 }
 
-function visitedLabel(createdAt?: string): string {
-  if (!createdAt) return 'Visited recently';
-  const date = new Date(createdAt);
-  if (Number.isNaN(date.getTime())) return 'Visited recently';
-  return `Visited ${date.toLocaleDateString('en-US', {
-    month: 'short',
-    year: 'numeric',
-  })}`;
-}
-
 type ExpectTip = {
   author: string;
   initials: string;
@@ -97,6 +101,28 @@ type ExpectTopicFallback = {
 };
 
 const EXPECT_TOPIC_FALLBACKS: ExpectTopicFallback[] = [
+  {
+    name: 'Fan Vibe',
+    slug: 'fan-vibe',
+    tips: [
+      {
+        author: 'CrowdPulse',
+        initials: 'CP',
+        avatarColor: '#16a085',
+        visited: 'Visited Sep 2025',
+        content: 'Expect the loudest energy near the lower bowl and supporters section. It gets lively early, so arrive before the first big chant if you want the full atmosphere.',
+        upvotes: 76,
+      },
+      {
+        author: 'WaveCheck',
+        initials: 'WC',
+        avatarColor: '#8b63d4',
+        visited: 'Visited Aug 2025',
+        content: 'The venue feels most social around the main concourse before start time. After the event, people move quickly toward the west exit.',
+        upvotes: 48,
+      },
+    ],
+  },
   {
     name: 'Food and Drinks',
     slug: 'food-and-drinks',
@@ -295,7 +321,8 @@ export function renderVenueFeedScreen(state: AppState): string {
       ? 'Live'
       : 'Recent activity';
   // The API exposes feed authors, not attendance or event metadata.
-  const participantCount = estimateFansLive(state.venueFeedPosts);
+  const participantCount =
+    state.venueOnlineCount ?? estimateFansLive(state.venueFeedPosts);
   const filters = categoryFiltersFromApi(state.forumCategories)
     .map(
       (filter) => `
@@ -349,7 +376,7 @@ export function renderVenueFeedScreen(state: AppState): string {
               </span>
               <div class="venue-feed-user-copy">
                 <div class="venue-feed-author">${escapeHtml(post.author)}</div>
-                <div class="venue-feed-meta">${escapeHtml(venueName)} · ${escapeHtml(venueFeedTimeAgo(post))}</div>
+                <div class="venue-feed-meta">${escapeHtml(venueFeedTimeAgo(post))}</div>
               </div>
             </div>
             <span class="venue-feed-badge venue-feed-badge--category ${chipTone}">${categoryBadgeIconHtml(categoryIconUrl(category), chipLabel)}${escapeHtml(chipLabel)}</span>
@@ -458,17 +485,13 @@ export function renderVenueFeedScreen(state: AppState): string {
           is_active: true,
         }));
   const expectTopics = categoriesForExpect.map((category) => {
-    const categoryPosts = state.venueFeedPosts.filter(
-      (post) => post.categoryId === String(category.id),
-    );
     const fallback = fallbackForTopic(category.name, category.slug);
     return {
       id: String(category.id),
       name: category.name,
       slug: category.slug || fallback.slug,
       iconUrl: categoryIconUrl(category),
-      count: categoryPosts.length || fallback.tips.length,
-      posts: categoryPosts,
+      count: fallback.tips.length,
       fallbackTips: fallback.tips,
     };
   });
@@ -484,54 +507,36 @@ export function renderVenueFeedScreen(state: AppState): string {
             class="venue-feed-expect-topic ${index === 0 ? 'is-featured' : ''}"
             data-expect-topic="${escapeHtml(topic.id)}"
           >
-            <span class="venue-feed-expect-topic-icon" aria-hidden="true">${categoryIconHtml(topic.iconUrl, topic.name, 'venue-feed-expect-topic-icon-img') || topicIconForSlug(topic.slug)}</span>
+            <span class="venue-feed-expect-topic-icon" aria-hidden="true">${expectTopicIconHtml(topic)}</span>
             <span class="venue-feed-expect-topic-name">${escapeHtml(topic.name)}</span>
-            <span class="venue-feed-expect-topic-count">${formatLiveCount(topic.count)} ${topic.count === 1 ? 'tip' : 'tips'}</span>
+            <span class="venue-feed-expect-topic-count">${formatLiveCount(topic.count)} ${topic.count === 1 ? 'review' : 'reviews'}</span>
           </button>
         `,
         )
         .join('')
     : `<p class="venue-feed-expect-empty">Topics will appear here when this venue publishes them.</p>`;
-  const expectTopicPosts = selectedExpectTopic?.posts.length
-    ? selectedExpectTopic.posts
-        .map((post) => {
-          const category = categoriesForExpect.find(
-            (item) => String(item.id) === post.categoryId,
-          );
-          return `
-            <article class="venue-feed-expect-card">
-              <div class="venue-feed-expect-card-top">
-                <div class="venue-feed-expect-author">
-                  <span class="venue-feed-expect-avatar" style="background:${escapeHtml(post.avatarColor)}">${escapeHtml(post.initials)}</span>
-                  <strong>${escapeHtml(post.author)}</strong>
-                </div>
-                <span class="venue-feed-expect-visited">✓ ${escapeHtml(visitedLabel(post.createdAt))}</span>
-              </div>
-              <p>${escapeHtml(post.content)}</p>
-              <div class="venue-feed-expect-card-meta">
-                <span class="venue-feed-expect-upvotes">▲ ${formatLiveCount(post.upvotes)}</span>
-                <span class="venue-feed-expect-chip">${categoryIconHtml(categoryIconUrl(category), category?.name ?? post.feedType, 'venue-feed-expect-chip-icon')}${escapeHtml(category?.name ?? post.feedType)}</span>
-              </div>
-            </article>
-          `;
-        })
-        .join('')
-    : selectedExpectTopic
+  const expectTopicPosts = selectedExpectTopic
       ? selectedExpectTopic.fallbackTips
           .map(
             (tip) => `
-            <article class="venue-feed-expect-card">
-              <div class="venue-feed-expect-card-top">
-                <div class="venue-feed-expect-author">
-                  <span class="venue-feed-expect-avatar" style="background:${escapeHtml(tip.avatarColor)}">${escapeHtml(tip.initials)}</span>
-                  <strong>${escapeHtml(tip.author)}</strong>
+            <article class="venue-feed-card venue-feed-expect-card">
+              <div class="venue-feed-card-header">
+                <div class="venue-feed-user">
+                  <span class="venue-feed-avatar" style="background:${escapeHtml(tip.avatarColor)}">${escapeHtml(tip.initials)}</span>
+                  <div class="venue-feed-user-copy">
+                    <div class="venue-feed-author">${escapeHtml(tip.author)}</div>
+                    <div class="venue-feed-meta">${escapeHtml(tip.visited)}</div>
+                  </div>
                 </div>
-                <span class="venue-feed-expect-visited">✓ ${escapeHtml(tip.visited)}</span>
+                <span class="venue-feed-badge venue-feed-badge--category ${categoryToneClass(selectedExpectTopic.slug)}">${categoryBadgeIconHtml(selectedExpectTopic.iconUrl, selectedExpectTopic.name)}${escapeHtml(selectedExpectTopic.name)}</span>
               </div>
-              <p>${escapeHtml(tip.content)}</p>
-              <div class="venue-feed-expect-card-meta">
-                <span class="venue-feed-expect-upvotes">▲ ${formatLiveCount(tip.upvotes)}</span>
-                <span class="venue-feed-expect-chip">${categoryIconHtml(selectedExpectTopic.iconUrl, selectedExpectTopic.name, 'venue-feed-expect-chip-icon')}${escapeHtml(selectedExpectTopic.name)}</span>
+              <p class="venue-feed-card-content">${escapeHtml(tip.content)}</p>
+              <div class="venue-feed-card-footer">
+                <div class="venue-feed-card-actions">
+                  <div class="venue-feed-upvote">
+                    <span class="venue-feed-upvote-count">▲ ${formatLiveCount(tip.upvotes)}</span>
+                  </div>
+                </div>
               </div>
             </article>
           `,
@@ -543,15 +548,15 @@ export function renderVenueFeedScreen(state: AppState): string {
         <section class="venue-feed-expect" aria-label="What to Expect">
           <div class="venue-feed-expect-detail-head">
             <button type="button" class="venue-feed-expect-back" data-expect-topics-back>← All topics</button>
-            <h2><span aria-hidden="true">${topicIconForSlug(selectedExpectTopic.slug)}</span> ${escapeHtml(selectedExpectTopic.name)}</h2>
-            <span>${formatLiveCount(selectedExpectTopic.count)} ${selectedExpectTopic.count === 1 ? 'tip' : 'tips'}</span>
+            <h2><span class="venue-feed-expect-detail-icon" aria-hidden="true">${expectTopicIconHtml(selectedExpectTopic)}</span><span class="venue-feed-expect-detail-title">${escapeHtml(selectedExpectTopic.name)}</span></h2>
+            <span>${formatLiveCount(selectedExpectTopic.count)} ${selectedExpectTopic.count === 1 ? 'review' : 'reviews'}</span>
           </div>
           <div class="venue-feed-expect-cards">${expectTopicPosts}</div>
         </section>
       `
     : `
         <section class="venue-feed-expect" aria-label="What to Expect">
-          <p class="venue-feed-expect-intro">From people who've been here. Tap a topic to read their tips.</p>
+          <p class="venue-feed-expect-intro">From people who've been here. Pick a topic to read what to expect.</p>
           <div class="venue-feed-expect-grid">${expectTopicGrid}</div>
         </section>
       `;
@@ -642,7 +647,8 @@ export function renderVenueFeedScreen(state: AppState): string {
                   : `Post in ${scopeLabel}`,
             )}"
             value="${escapeHtml(state.venueFeedDraft)}"
-            ${sending || !canCompose ? 'disabled' : ''}
+            ${sending || !canPostHere ? 'disabled' : ''}
+            ${canPostHere && !canCompose ? 'readonly data-requires-category="true" aria-disabled="true"' : ''}
           />
           <button
             type="button"

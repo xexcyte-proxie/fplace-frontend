@@ -436,6 +436,8 @@ export interface AppState {
   sectionHeatmapActive: boolean;
   /** Venue-room WebSocket lifecycle for live feed + heatmap. */
   venueLiveStatus: VenueLiveConnectionStatus;
+  /** Unique users currently connected to the venue room (`presence_update`). */
+  venueOnlineCount: number | null;
   /** Location conversation WebSocket lifecycle (`ws/venues/<id>/locations/<id>/`). */
   locationLiveStatus: VenueLiveConnectionStatus;
   /**
@@ -629,6 +631,7 @@ export const initialAppState = (): AppState => ({
   sectionHeatmap: [],
   sectionHeatmapActive: false,
   venueLiveStatus: "idle",
+  venueOnlineCount: null,
   locationLiveStatus: "idle",
   startupReady: false,
   mapStatus: "initial",

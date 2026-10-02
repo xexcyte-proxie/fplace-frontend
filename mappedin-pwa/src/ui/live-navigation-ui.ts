@@ -46,6 +46,7 @@ export const HEATMAP_PATCH_KEYS = [
 /** Live forum / conversation payloads that social markers also read. */
 export const SOCIAL_LIVE_KEYS = [
   'venueFeedPosts',
+  'venueOnlineCount',
   'upvotedPostIds',
   'flaggedPostIds',
   'venueLiveStatus',

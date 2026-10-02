@@ -293,7 +293,7 @@ export class SocialMapMarkerService {
     // "live" is only claimed for real venue-feed data: either the venue
     // WebSocket is connected right now, or a post landed within ~5 minutes.
     const visualState = hasLiveHeatmap
-      ? heatVisualState(heat?.priority ?? null)
+      ? heatVisualState(heat?.priority ?? null, count)
       : this.resolveVisualState(
           locationId,
           locationFeedPosts,

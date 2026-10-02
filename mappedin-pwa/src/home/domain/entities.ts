@@ -49,6 +49,8 @@ export type FirstVisitCategoryTone =
 export interface FirstVisitCrowdPost {
   id: string;
   author: string;
+  initials: string;
+  avatarColor: string;
   categoryLabel: string;
   categoryTone: FirstVisitCategoryTone;
   content: string;

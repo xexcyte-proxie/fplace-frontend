@@ -38,11 +38,13 @@ describe('renderVenueFeedScreen', () => {
     expect(expectTab).toContain('aria-label="What to Expect"');
     expect(expectTab).toContain("From people who've been here");
     expect(expectTab).toContain('data-expect-topic="1"');
-    expect(expectTab).toContain('3 tips');
+    expect(expectTab).toContain('class="venue-feed-expect-topic-icon-img"');
+    expect(expectTab).toContain('src="https://cdn.example.test/fan.svg"');
+    expect(expectTab).toContain('2 reviews');
     expect(expectTab).not.toContain('id="venue-feed-input"');
   });
 
-  it('renders What to Expect topic detail cards', () => {
+  it('renders tailored dummy What to Expect reviews instead of live posts', () => {
     const html = renderVenueFeedScreen(feedState({
       socialPageTab: 'what-to-expect',
       socialExpectTopic: '1',
@@ -50,9 +52,11 @@ describe('renderVenueFeedScreen', () => {
     }));
     expect(html).toContain('data-expect-topics-back');
     expect(html).toContain('Fan Vibe');
-    expect(html).toContain('Hello venue');
-    expect(html).toContain('Visited');
-    expect(html).toContain('▲ 2');
+    expect(html).toContain('src="https://cdn.example.test/fan.svg"');
+    expect(html).toContain('Expect the loudest energy near the lower bowl');
+    expect(html).toContain('CrowdPulse');
+    expect(html).toContain('Visited Sep 2025');
+    expect(html).not.toContain('Hello venue');
   });
 
   it('uses dummy tips when a What to Expect topic has no live posts', () => {
@@ -100,14 +104,30 @@ describe('renderVenueFeedScreen', () => {
     expect(html).not.toContain('venue-feed-badge--category">North Stand</span>');
   });
 
+  it('uses venue presence updates for the live participant count', () => {
+    const html = renderVenueFeedScreen(
+      feedState({
+        venueFeedPosts: [post],
+        venueOnlineCount: 42,
+      }),
+    );
+    expect(html).toContain('<strong>42</strong> participants');
+    expect(html).not.toContain('<strong>1</strong> participant');
+  });
+
   it('requires a category selection before composing', () => {
     const all = renderVenueFeedScreen(feedState({ venueFeedDraft: 'Great play' }));
     expect(all).toContain('Pick a category to post');
+    const input = /<input[^>]*id="venue-feed-input"[\s\S]*?>/.exec(all);
+    expect(input?.[0]).toContain('readonly');
+    expect(input?.[0]).toContain('data-requires-category="true"');
     expect(all).toMatch(/id="venue-feed-send-btn"[\s\S]*?disabled/);
 
     const selected = renderVenueFeedScreen(feedState({ venueFeedFilter: '1', venueFeedDraft: 'Great play' }));
     expect(selected).toContain('Post in Fan Vibe');
     expect(selected).toContain('maxlength="140"');
+    const selectedInput = /<input[^>]*id="venue-feed-input"[\s\S]*?>/.exec(selected);
+    expect(selectedInput?.[0]).not.toContain('readonly');
     const button = /<button[^>]*id="venue-feed-send-btn"[\s\S]*?>/.exec(selected);
     expect(button?.[0]).not.toContain('disabled');
   });

@@ -291,11 +291,11 @@ export class UiRoot {
     const showVenueSelect =
       showOnboardingFlow && authUiStep === "venue-select";
     const showLocationPermission =
-      showOnboardingFlow && locationDialogStep === "location-permission";
+      locationDialogStep === "location-permission";
     const showLocationRequired =
-      showOnboardingFlow && locationDialogStep === "location-required";
+      locationDialogStep === "location-required";
     const showLocationError =
-      showOnboardingFlow && locationDialogStep === "location-error";
+      locationDialogStep === "location-error";
     const arFullscreen = state.arPresentation === "fullscreen";
     const showOverlays =
       startupShell === "app" &&

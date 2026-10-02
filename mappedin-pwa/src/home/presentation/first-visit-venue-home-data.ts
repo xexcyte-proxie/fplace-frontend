@@ -13,6 +13,8 @@ export interface BuildFirstVisitVenueHomeInput {
     id: string;
     author: string;
     authorId: number;
+    initials?: string;
+    avatarColor?: string;
     feedType: string;
     content: string;
     upvotes: number;
@@ -37,6 +39,8 @@ export function buildFirstVisitVenueHomeContent(
     return {
       id: post.id,
       author: post.author,
+      initials: post.initials?.trim() || initialsForName(post.author),
+      avatarColor: post.avatarColor?.trim() || '#3a5ba0',
       categoryLabel: category.label,
       categoryTone: category.tone,
       content: post.content,
@@ -55,6 +59,18 @@ export function buildFirstVisitVenueHomeContent(
     fansHereLabel: fansCount > 0 ? formatFansHereLabel(fansCount) : '',
     previewPosts,
   };
+}
+
+function initialsForName(name: string): string {
+  const words = name
+    .trim()
+    .split(/\s|_/)
+    .filter(Boolean);
+  const initials = words
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? '')
+    .join('');
+  return initials || 'FP';
 }
 
 export interface FirstVisitVenueHomeViewModel {
