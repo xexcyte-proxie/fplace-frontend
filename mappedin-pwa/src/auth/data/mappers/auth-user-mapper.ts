@@ -4,6 +4,7 @@ import type {
   ProfileRecentPost,
   UserStat,
 } from '../../domain/entities';
+import { normalizePseudoName } from '../../domain/entities';
 
 /**
  * Normalize GET/PATCH /api/users/me/ (and login-embedded) profile JSON.
@@ -19,18 +20,19 @@ export function coerceAuthUser(raw: unknown): AuthUser | null {
     dto.created_at ?? dto.createdAt ?? new Date().toISOString(),
   );
   const pseudoRaw = dto.pseudo_name ?? dto.pseudoName;
+  const pseudoName =
+    typeof pseudoRaw === 'string' && pseudoRaw.trim()
+      ? normalizePseudoName(pseudoRaw)
+      : pseudoRaw == null
+        ? null
+        : normalizePseudoName(String(pseudoRaw));
   const interestsRaw = dto.interests;
   const userType = dto.user_type ?? dto.userType;
 
   return {
     id,
     email,
-    pseudo_name:
-      typeof pseudoRaw === 'string' && pseudoRaw.trim()
-        ? pseudoRaw.trim()
-        : pseudoRaw == null
-          ? null
-          : String(pseudoRaw),
+    pseudo_name: pseudoName,
     first_name:
       typeof dto.first_name === 'string'
         ? dto.first_name

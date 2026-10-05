@@ -172,31 +172,22 @@ describe('first-visit venue home', () => {
     expect(html).toContain('Welcome back, RowdyGull_47');
     expect(html).toContain('LA Stadium');
     expect(html).toContain('North Stand, Level 1');
-    expect(html).toContain('Discover');
-    expect(html).toContain('Try AR');
     expect(html).toContain('What to expect');
-    expect(html).toContain('id="first-visit-discover-btn"');
-    expect(html).toContain('id="first-visit-ar-btn"');
     expect(html).toContain('data-tour-id="home-hero"');
     expect(html).toContain('View category updates');
     expect(html).toContain('No venue updates yet for this category.');
-    expect(html).toContain('Recently visited');
-    expect(html).toContain('Other venues');
-    expect(html).toContain('data-home-venue-id="1"');
-    expect(html).toContain('data-home-venue-id="3"');
-    expect(html).toContain('data-home-venue-id="8"');
-    expect(html.indexOf('Recently visited')).toBeLessThan(html.indexOf('Other venues'));
+    expect(html).not.toContain('Recently visited');
+    expect(html).not.toContain('Other venues');
+    expect(html).not.toContain('data-home-venue-id="1"');
     expect(html).not.toContain('class="first-visit-fans"');
     expect(html).not.toContain('SwiftOtter_21');
     expect(html).not.toContain('HungryHawk88');
     expect(html).not.toContain('1,204');
-    expect(html).toContain('<svg');
-    expect(html).toContain('currentColor');
     expect(html).not.toContain('/home/location.png');
     expect(html).not.toContain('/home/camera.png');
   });
 
-  it('omits venue lists until home catalog content has loaded', () => {
+  it('does not render venue lists on first-visit home', () => {
     const html = renderFirstVisitVenueScreen(
       firstVisitScreenState({ homeContent: null }),
     );
@@ -204,38 +195,11 @@ describe('first-visit venue home', () => {
     expect(html).not.toContain('Other venues');
   });
 
-  it('renders the Try AR route prompt on the same screen', () => {
-    const html = renderFirstVisitVenueScreen(
-      firstVisitScreenState({ arRoutePromptOpen: true }),
-    );
-
-    expect(html).toContain('Set a route for AR');
-    expect(html).toContain('id="first-visit-ar-open-map-btn"');
-    expect(html).toContain('Open map');
-    expect(html).toContain('id="first-visit-ar-prompt-dismiss"');
-  });
-
-  it('tells the user they are not at the location when Try AR is blocked', () => {
-    const html = renderFirstVisitVenueScreen(
-      firstVisitScreenState({ arNotAtVenuePromptOpen: true }),
-    );
-
-    expect(html).toContain("You're not at the location");
-    expect(html).toContain("You're not at LA Stadium. Head there to try AR navigation.");
-    expect(html).toContain('id="first-visit-ar-away-dismiss-btn"');
-    expect(html).toContain('Got it');
-    expect(html).not.toContain('Set a route for AR');
-  });
-
-  it('keeps action chrome visible and overlays the feed while posts load', () => {
+  it('overlays the feed while posts load', () => {
     const html = renderFirstVisitVenueScreen(
       firstVisitScreenState({ venueFeedLoading: true, venueFeedPosts: [] }),
     );
 
-    expect(html).toContain('id="first-visit-discover-btn"');
-    expect(html).toContain('id="first-visit-ar-btn"');
-    expect(html).toContain('Discover');
-    expect(html).toContain('Try AR');
     expect(html).toContain('screen-loading-overlay');
     expect(html).toContain('aria-label="Loading posts"');
     expect(html).not.toContain('SwiftOtter_21');

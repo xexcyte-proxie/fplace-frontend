@@ -76,6 +76,8 @@ export function renderLoginScreen(
               class="auth-input auth-input--with-toggle${passwordError ? ' auth-input--error' : ''}"
               placeholder="••••••••"
               autocomplete="${AUTH_AUTOCOMPLETE.currentPassword}"
+              minlength="8"
+              title="Password must be at least 8 characters."
               ${state.authLoading ? 'disabled' : ''}
               required
             />
@@ -96,6 +98,14 @@ export function renderLoginScreen(
               />
             </button>
           </div>
+          <span
+            id="login-password-progress"
+            class="auth-password-progress"
+            aria-live="polite"
+            hidden
+          >
+            Password must be at least 8 characters.
+          </span>
           ${passwordError ? `<span class="auth-field-error" role="alert">${escapeHtml(passwordError)}</span>` : ''}
         </label>
 

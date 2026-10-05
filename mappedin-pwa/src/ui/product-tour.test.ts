@@ -1,17 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
-import { stepsForHomeExperience } from '../tour/domain/entities';
+import {
+  initialProductTourSteps,
+  stepsForHomeExperience,
+} from '../tour/domain/entities';
 import { buildProductTourCardView } from '../tour/presentation/product-tour-view';
 import { renderProductTour } from './product-tour';
 
 describe('product tour overlay', () => {
   it('renders skip, next, and the first-step copy', () => {
-    const steps = stepsForHomeExperience('first-visit');
+    const steps = initialProductTourSteps();
     const step = steps[0]!;
     const html = renderProductTour({ step, index: 0, total: steps.length });
 
-    expect(html).toContain('Quick tour');
-    expect(html).toContain('product-tour--center');
+    expect(html).toContain('Navigate');
+    expect(html).not.toContain('product-tour--center');
     expect(html).toContain('id="product-tour-skip-btn"');
     expect(html).toContain('id="product-tour-next-btn"');
     expect(html).toContain('id="product-tour-dont-show"');
@@ -23,7 +26,7 @@ describe('product tour overlay', () => {
   });
 
   it('uses Got it on the last step and shows Back', () => {
-    const steps = stepsForHomeExperience('returning');
+    const steps = initialProductTourSteps();
     const last = steps.length - 1;
     const html = renderProductTour({
       step: steps[last]!,
@@ -33,11 +36,11 @@ describe('product tour overlay', () => {
 
     expect(html).toContain('Got it');
     expect(html).toContain('id="product-tour-back-btn"');
-    expect(html).toContain('data-tour-target="#profile-settings-btn"');
+    expect(html).toContain('data-tour-target="#nav-social"');
   });
 
   it('checks don’t show again from the enabled preference', () => {
-    const steps = stepsForHomeExperience('first-visit');
+    const steps = initialProductTourSteps();
     const html = renderProductTour({
       step: steps[0]!,
       index: 0,

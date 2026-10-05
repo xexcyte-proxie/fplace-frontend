@@ -3,7 +3,7 @@ import type { ReturningHomeContent } from '../home/domain/entities';
 import { resolveDisplayName, type AppState } from '../types';
 import { nounS } from '../auth/domain/user-stats';
 import { renderContentLoadingOverlay } from './content-loading-overlay';
-import { renderHomeVenueSections } from './home-venue-list';
+import { renderHomeRecentPosts } from './home-recent-posts';
 import { escapeHtml } from './escape-html';
 
 export function renderReturningHomeScreen(
@@ -11,8 +11,9 @@ export function renderReturningHomeScreen(
     AppState,
     | 'authUser'
     | 'pseudoNameDraft'
-    | 'homeVenueSearchQuery'
     | 'homeContent'
+    | 'venueFeedPosts'
+    | 'venueFeedLoading'
   >,
 ): string {
   const homeLoading = state.homeContent == null;
@@ -27,17 +28,9 @@ export function renderReturningHomeScreen(
 
   const view = buildReturningHomeViewModel({
     displayName,
-    searchQuery: state.homeVenueSearchQuery,
+    searchQuery: '',
     content,
     profileStat: state.authUser?.stat,
-  });
-
-  const searching = Boolean(view.searchQuery.trim());
-  const venueSections = renderHomeVenueSections({
-    recentlyVisited: view.recentlyVisited,
-    otherVenues: view.otherVenues,
-    searching,
-    loading: homeLoading,
   });
 
   return `
@@ -47,23 +40,6 @@ export function renderReturningHomeScreen(
         <h1 class="returning-home-username">${escapeHtml(view.displayName)}</h1>
         <p class="returning-home-prompt">${escapeHtml(view.prompt)}</p>
       </header>
-
-      <label class="returning-home-search" data-tour-id="returning-search">
-        <svg class="returning-home-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.75"></circle>
-          <path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
-        </svg>
-        <input
-          id="home-venue-search-input"
-          type="search"
-          placeholder="Search a venue"
-          value="${escapeHtml(view.searchQuery)}"
-          autocomplete="off"
-          enterkeyhint="search"
-        />
-      </label>
-
-      <div class="returning-home-venues">${venueSections}</div>
 
       <div class="returning-home-section">
         <h2 class="returning-home-section-title">Your fplaces</h2>
@@ -82,6 +58,11 @@ export function renderReturningHomeScreen(
           </div>
         </div>
       </div>
+
+      ${renderHomeRecentPosts({
+        posts: state.venueFeedPosts,
+        loading: state.venueFeedLoading,
+      })}
       ${homeLoading ? renderContentLoadingOverlay('Loading home') : ''}
     </section>
   `;

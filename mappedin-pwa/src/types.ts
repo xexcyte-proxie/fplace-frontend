@@ -1,4 +1,5 @@
 import type { AuthUser } from "./auth/domain/entities";
+import { normalizePseudoName } from "./auth/domain/entities";
 import type {
   HomeExperience,
   ReturningHomeContent,
@@ -155,7 +156,7 @@ export type BlueDotStatus =
   | "inactive"
   | "error";
 
-export type AppTab = "map" | "social" | "profile";
+export type AppTab = "home" | "map" | "social" | "profile";
 
 /** Navigate tab: venue home dashboard vs indoor map. */
 export type NavigateView = "home" | "map";
@@ -336,7 +337,11 @@ export function loadStoredUser(): RegisteredUser | null {
   try {
     const raw = localStorage.getItem(AUTH_USER_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as RegisteredUser;
+    const user = JSON.parse(raw) as RegisteredUser;
+    return {
+      ...user,
+      pseudo_name: normalizePseudoName(user.pseudo_name),
+    };
   } catch {
     return null;
   }
@@ -344,7 +349,13 @@ export function loadStoredUser(): RegisteredUser | null {
 
 export function storeAuthUser(user: RegisteredUser): void {
   try {
-    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+    localStorage.setItem(
+      AUTH_USER_KEY,
+      JSON.stringify({
+        ...user,
+        pseudo_name: normalizePseudoName(user.pseudo_name),
+      }),
+    );
   } catch {
     /* storage unavailable */
   }
@@ -572,6 +583,8 @@ export interface AppState {
    * Active product-tour step index, or null when the coach-mark overlay is hidden.
    */
   productTourStepIndex: number | null;
+  /** Ordered step ids for the active tour or contextual tip sequence. */
+  productTourStepIds: string[];
   /** True after the user finished or opted out of the product tour on this device. */
   productTourCompleted: boolean;
   /** Settings / “don’t show again” switch. Auto-start requires this to be on. */
@@ -667,7 +680,7 @@ export const initialAppState = (): AppState => ({
   arRouteSetupActive: false,
   arRoutePromptOpen: false,
   arNotAtVenuePromptOpen: false,
-  activeTab: "map",
+  activeTab: "home",
   navigateView: "home",
   homeExperience: "returning",
   homeVenueSearchQuery: "",
@@ -715,6 +728,7 @@ export const initialAppState = (): AppState => ({
   flaggedPostIds: [],
   locationActionPrompt: null,
   productTourStepIndex: null,
+  productTourStepIds: [],
   productTourCompleted: false,
   productTourEnabled: true,
 });

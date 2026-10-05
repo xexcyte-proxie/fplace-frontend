@@ -21,7 +21,7 @@ export function renderOnboardingScreen(
           Create account
         </button>
         <button type="button" id="onboarding-login" class="onboarding-cta-secondary" ${disabled}>
-          I already have an account
+          Sign in
         </button>
         <button
           type="button"

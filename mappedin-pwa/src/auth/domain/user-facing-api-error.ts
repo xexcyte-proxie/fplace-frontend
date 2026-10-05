@@ -15,6 +15,15 @@ const TECHNICAL_HTTP_PHRASES = new Set([
   'http error',
 ]);
 
+function isInvalidLoginMessage(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return (
+    normalized.includes('no active account found') ||
+    normalized.includes('given credentials') ||
+    normalized.includes('invalid credentials')
+  );
+}
+
 export function isTechnicalHttpErrorMessage(message: string): boolean {
   const normalized = message.trim().toLowerCase();
   if (!normalized) return true;
@@ -31,6 +40,9 @@ export function resolveUserFacingApiErrorMessage(
   fallbackMessage: string,
 ): string {
   const trimmed = serverMessage?.trim() ?? '';
+  if (isInvalidLoginMessage(trimmed)) {
+    return 'Wrong email or password.';
+  }
   if (!trimmed || isTechnicalHttpErrorMessage(trimmed)) {
     const fallback = fallbackMessage.trim();
     return fallback || 'Something went wrong. Please try again.';

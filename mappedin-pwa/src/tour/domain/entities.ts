@@ -1,7 +1,7 @@
 import type { HomeExperience } from '../../home/domain/entities';
 
 /** Screen the tour must show before highlighting a control. */
-export type ProductTourSurface = 'home' | 'map' | 'social' | 'profile';
+export type ProductTourSurface = 'home' | 'navigate' | 'map' | 'social' | 'profile';
 
 export type ProductTourPlacement = 'top' | 'bottom' | 'left' | 'center';
 
@@ -29,21 +29,12 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
     audience: 'any',
   },
   {
-    id: 'discover',
-    title: 'Discover the crowd',
-    body: 'See what people here are posting right now: food, lines, and the vibe.',
-    targetSelector: '#first-visit-discover-btn',
-    placement: 'bottom',
-    surface: 'home',
-    audience: 'first-visit',
-  },
-  {
     id: 'try-ar',
     title: 'Try AR navigation',
-    body: 'Point your camera and follow a live path through the venue.',
-    targetSelector: '#first-visit-ar-btn',
+    body: 'Set a route first, then use camera guidance when it helps.',
+    targetSelector: '#navigate-ar-btn',
     placement: 'bottom',
-    surface: 'home',
+    surface: 'navigate',
     audience: 'first-visit',
   },
   {
@@ -137,6 +128,37 @@ export function stepsForHomeExperience(
   );
 }
 
+const INITIAL_PRODUCT_TOUR_STEP_IDS = ['navigate-tab', 'social-tab'] as const;
+
+const CONTEXTUAL_PRODUCT_TOUR_STEP_IDS = [
+  'try-ar',
+  'map-search',
+  'social-composer',
+  'my-location',
+  'profile-settings',
+] as const;
+
+export function productTourStepsByIds(ids: readonly string[]): ProductTourStep[] {
+  return ids
+    .map((id) => PRODUCT_TOUR_STEPS.find((step) => step.id === id) ?? null)
+    .filter((step): step is ProductTourStep => step != null);
+}
+
+export function initialProductTourSteps(): ProductTourStep[] {
+  return productTourStepsByIds(INITIAL_PRODUCT_TOUR_STEP_IDS);
+}
+
+export function contextualProductTourStep(id: string): ProductTourStep | null {
+  if (
+    !CONTEXTUAL_PRODUCT_TOUR_STEP_IDS.some(
+      (contextualId) => contextualId === id,
+    )
+  ) {
+    return null;
+  }
+  return PRODUCT_TOUR_STEPS.find((step) => step.id === id) ?? null;
+}
+
 export function productTourStepAt(
   steps: readonly ProductTourStep[],
   index: number,
@@ -163,11 +185,14 @@ export interface ProductTourPreference {
   completed: boolean;
   /** Settings / “don’t show again” switch. Auto-start requires this to be on. */
   enabled: boolean;
+  /** Contextual tip ids already shown on this device. */
+  seenContextualStepIds: string[];
 }
 
 export const DEFAULT_PRODUCT_TOUR_PREFERENCE: ProductTourPreference = {
   completed: false,
   enabled: true,
+  seenContextualStepIds: [],
 };
 
 export function shouldAutoStartProductTour(options: {
@@ -188,12 +213,12 @@ export function shouldAutoStartProductTour(options: {
 
 /** Persist after Finish, Skip with “don’t show again”, or Settings off. */
 export function preferenceAfterProductTourOptOut(): ProductTourPreference {
-  return { completed: true, enabled: false };
+  return { ...DEFAULT_PRODUCT_TOUR_PREFERENCE, completed: true, enabled: false };
 }
 
 /** Persist after Settings turns the tour back on. */
 export function preferenceAfterProductTourEnable(): ProductTourPreference {
-  return { completed: false, enabled: true };
+  return { ...DEFAULT_PRODUCT_TOUR_PREFERENCE, completed: false, enabled: true };
 }
 
 /** Checkbox on the dialog is the inverse of the enabled preference. */

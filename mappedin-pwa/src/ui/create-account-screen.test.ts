@@ -55,6 +55,10 @@ describe('create account screen (guest CTA)', () => {
     expect(html).toContain('id="auth-email"');
     expect(html).toContain('id="auth-password"');
     expect(html).toContain('id="auth-password-confirm"');
+    expect(html).toContain('minlength="8"');
+    expect(html).toContain('pattern="(?=.*[A-Za-z])(?=.*\\d).{8,}"');
+    expect(html).toContain('id="auth-password-progress"');
+    expect(html).toContain('id="auth-password-confirm-progress"');
     expect(html).toContain('id="auth-password-strength"');
     expect(html).toContain('id="auth-terms"');
     expect(html).toContain('id="auth-terms-link"');

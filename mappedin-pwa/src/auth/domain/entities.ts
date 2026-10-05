@@ -36,6 +36,14 @@ export interface AuthUser {
 /** Neutral fallback when `pseudo_name` is missing during incomplete onboarding. */
 export const DEFAULT_DISPLAY_NAME = 'Guest';
 
+export function normalizePseudoName(
+  value: string | null | undefined,
+): string | null {
+  const name = value?.trim();
+  if (!name || name.includes('@')) return null;
+  return name;
+}
+
 /** Persisted venue + section choice for a completed onboarding step. */
 export interface VenueSelection {
   venueId: string;
@@ -47,14 +55,14 @@ export type OnboardingStep = 'pseudo-name' | 'venue-select' | 'home';
 export function resolveDisplayName(
   user: Pick<AuthUser, 'pseudo_name'> | null | undefined,
 ): string {
-  const name = user?.pseudo_name?.trim();
+  const name = normalizePseudoName(user?.pseudo_name);
   return name || DEFAULT_DISPLAY_NAME;
 }
 
 export function userNeedsPseudoName(
   user: Pick<AuthUser, 'pseudo_name'> | null | undefined,
 ): boolean {
-  return !user?.pseudo_name?.trim();
+  return !normalizePseudoName(user?.pseudo_name);
 }
 
 export function hasCompleteVenueSelection(

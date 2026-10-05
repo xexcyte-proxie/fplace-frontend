@@ -129,15 +129,17 @@ import {
 } from "./app-preferences-service";
 import {
   clearProductTourProgress,
+  contextualProductTourStep,
+  initialProductTourSteps,
   isProductTourDontShowAgain,
   loadProductTourPreference,
   nextProductTourIndex,
   preferenceAfterProductTourEnable,
   preferenceAfterProductTourOptOut,
   previousProductTourIndex,
+  productTourStepsByIds,
   saveProductTourPreference,
   shouldAutoStartProductTour,
-  stepsForHomeExperience,
   type ProductTourSurface,
 } from "./product-tour-service";
 import {
@@ -238,6 +240,7 @@ import type {
   FloorInfo,
   ForumSectionSummary,
   ForumVenueSummary,
+  LocationResult,
   NavigateView,
   NotificationItem,
   RegisteredUser,
@@ -858,12 +861,34 @@ export class MapApp {
     this.store.patch({ isSearching: true });
     const results = await searchVenue(this.mapData, query);
     if (generation !== this.searchGeneration) return;
+    const sectionResults = this.sectionSearchResults(query);
+    const mergedResults = [
+      ...sectionResults,
+      ...results.filter(
+        (result) => !sectionResults.some((section) => section.id === result.id),
+      ),
+    ];
 
-    const targets = results
+    const targets = mergedResults
       .map((r) => resolveMapTarget(this.mapData!, r.id))
       .filter(Boolean);
     this.routePlanner.highlightSearchResults(targets);
-    this.store.patch({ searchResults: results, isSearching: false });
+    this.store.patch({ searchResults: mergedResults, isSearching: false });
+  }
+
+  private sectionSearchResults(query: string): LocationResult[] {
+    const trimmed = query.trim().toLowerCase();
+    if (!trimmed) return [];
+    return this.store
+      .get()
+      .forumSections.filter((section) => {
+        const haystack = `${section.name} ${section.code}`.toLowerCase();
+        return haystack.includes(trimmed);
+      })
+      .map((section) => ({
+        id: section.mappedinLocationId || String(section.id),
+        name: section.name,
+      }));
   }
 
   async setCategoryFilter(category: string | null): Promise<void> {
@@ -887,11 +912,7 @@ export class MapApp {
   setActiveTab(tab: AppTab): void {
     const state = this.store.get();
     // Tapping Navigate again from the indoor map returns to venue home.
-    if (
-      tab === "map" &&
-      state.activeTab === "map" &&
-      state.navigateView === "map"
-    ) {
+    if (tab === "map" && state.activeTab === "map" && state.navigateView === "map") {
       this.store.patch({
         navigateView: "home",
         homeExperience: this.resolveHomeExperience(state.selectedVenueId),
@@ -914,6 +935,7 @@ export class MapApp {
 
     this.store.patch({
       activeTab: tab,
+      ...(tab === "map" ? { navigateView: "home" as const } : {}),
       profileView: "main",
       settingsConfirm: null,
       notificationsOpen: false,
@@ -970,6 +992,7 @@ export class MapApp {
       navigateView: "map",
       homeVenueSearchQuery: "",
     });
+    this.maybeShowContextualProductTour("map-search");
   }
 
   private async waitForMapReadyThenEnterNavigate(): Promise<void> {
@@ -987,6 +1010,7 @@ export class MapApp {
       navigateView: "map",
       homeVenueSearchQuery: "",
     });
+    this.maybeShowContextualProductTour("map-search");
   }
 
   private async retryMapLoadThenEnterNavigate(): Promise<void> {
@@ -1070,7 +1094,7 @@ export class MapApp {
         );
         this.showToast(message);
         this.store.patch({
-          activeTab: "map",
+          activeTab: "home",
           navigateView: "home",
         });
         return;
@@ -1090,7 +1114,7 @@ export class MapApp {
       );
       this.showToast(message);
       this.store.patch({
-        activeTab: "map",
+        activeTab: "home",
         navigateView: "home",
       });
     } finally {
@@ -1116,7 +1140,7 @@ export class MapApp {
       selectedGateId: null,
       forumSections: [],
       forumCategories: [],
-      activeTab: "map",
+      activeTab: "home",
       navigateView: "home",
       mapStatus: "loading",
       mapError: undefined,
@@ -1184,6 +1208,7 @@ export class MapApp {
   }
 
   openProfileSettings(): void {
+    if (this.maybeShowContextualProductTour("profile-settings")) return;
     this.store.patch({
       activeTab: "profile",
       profileView: "settings",
@@ -1730,7 +1755,7 @@ export class MapApp {
       guestContinueLoading: false,
       locationGateLoading: false,
       locationGateError: null,
-      activeTab: "map",
+      activeTab: options?.landOn === "map" ? "map" : "home",
       navigateView: options?.landOn ?? "home",
       homeExperience,
       homeVenueSearchQuery: "",
@@ -1742,7 +1767,7 @@ export class MapApp {
   advanceProductTour(): void {
     const state = this.store.get();
     if (state.productTourStepIndex == null) return;
-    const steps = stepsForHomeExperience(state.homeExperience);
+    const steps = this.activeProductTourSteps();
     const next = nextProductTourIndex(state.productTourStepIndex, steps.length);
     if (next === "complete") {
       this.finishProductTour();
@@ -1764,6 +1789,7 @@ export class MapApp {
       this.finishProductTour();
       return;
     }
+    this.markActiveContextualProductTourSeen();
     this.productTourDismissedThisSession = true;
     this.dismissProductTourOverlay();
   }
@@ -1784,6 +1810,29 @@ export class MapApp {
     this.beginProductTour({ replay: false });
   }
 
+  private activeProductTourSteps() {
+    const ids = this.store.get().productTourStepIds;
+    return ids.length ? productTourStepsByIds(ids) : initialProductTourSteps();
+  }
+
+  maybeShowContextualProductTour(stepId: string): boolean {
+    const state = this.store.get();
+    const step = contextualProductTourStep(stepId);
+    if (
+      !step ||
+      !state.onboardingComplete ||
+      !state.productTourEnabled ||
+      state.productTourStepIndex != null
+    ) {
+      return false;
+    }
+    const preference = loadProductTourPreference();
+    if (preference.seenContextualStepIds.includes(stepId)) return false;
+    this.store.patch({ productTourStepIds: [step.id] });
+    this.applyProductTourIndex(0);
+    return true;
+  }
+
   private beginProductTour(options: { replay: boolean }): void {
     const state = this.store.get();
     if (!state.onboardingComplete) return;
@@ -1793,23 +1842,59 @@ export class MapApp {
     ) {
       return;
     }
-    const steps = stepsForHomeExperience(state.homeExperience);
+    const steps = initialProductTourSteps();
     if (!steps.length) return;
+    this.store.patch({ productTourStepIds: steps.map((step) => step.id) });
     this.applyProductTourIndex(0);
   }
 
   private finishProductTour(): void {
-    this.optOutProductTour();
+    const activeSteps = this.activeProductTourSteps();
+    const activeStepIds = activeSteps.map((step) => step.id);
+    const preference = loadProductTourPreference();
+    const isContextual =
+      activeStepIds.length === 1 &&
+      contextualProductTourStep(activeStepIds[0] ?? "") != null;
+
+    if (isContextual) {
+      saveProductTourPreference({
+        ...preference,
+        seenContextualStepIds: [
+          ...new Set([
+            ...preference.seenContextualStepIds,
+            ...activeStepIds,
+          ]),
+        ],
+      });
+      this.dismissProductTourOverlay();
+      return;
+    }
+
+    this.productTourDismissedThisSession = true;
+    saveProductTourPreference({
+      ...preference,
+      completed: true,
+    });
+    this.store.patch({
+      productTourCompleted: true,
+      productTourStepIndex: null,
+      productTourStepIds: [],
+    });
   }
 
   private optOutProductTour(): void {
     this.productTourDismissedThisSession = true;
-    saveProductTourPreference(preferenceAfterProductTourOptOut());
+    const current = loadProductTourPreference();
+    saveProductTourPreference({
+      ...preferenceAfterProductTourOptOut(),
+      seenContextualStepIds: current.seenContextualStepIds,
+    });
     const tourWasActive = this.store.get().productTourStepIndex != null;
     if (!tourWasActive) {
       this.store.patch({
         productTourEnabled: false,
         productTourCompleted: true,
+        productTourStepIds: [],
       });
       return;
     }
@@ -1817,7 +1902,8 @@ export class MapApp {
       productTourEnabled: false,
       productTourCompleted: true,
       productTourStepIndex: null,
-      activeTab: "map",
+      productTourStepIds: [],
+      activeTab: "home",
       navigateView: "home",
       profileView: "main",
       settingsConfirm: null,
@@ -1827,9 +1913,17 @@ export class MapApp {
   }
 
   private dismissProductTourOverlay(): void {
+    if (this.activeProductTourIsContextual()) {
+      this.store.patch({
+        productTourStepIndex: null,
+        productTourStepIds: [],
+      });
+      return;
+    }
     this.store.patch({
       productTourStepIndex: null,
-      activeTab: "map",
+      productTourStepIds: [],
+      activeTab: "home",
       navigateView: "home",
       profileView: "main",
       settingsConfirm: null,
@@ -1838,9 +1932,33 @@ export class MapApp {
     });
   }
 
+  private activeProductTourIsContextual(): boolean {
+    const activeStepIds = this.activeProductTourSteps().map((step) => step.id);
+    return (
+      activeStepIds.length === 1 &&
+      contextualProductTourStep(activeStepIds[0] ?? "") != null
+    );
+  }
+
+  private markActiveContextualProductTourSeen(): void {
+    const activeStepIds = this.activeProductTourSteps().map((step) => step.id);
+    if (
+      activeStepIds.length !== 1 ||
+      contextualProductTourStep(activeStepIds[0] ?? "") == null
+    ) {
+      return;
+    }
+    const preference = loadProductTourPreference();
+    saveProductTourPreference({
+      ...preference,
+      seenContextualStepIds: [
+        ...new Set([...preference.seenContextualStepIds, ...activeStepIds]),
+      ],
+    });
+  }
+
   private applyProductTourIndex(index: number): void {
-    const state = this.store.get();
-    const steps = stepsForHomeExperience(state.homeExperience);
+    const steps = this.activeProductTourSteps();
     const step = steps[index];
     if (!step) {
       this.finishProductTour();
@@ -1868,6 +1986,8 @@ export class MapApp {
     };
     switch (surface) {
       case "home":
+        return { ...common, activeTab: "home", navigateView: "home" };
+      case "navigate":
         return { ...common, activeTab: "map", navigateView: "home" };
       case "map":
         return {
@@ -1900,7 +2020,8 @@ export class MapApp {
 
   /** Try AR from the first-visit venue home. */
   async openVenueArFromHome(): Promise<void> {
-    await this.ensureUserLocationForVenuePresence();
+    if (this.maybeShowContextualProductTour("try-ar")) return;
+    if (!(await this.ensureUserLocationForVenuePresence())) return;
     if (await this.blockNavigationOutsideVenue("ar")) return;
 
     if (isGuestMode()) {
@@ -1948,7 +2069,7 @@ export class MapApp {
   }
 
   private async blockPostingWhenAwayFromVenue(): Promise<boolean> {
-    await this.ensureUserLocationForVenuePresence();
+    if (!(await this.ensureUserLocationForVenuePresence())) return true;
     if (!this.isAwayFromSelectedVenue()) return false;
     const state = this.store.get();
     const venue = state.forumVenues.find(
@@ -1965,7 +2086,7 @@ export class MapApp {
   private async blockNavigationOutsideVenue(
     action: "route" | "ar" = "route",
   ): Promise<boolean> {
-    await this.ensureUserLocationForVenuePresence();
+    if (!(await this.ensureUserLocationForVenuePresence())) return true;
     const state = this.store.get();
     if (!state.authUser && state.guestAccessAllowed === false) {
       this.store.patch({
@@ -2061,15 +2182,19 @@ export class MapApp {
     return null;
   }
 
-  private async ensureUserLocationForVenuePresence(): Promise<void> {
+  private async ensureUserLocationForVenuePresence(): Promise<boolean> {
     const state = this.store.get();
-    if (state.locationPermission !== "granted") return;
+    if (state.locationPermission !== "granted") {
+      await this.ensureLocationEnabledForAction();
+      return false;
+    }
+    if (!this.locationService) return true;
     const now =
       typeof performance !== "undefined" ? performance.now() : Date.now();
     const ageMs = this.lastUserLocationPublishAt
       ? now - this.lastUserLocationPublishAt
       : Number.POSITIVE_INFINITY;
-    if (state.userLocation && ageMs < 15_000) return;
+    if (state.userLocation && ageMs < 15_000) return true;
     try {
       const coords = await this.locationService.requestLocation({
         timeoutMs: 8_000,
@@ -2077,8 +2202,10 @@ export class MapApp {
       this.lastPublishedUserLocation = coords;
       this.lastUserLocationPublishAt = now;
       this.store.patch({ userLocation: coords });
-    } catch {
-      // Presence stays unknown if GPS is unavailable.
+      return true;
+    } catch (error) {
+      await this.showLocationGateForRequiredAction(error);
+      return false;
     }
   }
 
@@ -2457,7 +2584,7 @@ export class MapApp {
     }
     this.store.patch({
       profileView: "main",
-      activeTab: "map",
+      activeTab: "home",
       settingsConfirm: null,
     });
     this.showVenueSelect();
@@ -3592,8 +3719,9 @@ export class MapApp {
 
     if (!password) {
       fieldErrors.password = "Password is required.";
-    } else if (password.length < 8) {
-      fieldErrors.password = "Password must be at least 8 characters.";
+    } else if (evaluatePasswordStrength(password) !== "strong") {
+      fieldErrors.password =
+        "Use at least 8 characters with a letter and a number.";
     }
 
     if (!passwordConfirm) {
@@ -3800,6 +3928,8 @@ export class MapApp {
 
     if (!password) {
       fieldErrors.password = "Password is required.";
+    } else if (password.length < 8) {
+      fieldErrors.password = "Password must be at least 8 characters.";
     }
 
     if (Object.keys(fieldErrors).length > 0) {
@@ -4018,6 +4148,7 @@ export class MapApp {
       profileView: "main",
       settingsConfirm: null,
       productTourStepIndex: null,
+      productTourStepIds: [],
       productTourCompleted: options?.preserveAsNewDevice
         ? false
         : this.store.get().productTourCompleted,
@@ -4302,16 +4433,22 @@ export class MapApp {
       const orphanMessages: string[] = [];
 
       for (const [key, message] of Object.entries(error.fieldErrors)) {
+        const userMessage = resolveUserFacingApiErrorMessage(
+          message,
+          fallbackMessage,
+        );
         if (knownFields.has(key)) {
-          fieldErrors[key] = message;
-        } else if (message.trim()) {
-          orphanMessages.push(message);
+          fieldErrors[key] = userMessage;
+        } else if (userMessage.trim()) {
+          orphanMessages.push(userMessage);
         }
       }
 
       if (Object.keys(fieldErrors).length === 0 || orphanMessages.length > 0) {
         fieldErrors._form =
-          fieldErrors._form || orphanMessages[0] || error.summary;
+          fieldErrors._form ||
+          orphanMessages[0] ||
+          resolveUserFacingApiErrorMessage(error.summary, fallbackMessage);
       }
 
       if (containsTokenNotValidDetail(fieldErrors)) {
@@ -5651,6 +5788,58 @@ export class MapApp {
     }
   }
 
+  async selectNavigateSearchResult(
+    locationId: string,
+    name: string,
+    floorName?: string,
+  ): Promise<void> {
+    if (!this.mapData || !this.routePlanner) return;
+    if (await this.blockNavigationOutsideVenue()) return;
+
+    try {
+      const target = resolveMapTarget(this.mapData, locationId);
+      if (!target) {
+        this.showToast(LOCATION_NOT_ROUTABLE_MESSAGE);
+        return;
+      }
+
+      if (this.store.get().route) {
+        this.routePlanner.clearRoute();
+        this.routePlanner.setRoutePlanningPaused(false);
+        this.stopPositionProvider();
+      }
+
+      this.openNavigateMap();
+      await this.routePlanner.setDestinationFromLocation(target, name, {
+        floorName,
+        areaHint: inferAreaHint(name),
+      });
+      this.routePlanner.clearHighlights();
+      this.store.patch({
+        activeTab: "map",
+        navigateView: "map",
+        searchResults: [],
+        searchQuery: "",
+        markers: this.routePlanner.markersState,
+        showRouteSheet: true,
+        route: null,
+        routeNotFound: false,
+        routeSimulating: false,
+        routeSimulationComplete: false,
+        routeTraveledMeters: 0,
+        routeRemainingMeters: null,
+      });
+      if (this.routePlanner.hasOrigin) {
+        this.scheduleAutoRoute();
+      } else {
+        this.pendingMapSearchFocus = true;
+        this.showToast("Destination set. Choose your start point.");
+      }
+    } catch (error) {
+      this.showToast(toUserFacingRouteError(error, "Could not open that section."));
+    }
+  }
+
   async selectFloor(floorId: string): Promise<void> {
     if (!this.mapView) return;
     this.floorOrchestrator.forceFloor(floorId);
@@ -5754,6 +5943,8 @@ export class MapApp {
       return;
     }
 
+    if (this.maybeShowContextualProductTour("my-location")) return;
+
     if (!(await this.ensureLocationEnabledForAction())) return;
 
     if (this.isAwayFromSelectedVenue()) {
@@ -5845,17 +6036,7 @@ export class MapApp {
           : "You are here.",
       );
     } catch (error) {
-      if (this.locationService.isPermissionDeniedError(error)) {
-        this.persistLocationChoice("denied");
-      }
-      const message =
-        error instanceof GeolocationPositionError ||
-        this.locationService.isPermissionDeniedError(error)
-          ? this.locationService.geolocationErrorMessage(
-              error as GeolocationPositionError | Error,
-            )
-          : toUserFacingRouteError(error, "Could not get your location.");
-      this.showToast(message);
+      await this.showLocationGateForRequiredAction(error);
     }
   }
 
@@ -7070,9 +7251,15 @@ export class MapApp {
     if ((status === 'error' || status === 'inactive') && previous !== status) {
       this.lastProviderFix = null;
       this.lastProjectedAlongMeters = null;
-      this.showToast(status === 'error'
-        ? 'Location unavailable. Check location permission and try again.'
-        : 'Location signal is weak or lost. Progress is paused until it recovers.');
+      if (status === 'error') {
+        void this.showLocationGateForRequiredAction(
+          new Error('Location unavailable. Check location permission and try again.'),
+        );
+      } else {
+        this.showToast(
+          'Location signal is weak or lost. Progress is paused until it recovers.',
+        );
+      }
     }
   }
 
@@ -7222,8 +7409,43 @@ export class MapApp {
     if (state.locationPermission === "granted") return true;
     if (isLocationGateAuthStep(state.authStep)) return false;
 
+    await this.showLocationGateForRequiredAction();
+    return false;
+  }
+
+  private async showLocationGateForRequiredAction(error?: unknown): Promise<void> {
+    const state = this.store.get();
+    if (isLocationGateAuthStep(state.authStep)) return;
+
     const underlyingStep = state.authStep;
-    const permanentlyDenied = await this.locationService.isPermanentlyDenied();
+    const deniedError =
+      this.locationService?.isPermissionDeniedError(error) ?? false;
+    const permanentlyDenied =
+      deniedError || !error
+        ? (await this.locationService?.isPermanentlyDenied()) === true
+        : false;
+
+    if (deniedError) {
+      this.persistLocationChoice("denied");
+    }
+
+    if (error && !deniedError) {
+      const message =
+        error instanceof GeolocationPositionError || error instanceof Error
+          ? (this.locationService?.geolocationErrorMessage(
+              error as GeolocationPositionError | Error,
+            ) ?? "Could not get your location.")
+          : "Could not get your location.";
+      this.store.patch({
+        authStep: "location-error",
+        authStepBeforeLocation: underlyingStep,
+        locationGateLoading: false,
+        locationPermanentlyDenied: false,
+        locationGateError: message,
+      });
+      return;
+    }
+
     this.store.patch({
       authStep: permanentlyDenied ? "location-required" : "location-permission",
       authStepBeforeLocation: underlyingStep,
@@ -7231,7 +7453,6 @@ export class MapApp {
       locationPermanentlyDenied: permanentlyDenied,
       locationGateError: null,
     });
-    return false;
   }
 
   /**

@@ -13,11 +13,14 @@ export type {
   ProductTourSurface,
 } from '../tour/domain/entities';
 export {
+  contextualProductTourStep,
+  initialProductTourSteps,
   isProductTourDontShowAgain,
   nextProductTourIndex,
   preferenceAfterProductTourEnable,
   preferenceAfterProductTourOptOut,
   previousProductTourIndex,
+  productTourStepsByIds,
   shouldAutoStartProductTour,
   stepsForHomeExperience,
 } from '../tour/domain/entities';

@@ -169,26 +169,22 @@ describe('returning home', () => {
 
     expect(html).toContain('RowdyGull_47');
     expect(html).toContain('Where are you headed next?');
-    expect(html).toContain('id="home-venue-search-input"');
-    expect(html).toContain('data-tour-id="returning-search"');
-    expect(html).toContain('data-tour-id="returning-recent"');
-    expect(html).toContain('Recently visited');
-    expect(html).toContain('Other venues');
+    expect(html).toContain('Recent posts');
+    expect(html).not.toContain('id="home-venue-search-input"');
+    expect(html).not.toContain('data-tour-id="returning-search"');
+    expect(html).not.toContain('data-tour-id="returning-recent"');
+    expect(html).not.toContain('Recently visited');
+    expect(html).not.toContain('Other venues');
     expect(html).toContain('Your fplaces');
-    expect(html).toContain('data-home-venue-id="venue-la-stadium"');
-    expect(html).toContain('data-home-venue-id="3"');
-    expect(html).toContain('data-home-venue-id="8"');
+    expect(html).not.toContain('data-home-venue-id="venue-la-stadium"');
     expect(html).not.toContain('TEST');
-    expect(html.indexOf('Recently visited')).toBeLessThan(html.indexOf('Other venues'));
     expect(html).toContain('>14</div>');
     expect(html).toContain('>3.2k</div>');
     expect(html).toContain('>86</div>');
     expect(html).toContain('Venue(s)');
     expect(html).toContain('Upvote(s)');
     expect(html).toContain('Post(s)');
-    expect(html).toContain('86 post(s)');
     expect(html).not.toContain('returning-home-venue-card--sandbox');
-    expect(html).toContain('Lagos');
     expect(html).not.toContain('0 post(s)');
   });
 
@@ -219,8 +215,8 @@ describe('returning home', () => {
       },
     });
     expect(html).toContain('aria-label="Home"');
-    expect(html).toContain('No recent venues yet');
-    expect(html).toContain('Other venues');
+    expect(html).toContain('No recent posts yet');
+    expect(html).not.toContain('Other venues');
   });
 
   it('escapes the display name that looks like HTML', () => {
@@ -279,7 +275,7 @@ describe('returning home', () => {
         stats: { venues: 1, upvotesLabel: '0', posts: 86 },
       },
     });
-    expect(html).toContain('No matching venues');
+    expect(html).not.toContain('No matching venues');
     expect(html).not.toContain('LA Stadium');
     expect(html).not.toContain('Riverside');
   });
@@ -310,7 +306,7 @@ describe('returning home', () => {
         stats: { venues: 1, upvotesLabel: '0', posts: 86 },
       },
     });
-    expect(html).toContain('Recently visited');
+    expect(html).not.toContain('Recently visited');
     expect(html).not.toContain('Other venues');
   });
 

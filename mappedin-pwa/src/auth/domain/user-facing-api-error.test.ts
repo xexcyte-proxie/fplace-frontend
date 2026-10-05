@@ -44,4 +44,16 @@ describe('resolveUserFacingApiErrorMessage', () => {
       ),
     ).toBe('Authentication credentials were not provided.');
   });
+
+  it('uses friendly copy for invalid login credentials', () => {
+    expect(
+      resolveUserFacingApiErrorMessage(
+        'No active account found with the given credentials',
+        'Could not log in.',
+      ),
+    ).toBe('Wrong email or password.');
+    expect(
+      resolveUserFacingApiErrorMessage('Invalid credentials', 'Could not log in.'),
+    ).toBe('Wrong email or password.');
+  });
 });

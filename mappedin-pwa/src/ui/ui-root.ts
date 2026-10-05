@@ -65,14 +65,20 @@ import { renderInvalidTokenDialog } from "./invalid-token-dialog";
 import { renderArrivalDialog } from "./arrival-dialog";
 import { renderReturningHomeScreen } from "./returning-home-screen";
 import { renderFirstVisitVenueScreen } from "./first-visit-venue-screen";
+import { renderNavigateHubScreen } from "./navigate-hub-screen";
 import { renderLocationActionSheet } from "./location-action-sheet";
 import {
   layoutProductTourOverlay,
   renderProductTour,
 } from "./product-tour";
-import { isProductTourDontShowAgain, stepsForHomeExperience } from "../tour/domain/entities";
+import {
+  initialProductTourSteps,
+  isProductTourDontShowAgain,
+  productTourStepsByIds,
+} from "../tour/domain/entities";
 import {
   bottomNavNavigateIcon,
+  bottomNavHomeIcon,
   bottomNavProfileIcon,
   bottomNavSocialIcon,
 } from "./bottom-nav-icons";
@@ -307,13 +313,15 @@ export class UiRoot {
       navigateView: state.navigateView,
       mapStatus: state.mapStatus,
     });
+    const onHomeTab = state.activeTab === "home";
     const onMapTab = state.activeTab === "map";
     const onNavigateHome =
       showOverlays && onMapTab && state.navigateView === "home";
+    const onGeneralHome = showOverlays && onHomeTab;
     const onFirstVisitHome =
-      onNavigateHome && state.homeExperience === "first-visit";
+      onGeneralHome && state.homeExperience === "first-visit";
     const onReturningHome =
-      onNavigateHome && state.homeExperience !== "first-visit";
+      onGeneralHome && state.homeExperience !== "first-visit";
     const onNavigateMap =
       showOverlays && onMapTab && state.navigateView === "map";
     const onSocialTab = state.activeTab === "social";
@@ -335,7 +343,9 @@ export class UiRoot {
       onProfileAbout ||
       onProfilePrivacy;
     const showTermsWebView = state.legalWebView === "terms";
-    const tourSteps = stepsForHomeExperience(state.homeExperience);
+    const tourSteps = state.productTourStepIds.length
+      ? productTourStepsByIds(state.productTourStepIds)
+      : initialProductTourSteps();
     const tourStep =
       showOverlays && state.productTourStepIndex != null
         ? (tourSteps[state.productTourStepIndex] ?? null)
@@ -582,6 +592,7 @@ export class UiRoot {
       }) : ""}
       ${onFirstVisitHome ? renderFirstVisitVenueScreen(state) : ""}
       ${onReturningHome ? renderReturningHomeScreen(state) : ""}
+      ${onNavigateHome ? renderNavigateHubScreen(state) : ""}
       ${onNavigateMap ? this.homeHeader(state) : ""}
       ${onNavigateMap && !showMapBootOverlay && state.searchQuery.trim() ? this.searchResults(state) : ""}
       ${onNavigateMap ? this.fabs(state, app) : ""}
@@ -1106,12 +1117,21 @@ export class UiRoot {
   }
 
   private bottomNav(state: AppState): string {
+    const homeActive = state.activeTab === "home";
     const mapActive = state.activeTab === "map";
     const socialActive = state.activeTab === "social";
     const profileActive = state.activeTab === "profile";
 
     return `
       <nav class="bottom-nav" aria-label="Main navigation">
+        <button
+          type="button"
+          id="nav-home"
+          class="bottom-nav-item ${homeActive ? "bottom-nav-item--active" : ""}"
+        >
+          ${bottomNavHomeIcon}
+          <span class="bottom-nav-label">Home</span>
+        </button>
         <button
           type="button"
           id="nav-map"

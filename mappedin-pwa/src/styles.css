@@ -942,6 +942,24 @@ button.is-loading:disabled,
   object-fit: contain;
 }
 
+.auth-password-progress {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--app-text-muted);
+}
+
+.auth-password-progress[hidden] {
+  display: none;
+}
+
+.auth-password-progress.is-valid {
+  color: #2e9e68;
+}
+
+.auth-password-progress.is-invalid {
+  color: #dc2626;
+}
+
 .auth-field-error {
   font-size: 13px;
   line-height: 1.35;

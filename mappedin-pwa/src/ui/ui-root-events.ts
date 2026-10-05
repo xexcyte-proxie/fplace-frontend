@@ -29,9 +29,49 @@ function appOf(host: UiRootEventHost): MapApp | null {
 
 function syncAuthPasswordStrength(root: HTMLElement): void {
   const passwordInput = root.querySelector<HTMLInputElement>('#auth-password');
+  const confirmInput = root.querySelector<HTMLInputElement>('#auth-password-confirm');
   const strengthHint = root.querySelector<HTMLElement>('#auth-password-strength');
-  if (!passwordInput || !strengthHint) return;
-  strengthHint.hidden = evaluatePasswordStrength(passwordInput.value) !== 'strong';
+  const progressHint = root.querySelector<HTMLElement>('#auth-password-progress');
+  const confirmHint = root.querySelector<HTMLElement>('#auth-password-confirm-progress');
+  if (!passwordInput) return;
+
+  const strength = evaluatePasswordStrength(passwordInput.value);
+  if (strengthHint) {
+    strengthHint.hidden = strength !== 'strong';
+  }
+  if (progressHint) {
+    progressHint.hidden = false;
+    progressHint.classList.toggle('is-valid', strength === 'strong');
+    progressHint.classList.toggle('is-invalid', strength === 'weak');
+    progressHint.textContent =
+      strength === 'strong'
+        ? 'Password meets the requirements.'
+        : 'Use at least 8 characters with a letter and a number.';
+  }
+  if (confirmInput && confirmHint) {
+    const hasConfirm = Boolean(confirmInput.value);
+    const matches = hasConfirm && confirmInput.value === passwordInput.value;
+    confirmHint.hidden = !hasConfirm;
+    confirmHint.classList.toggle('is-valid', matches);
+    confirmHint.classList.toggle('is-invalid', hasConfirm && !matches);
+    confirmHint.textContent = matches
+      ? 'Passwords match.'
+      : 'Passwords do not match yet.';
+  }
+}
+
+function syncLoginPasswordProgress(root: HTMLElement): void {
+  const input = root.querySelector<HTMLInputElement>('#login-password');
+  const hint = root.querySelector<HTMLElement>('#login-password-progress');
+  if (!input || !hint) return;
+  const hasValue = Boolean(input.value);
+  const valid = input.value.length >= 8;
+  hint.hidden = !hasValue;
+  hint.classList.toggle('is-valid', hasValue && valid);
+  hint.classList.toggle('is-invalid', hasValue && !valid);
+  hint.textContent = valid
+    ? 'Password length looks good.'
+    : 'Password must be at least 8 characters.';
 }
 
 function togglePasswordVisibility(
@@ -94,9 +134,10 @@ function handleClick(event: Event, host: UiRootEventHost): void {
   }
   if (
     target instanceof HTMLInputElement &&
-    target.id === 'venue-feed-input' &&
-    target.dataset.requiresCategory === 'true'
+    target.id === 'venue-feed-input'
   ) {
+    if (app.maybeShowContextualProductTour('social-composer')) return;
+    if (target.dataset.requiresCategory !== 'true') return;
     app.showToast('Pick a category before posting.');
     return;
   }
@@ -113,6 +154,15 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     const name = searchResult.dataset.locationName;
     const floorName = searchResult.dataset.floorName;
     if (id && name) void app.selectSearchResult(id, name, floorName || undefined);
+    return;
+  }
+
+  const navigateDestination = target.closest<HTMLButtonElement>('.navigate-destination-row');
+  if (navigateDestination) {
+    const id = navigateDestination.dataset.locationId;
+    const name = navigateDestination.dataset.locationName;
+    const floorName = navigateDestination.dataset.floorName;
+    if (id && name) void app.selectNavigateSearchResult(id, name, floorName || undefined);
     return;
   }
 
@@ -261,6 +311,13 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     case 'first-visit-ar-away-dismiss-btn':
       app.dismissArNotAtVenuePrompt();
       return;
+    case 'navigate-open-map-btn':
+    case 'navigate-route-builder-btn':
+      app.openNavigateMap();
+      return;
+    case 'navigate-ar-btn':
+      void app.openVenueArFromHome();
+      return;
     case 'zoom-in-btn':
       app.zoomIn();
       return;
@@ -404,6 +461,9 @@ function handleClick(event: Event, host: UiRootEventHost): void {
       return;
     case 'venue-select-enter-btn':
       app.submitVenueSelect();
+      return;
+    case 'nav-home':
+      app.setActiveTab('home');
       return;
     case 'nav-map':
       app.setActiveTab('map');
@@ -550,6 +610,7 @@ function captureAuthAutofillField(
       return;
     case 'login-password':
       host.setAuthPasswordDraft(target.value);
+      syncLoginPasswordProgress(host.root);
       return;
     case 'auth-password':
       host.setCreatePasswordDraft(target.value);
@@ -557,6 +618,7 @@ function captureAuthAutofillField(
       return;
     case 'auth-password-confirm':
       host.setCreatePasswordConfirmDraft(target.value);
+      syncAuthPasswordStrength(host.root);
       return;
     case 'reset-password-new':
       host.setResetPasswordDraft(target.value);
@@ -581,6 +643,7 @@ function handleInput(event: Event, host: UiRootEventHost): void {
 
   switch (target.id) {
     case 'search-input':
+    case 'navigate-search-input':
       app?.onSearchInput(target.value);
       return;
     case 'home-venue-search-input':
@@ -743,7 +806,7 @@ function handleKeydown(event: KeyboardEvent, host: UiRootEventHost): void {
 
   if (!(target instanceof HTMLInputElement)) return;
   if (event.key !== 'Enter') return;
-  if (target.id === 'search-input') {
+  if (target.id === 'search-input' || target.id === 'navigate-search-input') {
     void app.submitSearch(target.value);
   }
   if (target.id === 'venue-feed-input') {

@@ -12,7 +12,12 @@ function parsePreference(raw: string): ProductTourPreference | null {
     const completed = parsed.completed === true;
     const enabled =
       typeof parsed.enabled === 'boolean' ? parsed.enabled : !completed;
-    return { completed, enabled };
+    const seenContextualStepIds = Array.isArray(parsed.seenContextualStepIds)
+      ? parsed.seenContextualStepIds.filter(
+          (id): id is string => typeof id === 'string' && id.trim() !== '',
+        )
+      : [];
+    return { completed, enabled, seenContextualStepIds };
   } catch {
     return null;
   }
@@ -30,7 +35,11 @@ export class ProductTourLocalDatasource {
         return parsePreference(raw) ?? { ...DEFAULT_PRODUCT_TOUR_PREFERENCE };
       }
       if (localStorage.getItem(LEGACY_COMPLETED_KEY) === '1') {
-        const migrated = { completed: true, enabled: false };
+        const migrated = {
+          ...DEFAULT_PRODUCT_TOUR_PREFERENCE,
+          completed: true,
+          enabled: false,
+        };
         this.save(migrated);
         localStorage.removeItem(LEGACY_COMPLETED_KEY);
         return migrated;

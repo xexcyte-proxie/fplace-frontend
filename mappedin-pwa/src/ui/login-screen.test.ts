@@ -15,6 +15,9 @@ describe('renderLoginScreen', () => {
     expect(html).toContain('id="login-form"');
     expect(html).toContain('id="login-email"');
     expect(html).toContain('id="login-password"');
+    expect(html).toContain('id="login-password-progress"');
+    expect(html).toContain('minlength="8"');
+    expect(html).toContain('Password must be at least 8 characters.');
     expect(html).toContain('data-password-toggle="login-password"');
     expect(html).toContain('id="login-forgot-link"');
     expect(html).toContain('id="login-submit-btn"');

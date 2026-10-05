@@ -26,7 +26,7 @@ describe('startup flow screens (widget)', () => {
     expect(html).toContain('id="onboarding-create-account"');
     expect(html).toContain('Create account');
     expect(html).toContain('id="onboarding-login"');
-    expect(html).toContain('I already have an account');
+    expect(html).toContain('Sign in');
     expect(html).toContain('id="auth-guest-btn"');
     expect(html).toContain('Continue as guest');
   });

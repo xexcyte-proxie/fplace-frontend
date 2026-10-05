@@ -92,6 +92,9 @@ export function renderCreateAccountScreen(
               class="auth-input auth-input--with-toggle${passwordError ? ' auth-input--error' : ''}"
               placeholder="••••••••"
               autocomplete="${AUTH_AUTOCOMPLETE.newPassword}"
+              minlength="8"
+              pattern="(?=.*[A-Za-z])(?=.*\\d).{8,}"
+              title="Use at least 8 characters with a letter and a number."
               ${state.authLoading ? 'disabled' : ''}
               required
             />
@@ -112,6 +115,13 @@ export function renderCreateAccountScreen(
               />
             </button>
           </div>
+          <span
+            id="auth-password-progress"
+            class="auth-password-progress"
+            aria-live="polite"
+          >
+            Use at least 8 characters with a letter and a number.
+          </span>
           ${passwordError ? `<span class="auth-field-error" role="alert">${escapeHtml(passwordError)}</span>` : ''}
         </label>
 
@@ -125,6 +135,9 @@ export function renderCreateAccountScreen(
               class="auth-input auth-input--with-toggle${passwordConfirmError ? ' auth-input--error' : ''}"
               placeholder="••••••••"
               autocomplete="${AUTH_AUTOCOMPLETE.newPassword}"
+              minlength="8"
+              pattern="(?=.*[A-Za-z])(?=.*\\d).{8,}"
+              title="Use at least 8 characters with a letter and a number."
               ${state.authLoading ? 'disabled' : ''}
               required
             />
@@ -159,6 +172,14 @@ export function renderCreateAccountScreen(
               decoding="async"
             />
             Strong password
+          </span>
+          <span
+            id="auth-password-confirm-progress"
+            class="auth-password-progress"
+            aria-live="polite"
+            hidden
+          >
+            Passwords match.
           </span>
           ${passwordConfirmError ? `<span class="auth-field-error" role="alert">${escapeHtml(passwordConfirmError)}</span>` : ''}
         </label>

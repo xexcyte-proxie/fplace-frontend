@@ -37,24 +37,41 @@ describe('ProductTourLocalDatasource', () => {
 
   it('defaults to enabled and not completed', () => {
     const datasource = new ProductTourLocalDatasource();
-    expect(datasource.load()).toEqual({ completed: false, enabled: true });
+    expect(datasource.load()).toEqual({
+      completed: false,
+      enabled: true,
+      seenContextualStepIds: [],
+    });
   });
 
   it('persists enabled and completed across instances', () => {
     const a = new ProductTourLocalDatasource();
-    a.save({ completed: true, enabled: false });
+    a.save({
+      completed: true,
+      enabled: false,
+      seenContextualStepIds: ['map-search'],
+    });
     expect(new ProductTourLocalDatasource().load()).toEqual({
       completed: true,
       enabled: false,
+      seenContextualStepIds: ['map-search'],
     });
     a.clear();
-    expect(a.load()).toEqual({ completed: false, enabled: true });
+    expect(a.load()).toEqual({
+      completed: false,
+      enabled: true,
+      seenContextualStepIds: [],
+    });
   });
 
   it('migrates the legacy completed flag into an opted-out preference', () => {
     localStorage.setItem('fplaces_product_tour_completed', '1');
     const datasource = new ProductTourLocalDatasource();
-    expect(datasource.load()).toEqual({ completed: true, enabled: false });
+    expect(datasource.load()).toEqual({
+      completed: true,
+      enabled: false,
+      seenContextualStepIds: [],
+    });
     expect(localStorage.getItem('fplaces_product_tour_completed')).toBeNull();
     expect(localStorage.getItem('fplaces_product_tour_preference')).toContain(
       '"enabled":false',

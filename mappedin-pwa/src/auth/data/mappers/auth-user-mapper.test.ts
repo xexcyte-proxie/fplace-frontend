@@ -71,6 +71,16 @@ describe('coerceAuthUser', () => {
     expect(coerceAuthUser({ email: 'a@b.com' })).toBeNull();
     expect(coerceAuthUser(null)).toBeNull();
   });
+
+  it('does not accept an email-like value as a pseudo-name', () => {
+    const user = coerceAuthUser({
+      id: 3,
+      email: 'azeezat@example.com',
+      pseudo_name: 'Azeezat@fplaces',
+      is_email_verified: true,
+    });
+    expect(user?.pseudo_name).toBeNull();
+  });
 });
 
 describe('coerceAuthSession', () => {

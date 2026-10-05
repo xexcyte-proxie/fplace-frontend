@@ -28,6 +28,7 @@ import './styles/post-comments-screen.css';
 import './styles/ar-navigation-screen.css';
 import './styles/returning-home-screen.css';
 import './styles/first-visit-venue-screen.css';
+import './styles/navigate-hub-screen.css';
 import './styles/product-tour.css';
 
 // Capture /reset-password?uid=&token= before boot/routing can drop the query.

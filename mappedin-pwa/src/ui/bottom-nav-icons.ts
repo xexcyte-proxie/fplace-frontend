@@ -21,6 +21,10 @@ export const bottomNavNavigateIcon = navIcon(
   '<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/>',
 );
 
+export const bottomNavHomeIcon = navIcon(
+  '<path d="m3 10 9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/>',
+);
+
 /** @deprecated Prefer bottomNavNavigateIcon - kept for any legacy references. */
 export const bottomNavMapIcon = bottomNavNavigateIcon;
 

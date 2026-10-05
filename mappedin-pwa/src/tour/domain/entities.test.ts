@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import type { HomeExperience } from '../../home/domain/entities';
 import {
+  contextualProductTourStep,
+  initialProductTourSteps,
   isProductTourDontShowAgain,
   nextProductTourIndex,
   preferenceAfterProductTourEnable,
@@ -9,6 +11,7 @@ import {
   previousProductTourIndex,
   PRODUCT_TOUR_STEPS,
   productTourStepAt,
+  productTourStepsByIds,
   shouldAutoStartProductTour,
   stepsForHomeExperience,
 } from './entities';
@@ -28,17 +31,15 @@ describe('product tour steps', () => {
     }
   });
 
-  it('includes first-visit actions only for first-visit homes', () => {
+  it('includes first-visit navigation tips only for first-visit homes', () => {
     const firstVisit = stepsForHomeExperience('first-visit').map((s) => s.id);
     const returning = stepsForHomeExperience('returning').map((s) => s.id);
 
-    expect(firstVisit).toContain('discover');
     expect(firstVisit).toContain('try-ar');
     expect(firstVisit).not.toContain('venue-search');
 
     expect(returning).toContain('venue-search');
     expect(returning).toContain('recent-venues');
-    expect(returning).not.toContain('discover');
     expect(returning).not.toContain('try-ar');
 
     for (const experience of ['first-visit', 'returning'] as HomeExperience[]) {
@@ -48,6 +49,18 @@ describe('product tour steps', () => {
       expect(ids).toContain('social-tab');
       expect(ids).toContain('profile-settings');
     }
+  });
+
+  it('uses only Navigate and Social for the first-launch intro', () => {
+    expect(initialProductTourSteps().map((step) => step.id)).toEqual([
+      'navigate-tab',
+      'social-tab',
+    ]);
+    expect(productTourStepsByIds(['social-composer']).map((step) => step.id)).toEqual([
+      'social-composer',
+    ]);
+    expect(contextualProductTourStep('try-ar')?.id).toBe('try-ar');
+    expect(contextualProductTourStep('welcome')).toBeNull();
   });
 
   it('advances, wraps back, and completes at the end', () => {
@@ -123,10 +136,12 @@ describe('product tour steps', () => {
     expect(preferenceAfterProductTourOptOut()).toEqual({
       completed: true,
       enabled: false,
+      seenContextualStepIds: [],
     });
     expect(preferenceAfterProductTourEnable()).toEqual({
       completed: false,
       enabled: true,
+      seenContextualStepIds: [],
     });
     expect(isProductTourDontShowAgain(true)).toBe(false);
     expect(isProductTourDontShowAgain(false)).toBe(true);
