@@ -218,3 +218,108 @@
   line-height: 1.2;
   color: var(--home-text-muted);
 }
+
+.returning-home-screen .home-recent-posts {
+  --fv-text: var(--home-text);
+  --fv-muted: var(--home-text-muted);
+  --vf-text: var(--home-text);
+  --vf-text-muted: #5c5f69;
+  --vf-surface: #ffffff;
+  --vf-border: #cfd2d9;
+  --vf-card-radius: 18px;
+  --vf-accent-green: #2e9e68;
+  --vf-help-border: rgba(200, 30, 30, 0.28);
+
+  margin: 0 0 8px;
+}
+
+.returning-home-screen .home-recent-posts .first-visit-feed-title {
+  margin-bottom: 12px;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.returning-home-screen .home-recent-posts .first-visit-post-list {
+  gap: 10px;
+}
+
+.returning-home-screen .home-recent-posts .first-visit-post {
+  min-height: 0;
+  padding: 14px;
+  border-radius: 16px;
+}
+
+.returning-home-screen .home-recent-posts .venue-feed-card-header {
+  gap: 10px;
+}
+
+.returning-home-screen .home-recent-posts .venue-feed-user {
+  gap: 9px;
+}
+
+.returning-home-screen .home-recent-posts .venue-feed-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.returning-home-screen .home-recent-posts .venue-feed-author {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.returning-home-screen .home-recent-posts .venue-feed-meta {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.returning-home-screen .home-recent-posts .venue-feed-badge {
+  max-width: 42%;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 1.2;
+  letter-spacing: 0.08em;
+}
+
+.returning-home-screen .home-recent-posts .venue-feed-card-content {
+  margin-top: 12px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.returning-home-screen .home-recent-posts .venue-feed-card-footer {
+  margin-top: 12px;
+}
+
+.returning-home-screen .home-recent-posts .venue-feed-card-actions {
+  gap: 16px;
+}
+
+.returning-home-screen .home-recent-posts .venue-feed-upvote,
+.returning-home-screen .home-recent-posts .venue-feed-comment {
+  min-height: 24px;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.returning-home-screen .home-recent-posts .venue-feed-comment svg {
+  width: 16px;
+  height: 16px;
+}
+
+.returning-home-screen .home-recent-posts .first-visit-see-all {
+  margin-top: 14px;
+  padding: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.2;
+}

@@ -567,6 +567,77 @@ export class MapApp {
     });
   }
 
+  private async ensureSearchVenueContext(): Promise<void> {
+    if (!this.store.get().forumVenues.length) {
+      appLog("NavigateSearch", "Venue catalog missing; loading before search");
+      await this.ensureForumVenuesForHome();
+    }
+
+    const state = this.store.get();
+    if (state.selectedVenueId) {
+      const venue = state.forumVenues.find(
+        (item) => String(item.id) === state.selectedVenueId,
+      );
+      appLog("NavigateSearch", "Using already selected venue for search", {
+        selectedVenueId: state.selectedVenueId,
+        venueName: venue?.name,
+        mapStatus: state.mapStatus,
+        hasMapData: Boolean(this.mapData),
+        hasRoutePlanner: Boolean(this.routePlanner),
+      });
+      return;
+    }
+
+    const visitedIds = venueVisitRepository.listVisited();
+    const recentVenueId = [...visitedIds].reverse()
+      .find((id) =>
+        state.forumVenues.some((venue) => String(venue.id) === id.trim()),
+      );
+    const homeFallbackVenue =
+      state.homeContent?.recentlyVisited[0] ?? state.homeContent?.otherVenues[0];
+    const venue =
+      (recentVenueId
+        ? state.forumVenues.find((item) => String(item.id) === recentVenueId)
+        : null) ??
+      (homeFallbackVenue
+        ? state.forumVenues.find(
+            (item) =>
+              String(item.id) === homeFallbackVenue.id ||
+              item.name.toLowerCase() === homeFallbackVenue.name.toLowerCase(),
+          )
+        : null) ??
+      state.forumVenues[0];
+
+    if (!venue) {
+      appWarn("NavigateSearch", "No venue available for Navigate search", {
+        visitedIds,
+        homeContentLoaded: Boolean(state.homeContent),
+        forumVenueCount: state.forumVenues.length,
+      });
+      return;
+    }
+
+    appLog("NavigateSearch", "Selected fallback venue for fresh search", {
+      selectedVenueId: String(venue.id),
+      venueName: venue.name,
+      source: recentVenueId
+        ? "most-recent-visit"
+        : homeFallbackVenue
+          ? "home-content"
+          : "first-forum-venue",
+      visitedIds,
+      homeFallbackVenueId: homeFallbackVenue?.id,
+      forumVenueCount: state.forumVenues.length,
+    });
+
+    this.store.patch({
+      selectedVenueId: String(venue.id),
+      selectedGateId: null,
+      forumSections: [],
+      forumCategories: [],
+    });
+  }
+
   private async ensureMapForSelectedVenue(): Promise<void> {
     if (!this.mapContainer) return;
     const request = this.selectedVenueMapLoadRequest();
@@ -812,9 +883,23 @@ export class MapApp {
   }
 
   onSearchInput(query: string): void {
-    if (!this.mapData || !this.routePlanner) return;
-
     const state = this.store.get();
+    const inputSource =
+      state.activeTab === "map" && state.navigateView === "home"
+        ? "navigate-home"
+        : state.activeTab === "map" && state.navigateView === "map"
+          ? "2d-map"
+          : state.activeTab;
+    appLog("NavigateSearch", "Search input changed", {
+      query,
+      trimmedLength: query.trim().length,
+      inputSource,
+      selectedVenueId: state.selectedVenueId,
+      mapStatus: state.mapStatus,
+      hasMapData: Boolean(this.mapData),
+      hasRoutePlanner: Boolean(this.routePlanner),
+      currentResults: state.searchResults.length,
+    });
     const activeChip = state.searchChips.find(
       (chip) => chip.id === state.categoryFilter,
     );
@@ -829,10 +914,79 @@ export class MapApp {
     if (this.searchDebounceTimer) clearTimeout(this.searchDebounceTimer);
 
     if (!query.trim()) {
-      void this.submitSearch("");
+      if (this.mapData && this.routePlanner) {
+        appLog("NavigateSearch", "Clearing search through map search path");
+        void this.submitSearch("");
+      } else {
+        this.searchGeneration += 1;
+        appLog("NavigateSearch", "Clearing search before map is ready");
+        this.store.patch({ searchResults: [], isSearching: false });
+      }
       return;
     }
 
+    if (!this.mapData || !this.routePlanner) {
+      const generation = ++this.searchGeneration;
+      appLog("NavigateSearch", "Map not ready; preparing venue context", {
+        generation,
+        query,
+        selectedVenueId: this.store.get().selectedVenueId,
+        mapStatus: this.store.get().mapStatus,
+      });
+      this.store.patch({ searchResults: [], isSearching: true });
+      void this.ensureSearchVenueContext()
+        .then(() => {
+          appLog("NavigateSearch", "Ensuring map for Navigate search", {
+            generation,
+            query,
+            selectedVenueId: this.store.get().selectedVenueId,
+          });
+          return this.ensureMapForSelectedVenue();
+        })
+        .then(() => {
+          if (generation !== this.searchGeneration) {
+            appLog("NavigateSearch", "Ignoring stale map-ready search", {
+              generation,
+              latestGeneration: this.searchGeneration,
+              query,
+            });
+            return;
+          }
+          if (this.store.get().searchQuery !== query) {
+            appLog("NavigateSearch", "Ignoring search because query changed", {
+              generation,
+              originalQuery: query,
+              currentQuery: this.store.get().searchQuery,
+            });
+            return;
+          }
+          appLog("NavigateSearch", "Map ready; submitting search", {
+            generation,
+            query,
+            selectedVenueId: this.store.get().selectedVenueId,
+            mapStatus: this.store.get().mapStatus,
+            hasMapData: Boolean(this.mapData),
+            hasRoutePlanner: Boolean(this.routePlanner),
+          });
+          return this.submitSearch(query);
+        })
+        .catch((error) => {
+          appWarn("NavigateSearch", "Could not prepare map for search", {
+            generation,
+            query,
+            error,
+          });
+          if (generation === this.searchGeneration) {
+            this.store.patch({ isSearching: false });
+          }
+        });
+      return;
+    }
+
+    appLog("NavigateSearch", "Debouncing search on ready map", {
+      query,
+      selectedVenueId: this.store.get().selectedVenueId,
+    });
     this.searchDebounceTimer = setTimeout(() => {
       void this.submitSearch(query);
     }, 250);
@@ -845,22 +999,46 @@ export class MapApp {
   }
 
   async submitSearch(query: string): Promise<void> {
-    if (!this.mapData || !this.routePlanner) return;
+    if (!this.mapData || !this.routePlanner) {
+      appWarn("NavigateSearch", "submitSearch called before map is ready", {
+        query,
+        hasMapData: Boolean(this.mapData),
+        hasRoutePlanner: Boolean(this.routePlanner),
+      });
+      return;
+    }
 
     const trimmed = query.trim();
     const generation = ++this.searchGeneration;
+
+    appLog("NavigateSearch", "Submitting search", {
+      query,
+      trimmed,
+      generation,
+      selectedVenueId: this.store.get().selectedVenueId,
+      mapStatus: this.store.get().mapStatus,
+    });
 
     this.store.patch({ searchQuery: query });
 
     if (!trimmed) {
       this.routePlanner.clearHighlights();
       this.store.patch({ searchResults: [], isSearching: false });
+      appLog("NavigateSearch", "Search cleared");
       return;
     }
 
     this.store.patch({ isSearching: true });
     const results = await searchVenue(this.mapData, query);
-    if (generation !== this.searchGeneration) return;
+    if (generation !== this.searchGeneration) {
+      appLog("NavigateSearch", "Ignoring stale search results", {
+        generation,
+        latestGeneration: this.searchGeneration,
+        query,
+        resultCount: results.length,
+      });
+      return;
+    }
     const sectionResults = this.sectionSearchResults(query);
     const mergedResults = [
       ...sectionResults,
@@ -874,6 +1052,19 @@ export class MapApp {
       .filter(Boolean);
     this.routePlanner.highlightSearchResults(targets);
     this.store.patch({ searchResults: mergedResults, isSearching: false });
+    appLog("NavigateSearch", "Search results ready", {
+      query,
+      generation,
+      mapResultCount: results.length,
+      sectionResultCount: sectionResults.length,
+      mergedResultCount: mergedResults.length,
+      targetCount: targets.length,
+      firstResults: mergedResults.slice(0, 5).map((result) => ({
+        id: result.id,
+        name: result.name,
+        floorName: result.floorName,
+      })),
+    });
   }
 
   private sectionSearchResults(query: string): LocationResult[] {
@@ -911,6 +1102,18 @@ export class MapApp {
 
   setActiveTab(tab: AppTab): void {
     const state = this.store.get();
+    if (tab === "map" && state.homeExperience === "first-visit") {
+      this.store.patch({
+        activeTab: "home",
+        navigateView: "home",
+        homeVenueSearchQuery: "",
+        profileView: "main",
+        settingsConfirm: null,
+        notificationsOpen: false,
+      });
+      return;
+    }
+
     // Tapping Navigate again from the indoor map returns to venue home.
     if (tab === "map" && state.activeTab === "map" && state.navigateView === "map") {
       this.store.patch({
@@ -922,6 +1125,7 @@ export class MapApp {
         notificationsOpen: false,
       });
       void this.refreshSignedInProfile();
+      void this.loadReturningHomeContent();
       return;
     }
 
@@ -956,6 +1160,9 @@ export class MapApp {
     if (tab === "profile") {
       void this.refreshSignedInProfile();
     }
+    if (tab === "map") {
+      void this.loadReturningHomeContent();
+    }
   }
 
   setSocialPageTab(tab: SocialPageTab): void {
@@ -971,6 +1178,98 @@ export class MapApp {
 
   setHomeVenueSearchQuery(query: string): void {
     this.store.patch({ homeVenueSearchQuery: query });
+  }
+
+  submitNavigateVenueSearch(): void {
+    const state = this.store.get();
+    const query = state.homeVenueSearchQuery.trim().toLowerCase();
+    if (!query) return;
+    const venues = [
+      ...(state.homeContent?.recentlyVisited ?? []),
+      ...(state.homeContent?.otherVenues ?? []),
+    ];
+    const match = venues.find((venue) =>
+      venue.name.toLowerCase().includes(query),
+    );
+    if (!match) {
+      this.showToast("No matching venues.");
+      return;
+    }
+    this.selectHomeRecentVenue(match.id);
+  }
+
+  openNavigateDiscoverVenuePicker(): void {
+    this.store.patch({
+      navigateDiscoverVenuePickerOpen: true,
+      navigateDiscoverVenuePickerLoading: false,
+    });
+  }
+
+  closeNavigateDiscoverVenuePicker(): void {
+    if (this.store.get().navigateDiscoverVenuePickerLoading) return;
+    this.store.patch({
+      navigateDiscoverVenuePickerOpen: false,
+      navigateDiscoverVenuePickerLoading: false,
+    });
+  }
+
+  async openSocialExpectForVenue(venueId: string): Promise<void> {
+    if (this.store.get().navigateDiscoverVenuePickerLoading) return;
+    const state = this.store.get();
+    const venue = [
+      ...(state.homeContent?.recentlyVisited ?? []),
+      ...(state.homeContent?.otherVenues ?? []),
+    ].find((item) => item.id === venueId);
+    const matchedForumVenue = state.forumVenues.find(
+      (item) =>
+        String(item.id) === venueId ||
+        item.name.toLowerCase() === venue?.name.toLowerCase(),
+    );
+
+    if (!matchedForumVenue) {
+      this.showToast("Could not open that venue. Please try again.");
+      return;
+    }
+
+    this.store.patch({ navigateDiscoverVenuePickerLoading: true });
+
+    try {
+      if (String(matchedForumVenue.id) !== state.selectedVenueId) {
+        this.store.patch({
+          selectedVenueId: String(matchedForumVenue.id),
+          selectedGateId: null,
+          forumSections: [],
+          forumCategories: [],
+        });
+        await this.loadOnboardingSections(String(matchedForumVenue.id));
+        if (!this.store.get().selectedGateId) {
+          this.showToast("This venue has no sections yet.");
+          this.store.patch({ navigateDiscoverVenuePickerLoading: false });
+          return;
+        }
+        await this.enterSelectedVenue({
+          skipLocationGate: true,
+          welcomeToast: false,
+          homeExperience: "returning",
+          landOn: "home",
+        });
+      }
+
+      this.store.patch({
+        activeTab: "social",
+        navigateView: "home",
+        socialPageTab: "what-to-expect",
+        socialExpectTopic: null,
+        notificationsOpen: false,
+        postCommentsOpen: false,
+        navigateDiscoverVenuePickerOpen: false,
+        navigateDiscoverVenuePickerLoading: false,
+      });
+    } catch (error) {
+      appWarn("Navigate", "Could not open What to Expect for venue", error);
+      this.showToast("Could not open that venue. Please try again.");
+      this.store.patch({ navigateDiscoverVenuePickerLoading: false });
+    }
   }
 
   openNavigateMap(): void {
@@ -2841,6 +3140,7 @@ export class MapApp {
         locationLiveStatus: "idle",
         socialLocation: null,
         socialLocationName: null,
+        socialSectionId: null,
         authFieldErrors: {},
       });
       this.seenForumCommentIds.clear();
@@ -4742,6 +5042,7 @@ export class MapApp {
       const response = await listVenuePosts({
         venue: venueId,
         category: categoryId,
+        section: state.socialSectionId ? Number(state.socialSectionId) : undefined,
         latest: true,
         page: 1,
       });
@@ -4767,6 +5068,77 @@ export class MapApp {
       this.store.patch({ venueFeedLoading: false });
       appWarn("Forum", "Load category feed failed", error);
       this.showToast("Could not load that category. Please try again.");
+    }
+  }
+
+  async setVenueFeedSection(sectionId: string | null): Promise<void> {
+    const state = this.store.get();
+    const normalized = sectionId?.trim() || null;
+    if (
+      normalized &&
+      !state.forumSections.some((section) => String(section.id) === normalized)
+    ) {
+      return;
+    }
+    if ((state.socialSectionId ?? null) === normalized) return;
+
+    const venueId = Number(state.selectedVenueId);
+    const categoryId =
+      state.venueFeedFilter === "all" ? undefined : Number(state.venueFeedFilter);
+    if (
+      state.venueFeedFilter !== "all" &&
+      (!Number.isFinite(categoryId) || categoryId! <= 0)
+    ) {
+      return;
+    }
+
+    this.store.patch({
+      socialSectionId: normalized,
+      venueFeedDraft: this.captureVenueFeedDraft(),
+      socialLocation: null,
+      socialLocationName: null,
+    });
+    if (!Number.isFinite(venueId) || venueId <= 0) return;
+
+    const generation = ++this.venueFeedScopeGeneration;
+    this.disconnectLocationLiveFeed();
+    this.store.patch({
+      venueFeedLoading: true,
+      venueFeedPosts: [],
+      forumFeedNext: null,
+      forumFeedCount: 0,
+    });
+    try {
+      const section = normalized ? Number(normalized) : undefined;
+      const response = await listVenuePosts({
+        venue: venueId,
+        category: categoryId,
+        section,
+        latest: true,
+        page: 1,
+      });
+      if (generation !== this.venueFeedScopeGeneration) return;
+      const current = this.store.get();
+      if ((current.socialSectionId ?? null) !== normalized) return;
+      const venueFeedPosts = mapForumPostsToVenueFeed(
+        response.results,
+        current.forumSections,
+        current.forumCategories,
+      );
+      this.store.patch({
+        venueFeedPosts,
+        forumFeedNext: response.next,
+        forumFeedCount: response.count,
+        venueFeedLoading: false,
+      });
+      void this.hydrateVenueFeedCommentCounts(
+        venueFeedPosts.map((post) => Number(post.id)),
+      );
+    } catch (error) {
+      if (generation !== this.venueFeedScopeGeneration) return;
+      this.store.patch({ venueFeedLoading: false });
+      appWarn("Forum", "Load section feed failed", error);
+      this.showToast("Could not load that section. Please try again.");
     }
   }
 
@@ -4971,6 +5343,7 @@ export class MapApp {
           state.venueFeedFilter === "all"
             ? undefined
             : Number(state.venueFeedFilter),
+        section: state.socialSectionId ? Number(state.socialSectionId) : undefined,
         latest: true,
         page,
       });
@@ -5048,6 +5421,7 @@ export class MapApp {
         venue: venueId,
         category: categoryId,
         content,
+        section: state.socialSectionId ? Number(state.socialSectionId) : undefined,
       });
       this.mergeForumPostIntoFeed(created);
     } catch (error) {

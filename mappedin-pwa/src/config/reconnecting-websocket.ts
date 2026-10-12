@@ -23,7 +23,7 @@ export interface ReconnectingWebSocketSubscription {
 
 /**
  * Receive-only socket with handshake timeout and backoff.
- * iOS Safari often leaves self-signed `wss:` in CONNECTING forever, so we abort.
+ * The timeout prevents a stalled WebSocket handshake from leaving the UI stuck.
  */
 export function connectReconnectingWebSocket(options: {
   logTag: string;

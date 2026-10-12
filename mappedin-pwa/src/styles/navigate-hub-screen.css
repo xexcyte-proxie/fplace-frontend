@@ -1,4 +1,15 @@
 .navigate-hub-screen {
+  --fv-orange: #e07a33;
+  --fv-teal: #1a6b68;
+  --fv-teal-deep: #155e5c;
+  --fv-sheet: #f3f1ed;
+  --fv-text: #15151f;
+  --fv-muted: #6b6f78;
+  --home-text: var(--fv-text);
+  --home-text-muted: var(--fv-muted);
+  --home-surface: #ffffff;
+  --home-pin: var(--fv-orange);
+  --home-globe: #3a5ba0;
   position: absolute;
   inset: 0;
   bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
@@ -38,6 +49,10 @@
   gap: 12px;
   max-width: 720px;
   margin: 0 auto;
+}
+
+.navigate-command-panel > .returning-home-venues {
+  margin-top: 4px;
 }
 
 .navigate-stage-card,
@@ -91,6 +106,20 @@
   padding: 12px;
 }
 
+.navigate-search-card .search-results {
+  position: static;
+  width: 100%;
+  max-height: min(38vh, 320px);
+  margin-top: 10px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.navigate-search-card .search-results--loading,
+.navigate-search-card .search-results--empty {
+  min-height: 72px;
+}
+
 .navigate-search {
   display: flex;
   align-items: center;
@@ -104,6 +133,7 @@
 }
 
 .navigate-search input {
+  min-width: 0;
   width: 100%;
   border: 0;
   outline: 0;
@@ -163,56 +193,6 @@
   padding: 10px 6px 2px;
 }
 
-.navigate-action-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.navigate-action {
-  display: grid;
-  gap: 6px;
-  min-height: 128px;
-  padding: 14px;
-  border: 1px solid rgba(21, 21, 31, 0.1);
-  border-radius: 8px;
-  background: #fff;
-  color: inherit;
-  text-align: left;
-  box-shadow: 0 10px 24px rgba(21, 21, 31, 0.06);
-}
-
-.navigate-action--ar {
-  background: #15151f;
-  color: #fff;
-}
-
-.navigate-action-icon {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 999px;
-  background: rgba(21, 96, 104, 0.1);
-  color: var(--bottom-nav-active);
-  font: 800 1.2rem/1 var(--brand-sans);
-}
-
-.navigate-action--ar .navigate-action-icon {
-  background: rgba(255, 255, 255, 0.14);
-  color: #fff;
-}
-
-.navigate-action-title {
-  color: currentColor;
-  font: 800 0.92rem/1.16 var(--brand-sans);
-}
-
-.navigate-action-copy {
-  color: color-mix(in srgb, currentColor 70%, transparent);
-  font: 600 0.76rem/1.25 var(--brand-sans);
-}
-
 .navigate-info-strip {
   display: flex;
   align-items: center;
@@ -228,4 +208,82 @@
   height: 9px;
   border-radius: 999px;
   background: var(--app-accent-green);
+}
+
+.navigate-venue-picker {
+  z-index: 12;
+}
+
+.navigate-venue-picker-dialog {
+  gap: 14px;
+}
+
+.navigate-venue-choice-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(48vh, 360px);
+  overflow-y: auto;
+  width: 100%;
+}
+
+.navigate-venue-choice {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(21, 21, 31, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--fv-text);
+  text-align: left;
+}
+
+.navigate-venue-choice:active {
+  background: #f8f6f2;
+}
+
+.navigate-venue-choice:disabled {
+  opacity: 0.58;
+}
+
+.navigate-venue-choice-name {
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.navigate-venue-choice-meta {
+  color: var(--fv-muted);
+  font-family: var(--brand-serif);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.navigate-venue-picker-cancel {
+  width: 100%;
+  min-height: 42px;
+  border: 0;
+  background: transparent;
+  color: var(--fv-teal);
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.navigate-venue-picker-cancel:disabled {
+  opacity: 0.55;
+}
+
+.navigate-venue-picker-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  color: var(--fv-muted);
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 800;
 }

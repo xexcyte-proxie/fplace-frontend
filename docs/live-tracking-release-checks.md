@@ -41,8 +41,8 @@ assuming that the old demo map remains accessible.
 
 The placeholder IndoorAtlas floor map has been removed. IndoorAtlas now remains disabled
 for a venue until `src/position/config/indoor-atlas-floor-map.json` contains its verified,
-one-to-one level mappings. Production pages also refuse insecure `ws://`; configure a
-certificate-valid `VITE_WS_URL=wss://...` after TLS is enabled on the live socket endpoint.
+one-to-one level mappings. The live socket is currently configured to use the plain
+`ws://` backend endpoint.
 
 Passing unit tests and producing a build do not establish on-site positioning accuracy.
 

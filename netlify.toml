@@ -2,9 +2,8 @@
   command = "npm ci --prefix mappedin-pwa && npm run build --prefix mappedin-pwa"
   publish = "mappedin-pwa/dist"
 
-# Configure VITE_WS_URL in the deployment environment only after the backend
-# exposes a certificate-valid wss:// endpoint. The client refuses ws:// from
-# HTTPS pages and otherwise fails closed to same-origin wss://.
+# Configure VITE_WS_URL in the deployment environment to the plain ws://
+# backend endpoint.
 
 # Fresh shell after every deploy (SPA routes + index.html + SW).
 # Hashed /assets/* override below so bundles stay immutable.

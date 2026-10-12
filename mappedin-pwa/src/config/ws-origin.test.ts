@@ -17,7 +17,7 @@ describe('isLoopbackOrPrivateHost', () => {
 });
 
 describe('selectWsOrigin', () => {
-  it('uses same-origin wss on HTTPS LAN instead of ws:// ALB', () => {
+  it('uses configured ws on HTTPS LAN', () => {
     const selected = selectWsOrigin({
       configured: FPLACES_BACKEND_WS_ORIGIN,
       api: '',
@@ -26,12 +26,12 @@ describe('selectWsOrigin', () => {
       fallback: FPLACES_BACKEND_WS_ORIGIN,
     });
     expect(selected).toEqual({
-      origin: 'wss://192.168.118.25:5173',
-      mixedContent: false,
+      origin: FPLACES_BACKEND_WS_ORIGIN,
+      mixedContent: true,
     });
   });
 
-  it('fails closed to same-origin wss on public HTTPS + ws:// backend', () => {
+  it('uses configured ws on public HTTPS', () => {
     const selected = selectWsOrigin({
       configured: FPLACES_BACKEND_WS_ORIGIN,
       api: '',
@@ -40,12 +40,12 @@ describe('selectWsOrigin', () => {
       fallback: FPLACES_BACKEND_WS_ORIGIN,
     });
     expect(selected).toEqual({
-      origin: 'wss://fplaces.netlify.app',
-      mixedContent: false,
+      origin: FPLACES_BACKEND_WS_ORIGIN,
+      mixedContent: true,
     });
   });
 
-  it('keeps same-origin wss on HTTPS LAN when no VITE_WS_URL is set', () => {
+  it('uses the backend fallback on HTTPS LAN when no VITE_WS_URL is set', () => {
     const selected = selectWsOrigin({
       configured: '',
       api: '',
@@ -54,8 +54,8 @@ describe('selectWsOrigin', () => {
       fallback: FPLACES_BACKEND_WS_ORIGIN,
     });
     expect(selected).toEqual({
-      origin: 'wss://192.168.118.25:5173',
-      mixedContent: false,
+      origin: FPLACES_BACKEND_WS_ORIGIN,
+      mixedContent: true,
     });
   });
 

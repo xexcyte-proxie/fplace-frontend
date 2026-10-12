@@ -18,9 +18,9 @@ describe('toWebSocketOrigin', () => {
     );
   });
 
-  it('converts https to wss and leaves ws/wss unchanged', () => {
-    expect(toWebSocketOrigin('https://example.com')).toBe('wss://example.com');
-    expect(toWebSocketOrigin('wss://example.com')).toBe('wss://example.com');
+  it('converts http/https/ws/wss inputs to ws', () => {
+    expect(toWebSocketOrigin('https://example.com')).toBe('ws://example.com');
+    expect(toWebSocketOrigin('wss://example.com')).toBe('ws://example.com');
     expect(toWebSocketOrigin('ws://example.com')).toBe('ws://example.com');
   });
 });

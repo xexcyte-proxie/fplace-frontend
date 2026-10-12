@@ -148,21 +148,20 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     return;
   }
 
+  const expectVenue = target.closest<HTMLButtonElement>(
+    '[data-navigate-expect-venue-id]',
+  );
+  if (expectVenue?.dataset.navigateExpectVenueId) {
+    void app.openSocialExpectForVenue(expectVenue.dataset.navigateExpectVenueId);
+    return;
+  }
+
   const searchResult = target.closest<HTMLButtonElement>('.search-result');
   if (searchResult) {
     const id = searchResult.dataset.locationId;
     const name = searchResult.dataset.locationName;
     const floorName = searchResult.dataset.floorName;
     if (id && name) void app.selectSearchResult(id, name, floorName || undefined);
-    return;
-  }
-
-  const navigateDestination = target.closest<HTMLButtonElement>('.navigate-destination-row');
-  if (navigateDestination) {
-    const id = navigateDestination.dataset.locationId;
-    const name = navigateDestination.dataset.locationName;
-    const floorName = navigateDestination.dataset.floorName;
-    if (id && name) void app.selectNavigateSearchResult(id, name, floorName || undefined);
     return;
   }
 
@@ -298,6 +297,12 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     case 'first-visit-discover-btn':
     case 'first-visit-see-all-btn':
       app.openVenueDiscover();
+      return;
+    case 'navigate-discover-btn':
+      app.openNavigateDiscoverVenuePicker();
+      return;
+    case 'navigate-venue-picker-cancel':
+      app.closeNavigateDiscoverVenuePicker();
       return;
     case 'first-visit-ar-btn':
       void app.openVenueArFromHome();
@@ -643,9 +648,9 @@ function handleInput(event: Event, host: UiRootEventHost): void {
 
   switch (target.id) {
     case 'search-input':
-    case 'navigate-search-input':
       app?.onSearchInput(target.value);
       return;
+    case 'navigate-search-input':
     case 'home-venue-search-input':
       app?.setHomeVenueSearchQuery(target.value);
       return;
@@ -670,6 +675,12 @@ function handleInput(event: Event, host: UiRootEventHost): void {
 
 function handleChange(event: Event, host: UiRootEventHost): void {
   const target = event.target;
+  if (target instanceof HTMLSelectElement) {
+    if (target.id === 'venue-feed-section-select') {
+      void appOf(host)?.setVenueFeedSection(target.value || null);
+    }
+    return;
+  }
   if (!(target instanceof HTMLInputElement)) return;
   if (target.id === 'auth-terms') {
     host.setCreateTermsAcceptedDraft(target.checked);
@@ -806,8 +817,11 @@ function handleKeydown(event: KeyboardEvent, host: UiRootEventHost): void {
 
   if (!(target instanceof HTMLInputElement)) return;
   if (event.key !== 'Enter') return;
-  if (target.id === 'search-input' || target.id === 'navigate-search-input') {
+  if (target.id === 'search-input') {
     void app.submitSearch(target.value);
+  }
+  if (target.id === 'navigate-search-input') {
+    app.submitNavigateVenueSearch();
   }
   if (target.id === 'venue-feed-input') {
     void app.submitVenueFeedPost();

@@ -86,6 +86,26 @@ describe('renderVenueFeedScreen', () => {
     expect(html).not.toContain('>North Stand</button>');
   });
 
+  it('renders a header dropdown for switching venue sections', () => {
+    const html = renderVenueFeedScreen(feedState({
+      socialSectionId: '8',
+      forumSections: [
+        { id: 8, venue: 1, name: 'North Stand', code: 'N', is_active: true },
+        { id: 9, venue: 1, name: 'South Stand', code: 'S', is_active: true },
+      ],
+    }));
+
+    expect(html).toContain('id="venue-feed-section-select"');
+    expect(html).toContain('aria-label="Switch venue section"');
+    expect(html).toContain('venue-feed-title-divider');
+    expect(html).toContain('venue-feed-section-caret');
+    expect(html).toContain('venue-feed-section-current">North Stand</span>');
+    expect(html).toContain('<option value="" ');
+    expect(html).toContain('All sections');
+    expect(html).toMatch(/value="8"[\s\S]*?selected[\s\S]*?>North Stand<\/option>/);
+    expect(html).toContain('>South Stand</option>');
+  });
+
   it('filters displayed posts by the selected category id', () => {
     const html = renderVenueFeedScreen(feedState({
       venueFeedFilter: '2',

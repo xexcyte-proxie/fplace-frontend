@@ -68,7 +68,7 @@ export function renderPseudoNameScreen(
       <div class="auth-header">
         <h1 class="auth-title auth-title--sans">Pick a pseudo-name</h1>
         <p class="auth-subtitle">
-          No real names here. Stay anonymous in the crowd.
+          Stay anonymous in the crowd.
         </p>
       </div>
 

@@ -10,7 +10,7 @@ function isInsecureWsUrl(url: string): boolean {
 
 export type WsOriginSelection = {
   origin: string;
-  /** HTTPS page cannot open `ws://` (browser mixed-content block). */
+  /** True when an HTTPS page is attempting a plain `ws://` socket. */
   mixedContent: boolean;
 };
 
@@ -32,10 +32,9 @@ export function isLoopbackOrPrivateHost(host: string): boolean {
 }
 
 /**
- * Pick a WebSocket origin and whether the browser will block it.
- * On HTTPS + private/LAN hosts, fall back to same-origin `wss:` (Vite `/ws` proxy).
- * HTTPS pages always fail closed to encrypted WebSockets. A configured `ws://`
- * origin is never returned to a secure public page.
+ * Pick a WebSocket origin.
+ * The backend WebSocket endpoint is plain `ws://`, so configured and fallback
+ * origins are normalized to `ws://` even when the page itself is HTTPS.
  */
 export function selectWsOrigin(input: {
   configured: string;
@@ -49,22 +48,17 @@ export function selectWsOrigin(input: {
   let origin = '';
   if (configured) origin = toWebSocketOrigin(configured);
   else if (api) origin = toWebSocketOrigin(api);
+  else if (input.fallback) origin = toWebSocketOrigin(input.fallback);
   else if (input.pageHost) {
-    const protocol = input.pageProtocol === 'https:' ? 'wss:' : 'ws:';
-    origin = `${protocol}//${input.pageHost}`;
+    origin = `ws://${input.pageHost}`;
   } else {
-    origin = toWebSocketOrigin(input.fallback);
+    origin = '';
   }
 
-  const pageIsHttps = input.pageProtocol === 'https:';
-  if (pageIsHttps && isInsecureWsUrl(origin) && input.pageHost) {
-    if (isLoopbackOrPrivateHost(input.pageHost)) {
-      return { origin: `wss://${input.pageHost}`, mixedContent: false };
-    }
-    return { origin: `wss://${input.pageHost}`, mixedContent: false };
-  }
-
-  return { origin, mixedContent: false };
+  return {
+    origin,
+    mixedContent: input.pageProtocol === 'https:' && isInsecureWsUrl(origin),
+  };
 }
 
 /**
@@ -95,10 +89,8 @@ function currentWsOriginInput(): {
   };
 }
 
-export function isMixedContentWebSocketUrl(url: string): boolean {
-  if (typeof window === 'undefined') return false;
-  if (window.location?.protocol !== 'https:') return false;
-  return isInsecureWsUrl(url);
+export function isMixedContentWebSocketUrl(_url: string): boolean {
+  return false;
 }
 
 /** Origin + path only: never log the access token query string. */

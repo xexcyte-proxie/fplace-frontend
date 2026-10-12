@@ -21,6 +21,7 @@ import {
   venueFeedTimeAgo,
 } from './venue-feed-data';
 import { escapeHtml } from './escape-html';
+import { postCardCommentIcon } from './post-card-icons';
 
 function formatLiveCount(count: number): string {
   return count.toLocaleString('en-US');
@@ -306,6 +307,20 @@ export function renderVenueFeedScreen(state: AppState): string {
   const composerMax = FORUM_POST_CONTENT_MAX_LENGTH;
   const draftLength = Math.min(state.venueFeedDraft.length, composerMax);
   const venueName = selectedVenue?.name ?? 'Venue';
+  const activeSection = state.forumSections.find(
+    (section) => String(section.id) === state.socialSectionId,
+  );
+  const activeSectionLabel = activeSection?.name ?? 'All sections';
+  const sectionOptions = state.forumSections
+    .map(
+      (section) => `
+        <option
+          value="${escapeHtml(String(section.id))}"
+          ${String(section.id) === state.socialSectionId ? 'selected' : ''}
+        >${escapeHtml(section.name)}</option>
+      `,
+    )
+    .join('');
   const scopeLabel = selectedCategory?.name ?? venueName;
   const liveStatus = venueLiveStatusMeta(
     state.venueLiveStatus,
@@ -402,9 +417,7 @@ export function renderVenueFeedScreen(state: AppState): string {
                 data-comments-id="${escapeHtml(post.id)}"
                 aria-label="${formatCountNoun(post.comments, 'comment')}"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
-                </svg>
+                ${postCardCommentIcon}
                 ${post.comments}
               </button>
             </div>
@@ -567,7 +580,22 @@ export function renderVenueFeedScreen(state: AppState): string {
         <header class="venue-feed-header">
           <div class="venue-feed-header-copy">
             <span class="venue-feed-eyebrow">At this venue</span>
-            <h1 class="venue-feed-title">${escapeHtml(venueName)}</h1>
+            <h1 class="venue-feed-title">
+              <span class="venue-feed-title-name">${escapeHtml(venueName)}</span>
+              ${
+                state.forumSections.length
+                  ? `<span class="venue-feed-title-divider" aria-hidden="true">|</span>
+              <label class="venue-feed-section-select">
+                <span class="venue-feed-section-current">${escapeHtml(activeSectionLabel)}</span>
+                <span class="venue-feed-section-caret" aria-hidden="true">⌄</span>
+                <select id="venue-feed-section-select" aria-label="Switch venue section">
+                  <option value="" ${state.socialSectionId ? '' : 'selected'}>All sections</option>
+                  ${sectionOptions}
+                </select>
+              </label>`
+                  : ''
+              }
+            </h1>
             <div class="venue-feed-header-meta" aria-label="Venue activity">
               <p class="venue-feed-subtitle" role="status" aria-live="polite" aria-atomic="true">
                 <span class="venue-feed-live-dot ${liveStatus.dotClass}" aria-hidden="true"></span>

@@ -51,6 +51,16 @@ describe('venue navigation access', () => {
     app.openNavigateMap();
     expect(state.navigateView).toBe('map');
   });
+  it('does not activate the Navigate tab for first-time venue visitors', () => {
+    const { app, state } = harness(true);
+    state.activeTab = 'social';
+    state.homeExperience = 'first-visit';
+
+    app.setActiveTab('map');
+
+    expect(state.activeTab).toBe('home');
+    expect(state.navigateView).toBe('home');
+  });
   it.each(['openNavigateMap', 'waitForMapReadyThenEnterNavigate'])(
     'allows off-site map browsing through %s', async method => {
       const { app, state } = harness();

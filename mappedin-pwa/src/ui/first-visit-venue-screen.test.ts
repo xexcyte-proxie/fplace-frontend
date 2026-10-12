@@ -11,7 +11,9 @@ import {
   buildFirstVisitVenueHomeViewModel,
 } from '../home/presentation/first-visit-venue-home-data';
 import { VenueVisitLocalDatasource } from '../home/data/datasources/venue-visit-local-datasource';
+import { initialAppState } from '../types';
 import { renderFirstVisitVenueScreen } from './first-visit-venue-screen';
+import { UiRoot } from './ui-root';
 
 const signedInUser = {
   id: 1,
@@ -155,6 +157,23 @@ describe('first-visit venue home', () => {
     expect(resolveHomeExperience('12', true)).toBe('returning');
   });
 
+  it('hides the Navigate tab for first-time venue visitors', () => {
+    const ui = Object.create(UiRoot.prototype) as { bottomNav(state: unknown): string };
+    const firstVisitHtml = ui.bottomNav({
+      ...initialAppState(),
+      homeExperience: 'first-visit',
+    });
+    const returningHtml = ui.bottomNav({
+      ...initialAppState(),
+      homeExperience: 'returning',
+    });
+
+    expect(firstVisitHtml).not.toContain('id="nav-map"');
+    expect(firstVisitHtml).not.toContain('Navigate</span>');
+    expect(returningHtml).toContain('id="nav-map"');
+    expect(returningHtml).toContain('Navigate</span>');
+  });
+
   it('renders first-visit markup hooks', () => {
     const content = buildFirstVisitVenueHomeContent({
       venueName: 'LA Stadium',
@@ -172,22 +191,30 @@ describe('first-visit venue home', () => {
     expect(html).toContain('Welcome back, RowdyGull_47');
     expect(html).toContain('LA Stadium');
     expect(html).toContain('North Stand, Level 1');
-    expect(html).toContain('What to expect');
+    expect(html).toContain('Discover');
+    expect(html).toContain('Try AR');
+    expect(html).toContain('id="first-visit-discover-btn"');
+    expect(html).toContain('id="first-visit-ar-btn"');
     expect(html).toContain('data-tour-id="home-hero"');
     expect(html).toContain('View category updates');
-    expect(html).toContain('No venue updates yet for this category.');
-    expect(html).not.toContain('Recently visited');
-    expect(html).not.toContain('Other venues');
-    expect(html).not.toContain('data-home-venue-id="1"');
+    expect(html).toContain('No posts yet. Be the first to shout out.');
+    expect(html).toContain('Recently visited');
+    expect(html).toContain('Other venues');
+    expect(html).toContain('data-home-venue-id="1"');
+    expect(html).toContain('data-home-venue-id="3"');
+    expect(html).toContain('data-home-venue-id="8"');
+    expect(html.indexOf('Recently visited')).toBeLessThan(html.indexOf('Other venues'));
     expect(html).not.toContain('class="first-visit-fans"');
     expect(html).not.toContain('SwiftOtter_21');
     expect(html).not.toContain('HungryHawk88');
     expect(html).not.toContain('1,204');
+    expect(html).toContain('<svg');
+    expect(html).toContain('currentColor');
     expect(html).not.toContain('/home/location.png');
     expect(html).not.toContain('/home/camera.png');
   });
 
-  it('does not render venue lists on first-visit home', () => {
+  it('omits venue lists until home catalog content has loaded', () => {
     const html = renderFirstVisitVenueScreen(
       firstVisitScreenState({ homeContent: null }),
     );
@@ -200,11 +227,15 @@ describe('first-visit venue home', () => {
       firstVisitScreenState({ venueFeedLoading: true, venueFeedPosts: [] }),
     );
 
+    expect(html).toContain('id="first-visit-discover-btn"');
+    expect(html).toContain('id="first-visit-ar-btn"');
+    expect(html).toContain('Discover');
+    expect(html).toContain('Try AR');
     expect(html).toContain('screen-loading-overlay');
     expect(html).toContain('aria-label="Loading posts"');
     expect(html).not.toContain('SwiftOtter_21');
     expect(html).not.toContain('class="first-visit-post"');
-    expect(html).not.toContain('No venue updates yet for this category.');
+    expect(html).not.toContain('No posts yet. Be the first to shout out.');
   });
 
   it('does not overlay a feed that already has posts', () => {

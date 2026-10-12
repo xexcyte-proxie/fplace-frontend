@@ -251,6 +251,7 @@ export class UiRoot {
       activeEl?.id === "search-input"
         ? (activeEl as HTMLInputElement)
         : null;
+    const focusedSearchId = focusedSearch?.id ?? "search-input";
     const selectionStart = focusedSearch?.selectionStart ?? null;
     const selectionEnd = focusedSearch?.selectionEnd ?? null;
 
@@ -482,9 +483,12 @@ export class UiRoot {
         : null;
 
     const focusedHomeVenueSearch =
-      activeEl?.id === "home-venue-search-input"
+      activeEl?.id === "home-venue-search-input" ||
+      activeEl?.id === "navigate-search-input"
         ? (activeEl as HTMLInputElement)
         : null;
+    const focusedHomeVenueSearchId =
+      focusedHomeVenueSearch?.id ?? "home-venue-search-input";
     const homeVenueSearchSelectionStart =
       focusedHomeVenueSearch?.selectionStart ?? null;
     const homeVenueSearchSelectionEnd =
@@ -714,7 +718,9 @@ export class UiRoot {
 
     if (focusedHomeVenueSearch && onNavigateHome) {
       const homeSearchInput =
-        this.root.querySelector<HTMLInputElement>("#home-venue-search-input");
+        this.root.querySelector<HTMLInputElement>(
+          `#${focusedHomeVenueSearchId}`,
+        );
       if (homeSearchInput) {
         homeSearchInput.focus();
         if (
@@ -731,7 +737,7 @@ export class UiRoot {
 
     if (focusedSearch && !tourStep) {
       const searchInput =
-        this.root.querySelector<HTMLInputElement>("#search-input");
+        this.root.querySelector<HTMLInputElement>(`#${focusedSearchId}`);
       if (searchInput) {
         searchInput.focus();
         if (selectionStart !== null && selectionEnd !== null) {
@@ -1121,6 +1127,7 @@ export class UiRoot {
     const mapActive = state.activeTab === "map";
     const socialActive = state.activeTab === "social";
     const profileActive = state.activeTab === "profile";
+    const showNavigateTab = state.homeExperience !== "first-visit";
 
     return `
       <nav class="bottom-nav" aria-label="Main navigation">
@@ -1132,14 +1139,14 @@ export class UiRoot {
           ${bottomNavHomeIcon}
           <span class="bottom-nav-label">Home</span>
         </button>
-        <button
+        ${showNavigateTab ? `<button
           type="button"
           id="nav-map"
           class="bottom-nav-item ${mapActive ? "bottom-nav-item--active" : ""}"
         >
           ${bottomNavNavigateIcon}
           <span class="bottom-nav-label">Navigate</span>
-        </button>
+        </button>` : ""}
         <button
           type="button"
           id="nav-social"
@@ -1244,9 +1251,9 @@ export class UiRoot {
 
   /** Returning-home venue filter: refresh list without tearing down chrome. */
   private applyHomeSearchPatch(state: AppState): void {
-    const input = this.root.querySelector<HTMLInputElement>(
-      "#home-venue-search-input",
-    );
+    const input =
+      this.root.querySelector<HTMLInputElement>("#home-venue-search-input") ??
+      this.root.querySelector<HTMLInputElement>("#navigate-search-input");
     if (input && document.activeElement !== input) {
       input.value = state.homeVenueSearchQuery;
     }

@@ -72,7 +72,7 @@ describe('connectReconnectingWebSocket', () => {
     const statuses: string[] = [];
     const sub = connectReconnectingWebSocket({
       logTag: 'TestWS',
-      buildUrl: () => 'wss://example.test/ws/venues/1/?token=user',
+      buildUrl: () => 'ws://example.test/ws/venues/1/?token=user',
       onMessage: () => {},
       onStatus: (status) => statuses.push(status),
     });
@@ -89,7 +89,7 @@ describe('connectReconnectingWebSocket', () => {
     sub.disconnect();
   });
 
-  it('emits unavailable and does not retry mixed-content sockets', () => {
+  it('opens ws sockets even from an HTTPS page', () => {
     vi.stubGlobal('window', {
       location: { protocol: 'https:', host: 'fplaces.netlify.app' },
     });
@@ -102,8 +102,8 @@ describe('connectReconnectingWebSocket', () => {
       onStatus: (status) => statuses.push(status),
     });
 
-    expect(statuses).toEqual(['unavailable']);
-    expect(FakeWebSocket.instances).toHaveLength(0);
+    expect(statuses).toEqual(['connecting']);
+    expect(FakeWebSocket.instances).toHaveLength(1);
     sub.disconnect();
   });
 });

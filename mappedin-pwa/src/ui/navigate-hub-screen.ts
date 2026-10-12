@@ -1,7 +1,70 @@
 import type { AppState } from '../types';
+import { buildReturningHomeViewModel } from '../home/presentation/returning-home-data';
+import type { RecentVenueVisit } from '../home/domain/entities';
 import { escapeHtml } from './escape-html';
 import { renderHomeVenueSections } from './home-venue-list';
-import { buildSearchResultViews } from './search-results-data';
+import {
+  renderBusyLabel,
+  renderContentLoadingOverlay,
+} from './content-loading-overlay';
+import {
+  firstVisitCameraIcon,
+  firstVisitLocationIcon,
+} from './first-visit-venue-screen';
+
+function renderVenueChoice(venue: RecentVenueVisit, loading: boolean): string {
+  return `
+    <button
+      type="button"
+      class="navigate-venue-choice"
+      data-navigate-expect-venue-id="${escapeHtml(venue.id)}"
+      ${loading ? 'disabled' : ''}
+    >
+      <span class="navigate-venue-choice-name">${escapeHtml(venue.name)}</span>
+      <span class="navigate-venue-choice-meta">${escapeHtml(venue.visitedLabel)}</span>
+    </button>
+  `;
+}
+
+function renderVenuePickerDialog(options: {
+  recentlyVisited: RecentVenueVisit[];
+  otherVenues: RecentVenueVisit[];
+  loading: boolean;
+}): string {
+  const venues = [...options.recentlyVisited, ...options.otherVenues];
+  const choices = venues.length
+    ? venues.map((venue) => renderVenueChoice(venue, options.loading)).join('')
+    : '<p class="location-dialog-body">No venues are available right now.</p>';
+
+  return `
+    <div class="location-dialog-backdrop navigate-venue-picker" role="presentation">
+      <div
+        class="location-dialog navigate-venue-picker-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="navigate-venue-picker-title"
+      >
+        <h2 id="navigate-venue-picker-title" class="location-dialog-title">Which venue?</h2>
+        <div class="navigate-venue-choice-list">
+          ${choices}
+        </div>
+        ${
+          options.loading
+            ? `<div class="navigate-venue-picker-loading" role="status" aria-live="polite">${renderBusyLabel('Loading venue')}</div>`
+            : ''
+        }
+        <button
+          type="button"
+          id="navigate-venue-picker-cancel"
+          class="navigate-venue-picker-cancel"
+          ${options.loading ? 'disabled' : ''}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  `;
+}
 
 function selectedVenueName(state: Pick<AppState, 'forumVenues' | 'selectedVenueId'>): string {
   return (
@@ -35,7 +98,7 @@ function locationCopy(
   if (state.userLocation) {
     return {
       label: 'Approximate location available',
-      body: 'Open the map to refine your indoor position.',
+      body: '',
     };
   }
   return {
@@ -103,46 +166,6 @@ function routeStage(
   return null;
 }
 
-function searchPreview(state: AppState): string {
-  if (!state.searchResults.length) {
-    return `
-      <div class="navigate-hub-empty">
-        <span>Search destinations or use venue categories on the map.</span>
-      </div>
-    `;
-  }
-
-  return buildSearchResultViews(
-    state.searchResults.slice(0, 3),
-    state.locationPermission,
-    state.userLocation,
-  )
-    .map(
-      (result) => `
-        <button
-          type="button"
-          class="navigate-destination-row"
-          data-location-id="${escapeHtml(result.id)}"
-          data-location-name="${escapeHtml(result.name)}"
-          data-floor-name="${escapeHtml(result.floorName ?? '')}"
-        >
-          <span class="navigate-destination-pin" aria-hidden="true"></span>
-          <span class="navigate-destination-copy">
-            <span class="navigate-destination-name">${escapeHtml(result.name)}</span>
-            ${
-              result.distanceLabel || result.floorName
-                ? `<span class="navigate-destination-meta">${escapeHtml(
-                    [result.distanceLabel, result.floorName].filter(Boolean).join(' · '),
-                  )}</span>`
-                : ''
-            }
-          </span>
-        </button>
-      `,
-    )
-    .join('');
-}
-
 export function renderNavigateHubScreen(state: AppState): string {
   const venueName = selectedVenueName(state);
   const sectionName = selectedSectionName(state);
@@ -152,18 +175,36 @@ export function renderNavigateHubScreen(state: AppState): string {
     state.floors.find((floor) => floor.id === state.currentFloorId)?.name ??
     state.floors[0]?.name ??
     'Venue floors';
-  const hasRoute = Boolean(state.route);
   const venueContent = state.homeContent;
+  const navigateLoading = venueContent == null;
+  const content = venueContent ?? {
+    recentlyVisited: [],
+    otherVenues: [],
+    stats: { venues: 0, upvotesLabel: '0', posts: 0 },
+  };
+  const view = buildReturningHomeViewModel({
+    displayName: '',
+    searchQuery: state.homeVenueSearchQuery,
+    content,
+    profileStat: state.authUser?.stat,
+  });
   const venueSections = venueContent
     ? renderHomeVenueSections({
-        recentlyVisited: venueContent.recentlyVisited,
-        otherVenues: venueContent.otherVenues,
+        recentlyVisited: view.recentlyVisited,
+        otherVenues: view.otherVenues,
         searching: Boolean(state.homeVenueSearchQuery.trim()),
+      })
+    : '';
+  const venuePicker = state.navigateDiscoverVenuePickerOpen
+    ? renderVenuePickerDialog({
+        recentlyVisited: view.recentlyVisited,
+        otherVenues: view.otherVenues,
+        loading: state.navigateDiscoverVenuePickerLoading,
       })
     : '';
 
   return `
-    <section class="navigate-hub-screen" aria-label="Navigate">
+    <section class="navigate-hub-screen screen-loading-host" aria-label="Navigate">
       <header class="navigate-hub-hero">
         <p class="navigate-hub-eyebrow">Indoor navigation</p>
         <h1 class="navigate-hub-title">${escapeHtml(venueName)}</h1>
@@ -190,27 +231,28 @@ export function renderNavigateHubScreen(state: AppState): string {
             <input
               id="navigate-search-input"
               type="search"
-              placeholder="Search destination"
-              value="${escapeHtml(state.searchQuery)}"
+              placeholder="Search venues"
+              value="${escapeHtml(state.homeVenueSearchQuery)}"
               autocomplete="off"
               enterkeyhint="search"
             />
           </label>
-          <div class="navigate-destination-list">
-            ${searchPreview(state)}
-          </div>
         </div>
 
-        <div class="navigate-action-grid" aria-label="Navigation actions">
-          <button type="button" id="navigate-ar-btn" class="navigate-action navigate-action--ar">
-            <span class="navigate-action-icon" aria-hidden="true">◈</span>
-            <span class="navigate-action-title">Try AR</span>
-            <span class="navigate-action-copy">${hasRoute ? 'Use camera guidance' : 'Available after route setup'}</span>
+        <div class="first-visit-actions" role="group" aria-label="Quick actions">
+          <button type="button" class="first-visit-action first-visit-action--discover" id="navigate-discover-btn">
+            <span class="first-visit-action-icon" aria-hidden="true">
+              ${firstVisitLocationIcon}
+            </span>
+            <span class="first-visit-action-title">Discover</span>
+            <span class="first-visit-action-copy">Know what to expect at a venue</span>
           </button>
-          <button type="button" id="navigate-route-builder-btn" class="navigate-action">
-            <span class="navigate-action-icon" aria-hidden="true">↔</span>
-            <span class="navigate-action-title">Start and destination</span>
-            <span class="navigate-action-copy">Set points on the 2D map</span>
+          <button type="button" class="first-visit-action first-visit-action--ar" id="navigate-ar-btn">
+            <span class="first-visit-action-icon" aria-hidden="true">
+              ${firstVisitCameraIcon}
+            </span>
+            <span class="first-visit-action-title">Try AR</span>
+            <span class="first-visit-action-copy">Point your camera to navigate</span>
           </button>
         </div>
 
@@ -219,12 +261,12 @@ export function renderNavigateHubScreen(state: AppState): string {
           <span>${escapeHtml(location.body)}</span>
         </div>` : ''}
 
-        <div class="navigate-venue-card">
-          <div class="returning-home-venues">
-            ${venueSections}
-          </div>
+        <div class="returning-home-venues">
+          ${venueSections}
         </div>
       </div>
+      ${navigateLoading ? renderContentLoadingOverlay('Loading navigate') : ''}
+      ${venuePicker}
     </section>
   `;
 }

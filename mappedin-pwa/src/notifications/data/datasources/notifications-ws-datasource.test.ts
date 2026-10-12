@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { parsePersonalNotificationMessage } from './notifications-ws-datasource';
+import { FPLACES_BACKEND_WS_ORIGIN } from '../../../config/fplaces-backend';
+import {
+  buildNotificationsWsUrl,
+  parsePersonalNotificationMessage,
+} from './notifications-ws-datasource';
+
+describe('buildNotificationsWsUrl', () => {
+  it('uses the backend websocket origin by default', () => {
+    expect(buildNotificationsWsUrl('secret.jwt')).toBe(
+      `${FPLACES_BACKEND_WS_ORIGIN}/ws/notifications/?token=secret.jwt`,
+    );
+  });
+});
 
 describe('parsePersonalNotificationMessage', () => {
   it('parses nested new_notification without using the event type as the category', () => {

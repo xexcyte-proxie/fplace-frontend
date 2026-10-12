@@ -518,6 +518,9 @@ export interface AppState {
   homeExperience: HomeExperience;
   /** Venue search on the returning-user home screen. */
   homeVenueSearchQuery: string;
+  /** Navigate Discover dialog for picking which venue's expectations to view. */
+  navigateDiscoverVenuePickerOpen: boolean;
+  navigateDiscoverVenuePickerLoading: boolean;
   /** Cached returning-home content (recent venues + stats). */
   homeContent: ReturningHomeContent | null;
   profileView: ProfileView;
@@ -554,6 +557,8 @@ export interface AppState {
   socialCategory: SocialCategory;
   socialPageTab: SocialPageTab;
   socialExpectTopic: string | null;
+  /** Section selected in the Social header dropdown; null shows all sections. */
+  socialSectionId: string | null;
   /** Map location slug (or section id) used to scope the venue feed. */
   socialLocation: string | null;
   /** Human-readable name of the tapped conversation area, from the map. */
@@ -684,6 +689,8 @@ export const initialAppState = (): AppState => ({
   navigateView: "home",
   homeExperience: "returning",
   homeVenueSearchQuery: "",
+  navigateDiscoverVenuePickerOpen: false,
+  navigateDiscoverVenuePickerLoading: false,
   homeContent: null,
   profileView: "main",
   settingsConfirm: null,
@@ -713,6 +720,7 @@ export const initialAppState = (): AppState => ({
   socialCategory: "all",
   socialPageTab: "live-feed",
   socialExpectTopic: null,
+  socialSectionId: null,
   socialLocation: null,
   socialLocationName: null,
   socialTag: null,
