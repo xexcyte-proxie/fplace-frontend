@@ -11,16 +11,18 @@ import {
 describe('toWebSocketOrigin', () => {
   it('converts the ALB HTTP origin to ws', () => {
     expect(toWebSocketOrigin(FPLACES_BACKEND_HTTP_ORIGIN)).toBe(
-      FPLACES_BACKEND_WS_ORIGIN,
+      `ws://${FPLACES_BACKEND_HOST}`,
     );
     expect(toWebSocketOrigin(`http://${FPLACES_BACKEND_HOST}/`)).toBe(
-      FPLACES_BACKEND_WS_ORIGIN,
+      `ws://${FPLACES_BACKEND_HOST}`,
     );
   });
 
-  it('converts http/https/ws/wss inputs to ws', () => {
-    expect(toWebSocketOrigin('https://example.com')).toBe('ws://example.com');
-    expect(toWebSocketOrigin('wss://example.com')).toBe('ws://example.com');
+  it('preserves transport security when converting origins', () => {
+    expect(toWebSocketOrigin('https://example.com')).toBe('wss://example.com');
+    expect(toWebSocketOrigin('wss://example.com')).toBe('wss://example.com');
+    expect(FPLACES_BACKEND_WS_ORIGIN).toBe('wss://api.fplaces.com');
+    expect(toWebSocketOrigin('api.fplaces.com/')).toBe('wss://api.fplaces.com');
     expect(toWebSocketOrigin('ws://example.com')).toBe('ws://example.com');
   });
 });

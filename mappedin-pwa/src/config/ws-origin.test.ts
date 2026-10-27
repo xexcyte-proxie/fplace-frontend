@@ -17,7 +17,7 @@ describe('isLoopbackOrPrivateHost', () => {
 });
 
 describe('selectWsOrigin', () => {
-  it('uses configured ws on HTTPS LAN', () => {
+  it('uses configured wss on HTTPS LAN', () => {
     const selected = selectWsOrigin({
       configured: FPLACES_BACKEND_WS_ORIGIN,
       api: '',
@@ -27,11 +27,11 @@ describe('selectWsOrigin', () => {
     });
     expect(selected).toEqual({
       origin: FPLACES_BACKEND_WS_ORIGIN,
-      mixedContent: true,
+      mixedContent: false,
     });
   });
 
-  it('uses configured ws on public HTTPS', () => {
+  it('uses configured wss on public HTTPS', () => {
     const selected = selectWsOrigin({
       configured: FPLACES_BACKEND_WS_ORIGIN,
       api: '',
@@ -41,7 +41,7 @@ describe('selectWsOrigin', () => {
     });
     expect(selected).toEqual({
       origin: FPLACES_BACKEND_WS_ORIGIN,
-      mixedContent: true,
+      mixedContent: false,
     });
   });
 
@@ -55,11 +55,11 @@ describe('selectWsOrigin', () => {
     });
     expect(selected).toEqual({
       origin: FPLACES_BACKEND_WS_ORIGIN,
-      mixedContent: true,
+      mixedContent: false,
     });
   });
 
-  it('keeps ws:// on HTTP pages', () => {
+  it('keeps the secure backend on HTTP pages', () => {
     const selected = selectWsOrigin({
       configured: FPLACES_BACKEND_WS_ORIGIN,
       api: '',

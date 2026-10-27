@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   arNotAtVenueCopy,
   myLocationNotAtVenueCopy,
+  remoteArEnabled,
   userVenuePresence,
   venuePresenceAnchor,
 } from './venue-presence';
@@ -10,6 +11,12 @@ import {
 const origin = { latitude: 43.64, longitude: -79.38, accuracy: 8 };
 const nearbyVenue = { latitude: 43.641, longitude: -79.381 };
 const farVenue = { latitude: 34.01, longitude: -118.28 };
+
+describe('remoteArEnabled', () => {
+  it('is off unless the temporary AR bypass flag is enabled', () => {
+    expect(remoteArEnabled()).toBe(false);
+  });
+});
 
 describe('userVenuePresence', () => {
   it('is at-venue when GPS is within the campus radius', () => {

@@ -1,7 +1,7 @@
+import { sortVenuesByNameDescending } from '../home/domain/home-venues';
 import {
   formatRelativeDistance,
   metersFromUser,
-  sortByUserDistance,
 } from '../location/domain/user-relative-distance';
 import type { PermissionChoice } from '../permissions/domain/permission-choice';
 import type {
@@ -43,7 +43,7 @@ export function venuesForPicker(
   permission: PermissionChoice,
   userLocation: UserLocationCoords | null,
 ): VenueOption[] {
-  const matched = filterVenuesByQuery(venues, query);
+  const matched = sortVenuesByNameDescending(filterVenuesByQuery(venues, query));
   const decorated = matched.map((venue) => {
     const meters = metersFromUser(permission, userLocation, venue);
     return {
@@ -52,10 +52,7 @@ export function venuesForPicker(
       distanceLabel: formatRelativeDistance(meters),
     };
   });
-  const ranked = decorated.some((item) => item.meters != null)
-    ? sortByUserDistance(decorated, (item) => item.meters)
-    : decorated;
-  return ranked.map(({ venue, distanceLabel }) =>
+  return decorated.map(({ venue, distanceLabel }) =>
     venueToOption(venue, distanceLabel),
   );
 }

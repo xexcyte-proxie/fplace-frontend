@@ -175,6 +175,10 @@ export function clearVenueSelection(userId: number): void {
   venuePreferenceLocalDatasource.clear(userId);
 }
 
+export function clearAllVenueSelections(): void {
+  venuePreferenceLocalDatasource.clearAll();
+}
+
 /** Persist email + password in the browser password manager when supported. */
 export async function savePasswordCredential(
   credential: SavedPasswordCredential,

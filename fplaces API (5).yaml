@@ -686,7 +686,18 @@ paths:
                     id: 1
                     email: fan@example.com
                     pseudo_name: null
+                    first_name: ''
+                    last_name: ''
+                    bio: ''
+                    avatar_url: null
+                    user_type: regular_user
                     is_email_verified: false
+                    interests: null
+                    stat:
+                      posts_count: 0
+                      upvotes_count: 0
+                      venues_count: 0
+                    recent_posts: []
                     created_at: '2026-06-19T00:04:56.813191Z'
                     updated_at: '2026-06-19T00:04:56.813210Z'
                   summary: Register response
@@ -1832,6 +1843,223 @@ paths:
               schema:
                 $ref: '#/components/schemas/Venue'
           description: ''
+  /api/forum/floors/:
+    get:
+      operationId: forum_floors_list
+      description: A venue's floors/levels, synced automatically from Mappedin whenever
+        its `mappedin_map_id` is set or changed (see `GET /api/forum/sections/?floor=<id>`
+        for the named sections on each floor). Public endpoint; filter by venue with
+        `?venue=<id>`.
+      summary: List floors
+      parameters:
+      - in: query
+        name: created_after
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        schema:
+          type: string
+          format: date-time
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: venue
+        schema:
+          type: integer
+        description: Filter to floors belonging to this venue id.
+      tags:
+      - Floors
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedFloorList'
+          description: ''
+    post:
+      operationId: forum_floors_create
+      description: Floors are normally created automatically by the Mappedin sync.
+        Use this only to add a floor for a venue with no Mappedin integration.
+      summary: Create a floor manually (admin only)
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FloorRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FloorRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FloorRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Floor'
+          description: ''
+  /api/forum/floors/{id}/:
+    put:
+      operationId: forum_floors_update
+      summary: Replace a floor (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this floor.
+        required: true
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FloorRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FloorRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FloorRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Floor'
+          description: ''
+    get:
+      operationId: forum_floors_retrieve
+      summary: Retrieve a floor
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this floor.
+        required: true
+      tags:
+      - Floors
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Floor'
+          description: ''
+    delete:
+      operationId: forum_floors_destroy
+      description: Soft-delete only. Sections on an archived floor keep their reference
+        (`on_delete=SET_NULL` only applies if the floor is hard deleted, which this
+        endpoint never does).
+      summary: Archive a floor (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this floor.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+    patch:
+      operationId: forum_floors_partial_update
+      description: Commonly used to rename a floor or adjust its display `order` after
+        syncing.
+      summary: Update a floor (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this floor.
+        required: true
+      tags:
+      - Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedFloorRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedFloorRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedFloorRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Floor'
+          description: ''
+  /api/forum/floors/{id}/restore/:
+    post:
+      operationId: forum_floors_restore_create
+      description: Un-archives a record previously removed via `DELETE`, setting `is_archived`
+        back to `False` so it reappears in normal list/retrieve queries.
+      summary: Restore an archived floor (admin only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this floor.
+        required: true
+      tags:
+      - Admin
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Floor'
+          description: ''
   /api/forum/sections/:
     get:
       operationId: forum_sections_list
@@ -1851,6 +2079,10 @@ paths:
         schema:
           type: string
           format: date-time
+      - in: query
+        name: floor
+        schema:
+          type: number
       - in: query
         name: is_active
         schema:
@@ -2912,6 +3144,10 @@ paths:
   /api/maps/token/:
     get:
       operationId: maps_token_retrieve
+      description: Returns a short-lived Mappedin access token used to render the
+        venue's interactive 2D/AR map. Authenticated users only — guests instead receive
+        an equivalent token bundled directly into their `POST /api/users/guest/` response.
+      summary: Get a Mappedin map token
       tags:
       - Maps
       security:
@@ -2919,7 +3155,13 @@ paths:
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MappedinTokenResponse'
+          description: ''
+        '500':
+          description: Failed to retrieve a token from the Mappedin API.
 components:
   schemas:
     AdminNotificationRequestRequest:
@@ -3202,6 +3444,11 @@ components:
           description: Optional warning shown when this category is selected, e.g.
             the Help category's medical/security disclaimer.
           maxLength: 255
+        icon_url:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 500
         order:
           type: integer
           maximum: 2147483647
@@ -3242,6 +3489,11 @@ components:
           description: Optional warning shown when this category is selected, e.g.
             the Help category's medical/security disclaimer.
           maxLength: 255
+        icon_url:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 500
         order:
           type: integer
           maximum: 2147483647
@@ -3370,6 +3622,70 @@ components:
       required:
       - email
       - otp
+    Floor:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        venue:
+          type: integer
+          description: The venue this floor belongs to.
+        mappedin_floor_id:
+          type: string
+          readOnly: true
+          description: Mappedin map id for this floor, e.g. 'm_...'.
+        name:
+          type: string
+          description: e.g. 'Level 1', 'Main Concourse'. Synced from Mappedin.
+          maxLength: 100
+        elevation:
+          type: integer
+          readOnly: true
+          nullable: true
+        order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Display order within the venue, ascending (lowest floor first).
+        raw_json:
+          readOnly: true
+          nullable: true
+          description: Raw floor ('map') object as last returned by Mappedin's MVF
+            export.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - elevation
+      - id
+      - mappedin_floor_id
+      - raw_json
+      - updated_at
+      - venue
+    FloorRequest:
+      type: object
+      properties:
+        venue:
+          type: integer
+          description: The venue this floor belongs to.
+        name:
+          type: string
+          description: e.g. 'Level 1', 'Main Concourse'. Synced from Mappedin.
+          maxLength: 100
+        order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Display order within the venue, ascending (lowest floor first).
+      required:
+      - venue
     GoogleLoginRequest:
       type: object
       properties:
@@ -3598,6 +3914,16 @@ components:
             can no longer be used to obtain new access tokens.
       required:
       - refresh
+    MappedinTokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        expires_in:
+          type: integer
+      required:
+      - expires_in
+      - token
     Notification:
       type: object
       properties:
@@ -3746,6 +4072,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Comment'
+    PaginatedFloorList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Floor'
     PaginatedInterestList:
       type: object
       required:
@@ -3986,6 +4335,11 @@ components:
           description: Optional warning shown when this category is selected, e.g.
             the Help category's medical/security disclaimer.
           maxLength: 255
+        icon_url:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 500
         order:
           type: integer
           maximum: 2147483647
@@ -4006,6 +4360,21 @@ components:
           minLength: 1
           description: Comment text, max 500 characters.
           maxLength: 500
+    PatchedFloorRequest:
+      type: object
+      properties:
+        venue:
+          type: integer
+          description: The venue this floor belongs to.
+        name:
+          type: string
+          description: e.g. 'Level 1', 'Main Concourse'. Synced from Mappedin.
+          maxLength: 100
+        order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Display order within the venue, ascending (lowest floor first).
     PatchedGuestSessionUpdateRequestRequest:
       type: object
       properties:
@@ -4063,10 +4432,16 @@ components:
         venue:
           type: integer
           description: The venue this section belongs to.
+        floor:
+          type: integer
+          nullable: true
+          description: The floor this section is on, if synced from Mappedin. Null
+            for sections created directly by an admin.
         name:
           type: string
           minLength: 1
-          description: e.g. 'North Stand', 'VIP'. Unique per venue.
+          description: e.g. 'North Stand', 'VIP'. Unique per floor for Mappedin-synced
+            sections; names may repeat across floors (e.g. 'Restroom' on every level).
           maxLength: 50
         code:
           type: string
@@ -4123,17 +4498,20 @@ components:
           format: decimal
           pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
           nullable: true
-          description: Reserved for future GPS auto-suggest.
+          description: Auto-populated from Mappedin whenever mappedin_map_id is set
+            or changed. Can still be set manually for a venue with no Mappedin integration.
         longitude:
           type: string
           format: decimal
           pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
           nullable: true
-          description: Reserved for future GPS auto-suggest.
+          description: Auto-populated from Mappedin whenever mappedin_map_id is set
+            or changed. Can still be set manually for a venue with no Mappedin integration.
         mappedin_map_id:
           type: string
           nullable: true
-          description: External key for Mappedin integration.
+          description: Mappedin venue id. Setting or changing this triggers an automatic
+            sync of latitude/longitude, floors, and sections from Mappedin.
           maxLength: 255
         notes:
           type: string
@@ -4285,14 +4663,31 @@ components:
         venue:
           type: integer
           description: The venue this section belongs to.
+        floor:
+          type: integer
+          nullable: true
+          description: The floor this section is on, if synced from Mappedin. Null
+            for sections created directly by an admin.
         name:
           type: string
-          description: e.g. 'North Stand', 'VIP'. Unique per venue.
+          description: e.g. 'North Stand', 'VIP'. Unique per floor for Mappedin-synced
+            sections; names may repeat across floors (e.g. 'Restroom' on every level).
           maxLength: 50
         code:
           type: string
           description: Optional short code for the section, e.g. a gate/seat-map label.
           maxLength: 20
+        mappedin_location_id:
+          type: string
+          readOnly: true
+          description: Mappedin location id ('loc_...') this section was synced from,
+            if any. Used as the stable match key when re-syncing a floor, since names
+            alone aren't unique across floors (e.g. 'Restroom' commonly appears on
+            every floor).
+        raw_json:
+          readOnly: true
+          nullable: true
+          description: Raw location object as last returned by Mappedin's MVF export.
         is_active:
           type: boolean
           description: Toggle off to temporarily close a section (e.g. for an event)
@@ -4308,7 +4703,9 @@ components:
       required:
       - created_at
       - id
+      - mappedin_location_id
       - name
+      - raw_json
       - updated_at
       - venue
     SectionRequest:
@@ -4317,10 +4714,16 @@ components:
         venue:
           type: integer
           description: The venue this section belongs to.
+        floor:
+          type: integer
+          nullable: true
+          description: The floor this section is on, if synced from Mappedin. Null
+            for sections created directly by an admin.
         name:
           type: string
           minLength: 1
-          description: e.g. 'North Stand', 'VIP'. Unique per venue.
+          description: e.g. 'North Stand', 'VIP'. Unique per floor for Mappedin-synced
+            sections; names may repeat across floors (e.g. 'Restroom' on every level).
           maxLength: 50
         code:
           type: string
@@ -4512,18 +4915,25 @@ components:
           format: decimal
           pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
           nullable: true
-          description: Reserved for future GPS auto-suggest.
+          description: Auto-populated from Mappedin whenever mappedin_map_id is set
+            or changed. Can still be set manually for a venue with no Mappedin integration.
         longitude:
           type: string
           format: decimal
           pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
           nullable: true
-          description: Reserved for future GPS auto-suggest.
+          description: Auto-populated from Mappedin whenever mappedin_map_id is set
+            or changed. Can still be set manually for a venue with no Mappedin integration.
         mappedin_map_id:
           type: string
           nullable: true
-          description: External key for Mappedin integration.
+          description: Mappedin venue id. Setting or changing this triggers an automatic
+            sync of latitude/longitude, floors, and sections from Mappedin.
           maxLength: 255
+        raw_json:
+          readOnly: true
+          nullable: true
+          description: Raw venue object as last returned by Mappedin's API.
         notes:
           type: string
         created_at:
@@ -4538,6 +4948,7 @@ components:
       - created_at
       - id
       - name
+      - raw_json
       - updated_at
     VenueRequest:
       type: object
@@ -4556,17 +4967,20 @@ components:
           format: decimal
           pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
           nullable: true
-          description: Reserved for future GPS auto-suggest.
+          description: Auto-populated from Mappedin whenever mappedin_map_id is set
+            or changed. Can still be set manually for a venue with no Mappedin integration.
         longitude:
           type: string
           format: decimal
           pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
           nullable: true
-          description: Reserved for future GPS auto-suggest.
+          description: Auto-populated from Mappedin whenever mappedin_map_id is set
+            or changed. Can still be set manually for a venue with no Mappedin integration.
         mappedin_map_id:
           type: string
           nullable: true
-          description: External key for Mappedin integration.
+          description: Mappedin venue id. Setting or changing this triggers an automatic
+            sync of latitude/longitude, floors, and sections from Mappedin.
           maxLength: 255
         notes:
           type: string
@@ -4615,9 +5029,14 @@ tags:
   description: Curated catalog of user interests shown as profile picker tags.
 - name: Venues
   description: Stadiums/arenas fans can select to join a live feed.
+- name: Floors
+  description: A venue's floors/levels, synced automatically from Mappedin.
 - name: Sections
-  description: Physical zones within a venue (e.g. North Stand, VIP), used for the
-    section heatmap.
+  description: Named places within a venue (e.g. North Stand, VIP, Gate 3), used for
+    the section heatmap. Synced from Mappedin per-floor, or created directly by an
+    admin.
+- name: Maps
+  description: Mappedin credentials for rendering a venue's interactive 2D/AR map.
 - name: Posts
   description: 140-character venue feed posts, with upvotes, flags, and moderation.
 - name: Comments

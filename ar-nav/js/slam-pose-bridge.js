@@ -232,6 +232,7 @@
     update,
     ingestVenue,
     getFusedAlongPathMeters,
+    getDiagnosticAlongPathMeters() { return fusedAlongM; },
     predictAlongFromSlam,
     shouldUseFusion,
     isActive,

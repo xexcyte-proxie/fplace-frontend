@@ -12,6 +12,10 @@ export const VENUE_PRESENCE_RADIUS_M = 1000;
 
 type GeoPoint = { latitude?: number | null; longitude?: number | null };
 
+export function remoteArEnabled(): boolean {
+  return import.meta.env.VITE_ALLOW_REMOTE_AR === '1';
+}
+
 function hasFiniteCoordinates(
   point: GeoPoint | null | undefined,
 ): point is { latitude: number; longitude: number } {

@@ -7,6 +7,7 @@ import type {
   ForumCategory,
   ForumComment,
   ForumInterest,
+  ForumFloor,
   ForumPost,
   ForumSection,
   ForumVenue,
@@ -113,11 +114,13 @@ export class ForumRemoteDatasource {
 
   async listSections(
     venueId: number,
+    floorId?: number,
     page = 1,
   ): Promise<PaginatedList<ForumSection>> {
     const raw = await apiRequest<unknown>(
       withQuery('/api/forum/sections/', {
         venue: venueId,
+        floor: floorId,
         is_active: true,
         page,
       }),
@@ -126,6 +129,13 @@ export class ForumRemoteDatasource {
       },
     );
     return coerceForumSectionList(raw);
+  }
+
+  listFloors(venueId: number, page = 1): Promise<PaginatedList<ForumFloor>> {
+    return apiRequest<PaginatedList<ForumFloor>>(
+      withQuery('/api/forum/floors/', { venue: venueId, ordering: 'order', page }),
+      { fallbackError: 'Could not load floors for this venue.' },
+    );
   }
 
   async getSection(sectionId: number): Promise<ForumSection> {

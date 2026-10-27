@@ -5,8 +5,6 @@
   const SLOG = () => window.FplacesSlamDiagnostics;
   function injectCalibrationUi() {
     if (document.getElementById('fplaces-calibrate-btn')) return;
-    const cfg = window.FPLACES_AR_CONFIG || {};
-    if (cfg.autoCalibrate) return;
     if (
       new URLSearchParams(window.location.search).get('preload') === '1' &&
       !window.__fplacesLiveViewRequested
@@ -18,11 +16,13 @@
     btn.id = 'fplaces-calibrate-btn';
     btn.type = 'button';
     btn.className = 'calibrate-ar-btn';
-    btn.textContent = 'Point camera at the floor';
+    btn.textContent = 'Align route';
+    btn.hidden = !window.FplacesSpatialAlignment?.needsManual;
     btn.addEventListener('click', () => {
-      window.executeDemoCalibrationFlow?.();
+      window.executeDemoCalibrationFlow?.({ manual: true });
     });
     document.body.appendChild(btn);
+    window.FplacesSpatialAlignment?.syncButton?.();
   }
 
   function resolveCalibrationAnchor(nav) {
@@ -361,10 +361,14 @@
     }, 6000);
   }
 
-  window.executeDemoCalibrationFlow = function executeDemoCalibrationFlow() {
+  window.executeDemoCalibrationFlow = function executeDemoCalibrationFlow(options = {}) {
+    if (!window.FplacesSpatialAlignment?.canCalibrate(options.manual)) {
+      window.FplacesLiveViewHud?.setStatus?.('Wait for tracking, then tap Align route.', true);
+      return false;
+    }
     if (!window.FplacesCameraStart?.isStarted?.()) {
-      window.FplacesArDebug?.warn('XR', 'Calibration skipped - camera not started yet');
-      return;
+      window.FplacesLiveViewHud?.setStatus?.('Start the camera, then tap Align route.', true);
+      return false;
     }
 
     const nav = window.__fplacesNavigator;
@@ -383,13 +387,26 @@
     const scene = window.__fplacesXrScene;
     const cam = window.__fplacesXrCamera;
     if (!scene) {
-      window.FplacesArDebug?.warn('XR', 'Calibration deferred - XR scene not ready');
-      window.__fplacesScheduleFloorCalibration?.();
-      return;
+      window.FplacesLiveViewHud?.setStatus?.('Camera is getting ready. Try Align route again shortly.', true);
+      return false;
     }
 
+    if (!cam?.position || ![cam.position.x, cam.position.y, cam.position.z].every(Number.isFinite)) {
+      window.FplacesLiveViewHud?.setStatus?.('Camera position unavailable. Hold the phone steady and retry alignment.', true);
+      return false;
+    }
+    const floorId = nav?._trackedFloorId ?? snap.floorId;
+    const anchor = window.FplacesAnchorEngine?.instance;
+    // Reuse a height only while its world frame and floor are still valid.
+    // Tracking/floor invalidation clears this reference in Phase 2.
+    const ground = anchor?.isCalibrated && anchor.ground?.floorId === floorId ? anchor.ground : null;
     const routeBearing = nav?.getTargetBearingDegrees?.();
-    const alignment = cam ? resolveWorldAlignment(cam, routeBearing) : null;
+    const alignment = resolveWorldAlignment(cam, routeBearing);
+    if (!alignment || !Number.isFinite(alignment.yawOffsetDeg)) {
+      window.FplacesLiveViewHud?.setStatus?.('Heading unavailable. Wait for tracking, then retry alignment.', true);
+      return false;
+    }
+    window.FplacesWorldRoute?.invalidate?.("calibration");
 
     const calibrated = window.FplacesAnchorEngine?.calibrate?.(
       {
@@ -401,13 +418,16 @@
             yawOffsetDeg: alignment.yawOffsetDeg,
             slamX: cam?.position?.x,
             slamZ: cam?.position?.z,
+            groundY: ground?.y,
+            groundKind: ground?.kind,
+            floorId,
           }
         : undefined,
     );
 
     if (!calibrated) {
-      window.FplacesArDebug?.error?.('XR', 'Calibration failed - missing anchor');
-      return;
+      window.FplacesLiveViewHud?.setStatus?.('Route position unavailable. Wait for the map position, then retry alignment.', true);
+      return false;
     }
 
     window.FplacesArDebug?.log('XR', 'World alignment resolved', {
@@ -417,20 +437,9 @@
       routeBearing: routeBearing != null ? Math.round(routeBearing * 10) / 10 : null,
     });
 
-    const mesh = window.FplacesPathGeometry?.generateWorldMeshPath?.(
-      scene,
-      route,
-      window.FplacesAnchorEngine.instance,
-      { camera: cam },
-    );
-
-    if (!mesh) {
-      window.FplacesArDebug?.warn('XR', 'Floor ribbon build failed after calibration');
-    }
-
+    window.FplacesSpatialAlignment?.calibrated?.();
     window.FplacesWorldRoute?.setRoute?.(nav);
     window.FplacesWorldRoute?.ensureRibbon?.();
-    nav?.resetProgressAtSnap?.(snap);
 
     if (cam) {
       // Calibrate HUD heading to the actual facing (compass) - not the route -
@@ -449,63 +458,8 @@
       );
     }
 
-    const embeddedInPwa = window.parent && window.parent !== window;
-    if (embeddedInPwa) {
-      const parentProgress = window.__fplacesNavigationProgress;
-      const alongFromSnap = snap.distanceAlongPathMeters ?? 0;
-      const along = Math.max(
-        parentProgress?.alongPathMeters ?? 0,
-        nav?._displayAlongPathM ?? 0,
-        alongFromSnap,
-      );
-      if (parentProgress || along > 0) {
-        nav?.applyNavigationSync?.({
-          ...(parentProgress || {}),
-          alongPathMeters: along,
-          latitude: snap.latitude,
-          longitude: snap.longitude,
-          floorId: snap.floorId,
-          routeSimulating: true,
-          routeSimulationComplete: false,
-          source: 'simulator',
-        });
-      }
-      window.FplacesDemoSim?.stop?.();
-      if (window.FplacesCameraStart?.isStarted?.()) {
-        window.FplacesLiveViewHud?.setStatus?.('AR locked to floor - follow the blue chevrons ahead.');
-        window.FplacesLiveViewHud?.setTrackingMode?.('slam', slamTrackingLabel());
-      }
-      window.FplacesArDebug?.log('XR', 'Demo calibration complete (embedded)', {
-        anchor: snap,
-        alongPathMeters: along,
-        pathPoints: path.length,
-      });
-      return;
-    }
-
-    // Standalone AR: parent PWA simulator is the single source of truth.
-    window.FplacesDemoSim?.stop?.();
-    window.FplacesRouteBridge?.requestParentMovement?.({
-      alongPathMeters: snap.distanceAlongPathMeters ?? 0,
-    });
-    if (window.FplacesCameraStart?.isStarted?.()) {
-      window.FplacesLiveViewHud?.setStatus?.('AR locked to floor - follow the blue chevrons ahead.');
-      window.FplacesLiveViewHud?.setTrackingMode?.('slam', slamTrackingLabel());
-    }
-    window.FplacesArDebug?.log('XR', 'Demo calibration complete', {
-      anchor: snap,
-      pathPoints: path.length,
-      source: window.__fplacesLastPositionFrame?.source || nav?.positionSource,
-    });
-    SLOG()?.logCheck?.(
-      'floor-calibration',
-      !!window.FplacesAnchorEngine?.isCalibrated,
-      'Floor calibration flow finished',
-      {
-        anchorCalibrated: !!window.FplacesAnchorEngine?.isCalibrated,
-        ribbonOnScene: window.FplacesPathGeometry?.hasRibbon?.(scene),
-      },
-    );
+    window.FplacesLiveViewHud?.setStatus?.('Route realigned using estimated floor height. Tap Align route if it drifts.');
+    return true;
   };
 
   window.FplacesArCalibrationUi = { inject: injectCalibrationUi };
@@ -613,14 +567,12 @@
       let lastAuxAt = 0;
       let xrCamera = null;
       let xrScene = null;
-      let routeBuilt = false;
       let xrInitialized = false;
 
       resetNavScene = () => {
         xrInitialized = false;
         xrScene = null;
         xrCamera = null;
-        routeBuilt = false;
       };
 
       function setupXrScene() {
@@ -690,7 +642,6 @@
           window.FplacesWorldRoute?.attach?.({ THREE, scene: xrScene, camera: xrCamera });
           if (navigator.route) {
             window.FplacesWorldRoute?.setRoute?.(navigator);
-            routeBuilt = true;
           }
         } else if (cfg.useWebGlArrows !== false && xrCamera) {
           window.FplacesPathArrows3d?.attach?.({ THREE, camera: xrCamera });
@@ -736,10 +687,6 @@
 
       function onNavUpdate(state) {
         updateHudThrottled(state);
-        if (cfg.useWorldRoute !== false && !routeBuilt && navigator.route) {
-          window.FplacesWorldRoute?.setRoute?.(navigator);
-          routeBuilt = true;
-        }
       }
 
       function updateWorldRoute() {
@@ -761,7 +708,17 @@
           }
         },
 
-        onUpdate() {
+        listeners: [
+          { event: 'reality.trackingstatus', process: ({ detail }) => window.FplacesSpatialAlignment?.observe(detail?.status) },
+          { event: 'reality.cameraconfigured', process: ({ detail }) => {
+            if (detail?.recenter) window.FplacesSpatialAlignment?.invalidate('World frame changed.');
+          } },
+        ],
+        onDetach() { window.FplacesSpatialAlignment?.invalidate('Camera detached.'); },
+        onPaused() { window.FplacesSpatialAlignment?.invalidate('Camera paused.'); },
+        onResume() { window.FplacesSpatialAlignment?.invalidate('Camera resumed.'); },
+        onUpdate({ processCpuResult } = {}) {
+          window.FplacesSpatialAlignment?.observe(processCpuResult?.reality?.trackingStatus);
           if (!xrInitialized) {
             setupXrScene();
           }
@@ -822,6 +779,7 @@
       const fplacesRuntimeErrorModule = () => ({
         name: 'fplaces-runtime-error',
         onException(error) {
+          window.FplacesSpatialAlignment?.invalidate('Tracking error.');
           DBG?.captureRuntimeError?.('XR.onException', error);
         },
       });

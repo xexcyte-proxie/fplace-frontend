@@ -11,10 +11,20 @@ export interface ForumVenue {
   updated_at: string;
 }
 
+export interface ForumFloor {
+  id: number;
+  venue: number;
+  mappedin_floor_id: string;
+  name: string;
+  elevation: number | null;
+  order: number;
+}
+
 /** Physical zone within a venue (e.g. North Stand). */
 export interface ForumSection {
   id: number;
   venue: number;
+  floor: number | null;
   name: string;
   code: string;
   is_active: boolean;

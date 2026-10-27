@@ -23,6 +23,7 @@ export function coerceForumSection(raw: unknown): ForumSection | null {
   return {
     id,
     venue,
+    floor: dto.floor == null ? null : Number(dto.floor),
     name,
     code: String(dto.code ?? '').trim(),
     is_active: dto.is_active !== false && dto.isActive !== false,

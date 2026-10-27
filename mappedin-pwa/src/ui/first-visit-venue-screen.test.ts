@@ -11,9 +11,7 @@ import {
   buildFirstVisitVenueHomeViewModel,
 } from '../home/presentation/first-visit-venue-home-data';
 import { VenueVisitLocalDatasource } from '../home/data/datasources/venue-visit-local-datasource';
-import { initialAppState } from '../types';
 import { renderFirstVisitVenueScreen } from './first-visit-venue-screen';
-import { UiRoot } from './ui-root';
 
 const signedInUser = {
   id: 1,
@@ -46,36 +44,6 @@ function firstVisitScreenState(
     venueFeedPosts: [],
     venueFeedLoading: false,
     upvotedPostIds: [],
-    arRoutePromptOpen: false,
-    arNotAtVenuePromptOpen: false,
-    homeContent: {
-      recentlyVisited: [
-        {
-          id: '1',
-          name: 'LA Stadium',
-          visitedLabel: 'Los Angeles',
-          postCount: 0,
-          icon: 'pin',
-        },
-      ],
-      otherVenues: [
-        {
-          id: '3',
-          name: 'Riverside',
-          visitedLabel: 'Lagos',
-          postCount: 0,
-          icon: 'pin',
-        },
-        {
-          id: '8',
-          name: 'LTV 8',
-          visitedLabel: 'Agidigbi',
-          postCount: 0,
-          icon: 'pin',
-        },
-      ],
-      stats: { venues: 2, upvotesLabel: '0', posts: 0 },
-    },
     ...overrides,
   };
 }
@@ -138,7 +106,7 @@ describe('first-visit venue home', () => {
     });
     expect(content.venueName).toBe('LA Stadium');
     expect(content.sectionLabel).toBe('North Stand, Level 1');
-    expect(content.fansHereLabel).toBe('');
+    expect(content.fansHereLabel).toBe('0 fan(s) here right now');
     expect(content.previewPosts).toEqual([]);
   });
 
@@ -155,23 +123,6 @@ describe('first-visit venue home', () => {
     expect(resolveHomeExperience(null, false)).toBe('returning');
     expect(resolveHomeExperience('12', false)).toBe('first-visit');
     expect(resolveHomeExperience('12', true)).toBe('returning');
-  });
-
-  it('hides the Navigate tab for first-time venue visitors', () => {
-    const ui = Object.create(UiRoot.prototype) as { bottomNav(state: unknown): string };
-    const firstVisitHtml = ui.bottomNav({
-      ...initialAppState(),
-      homeExperience: 'first-visit',
-    });
-    const returningHtml = ui.bottomNav({
-      ...initialAppState(),
-      homeExperience: 'returning',
-    });
-
-    expect(firstVisitHtml).not.toContain('id="nav-map"');
-    expect(firstVisitHtml).not.toContain('Navigate</span>');
-    expect(returningHtml).toContain('id="nav-map"');
-    expect(returningHtml).toContain('Navigate</span>');
   });
 
   it('renders first-visit markup hooks', () => {
@@ -195,31 +146,47 @@ describe('first-visit venue home', () => {
     expect(html).toContain('Try AR');
     expect(html).toContain('id="first-visit-discover-btn"');
     expect(html).toContain('id="first-visit-ar-btn"');
+    expect(html).toContain('Live from the crowd');
     expect(html).toContain('data-tour-id="home-hero"');
     expect(html).toContain('View category updates');
-    expect(html).toContain('No posts yet. Be the first to shout out.');
-    expect(html).toContain('Recently visited');
-    expect(html).toContain('Other venues');
-    expect(html).toContain('data-home-venue-id="1"');
-    expect(html).toContain('data-home-venue-id="3"');
-    expect(html).toContain('data-home-venue-id="8"');
-    expect(html.indexOf('Recently visited')).toBeLessThan(html.indexOf('Other venues'));
-    expect(html).not.toContain('class="first-visit-fans"');
+    expect(html).toContain('No venue updates yet for this category.');
+    expect(html).not.toContain('Recently visited');
+    expect(html).not.toContain('Other venues');
+    expect(html).not.toContain('data-home-venue-id="1"');
+    expect(html).toContain('class="first-visit-fans"');
     expect(html).not.toContain('SwiftOtter_21');
     expect(html).not.toContain('HungryHawk88');
     expect(html).not.toContain('1,204');
-    expect(html).toContain('<svg');
-    expect(html).toContain('currentColor');
     expect(html).not.toContain('/home/location.png');
     expect(html).not.toContain('/home/camera.png');
   });
 
-  it('omits venue lists until home catalog content has loaded', () => {
-    const html = renderFirstVisitVenueScreen(
-      firstVisitScreenState({ homeContent: null }),
-    );
+  it('offers the venue catalog with the current venue selected and escapes names', () => {
+    const html = renderFirstVisitVenueScreen(firstVisitScreenState({
+      forumVenues: [
+        { id: 1, name: 'LA Stadium', location: 'Los Angeles' },
+        { id: 3, name: 'Arts & Events', location: 'Lagos' },
+      ],
+    }));
+    expect(html).toContain('id="first-visit-venue-select" aria-label="Change venue"');
+    expect(html).toContain('<option value="1" selected>LA Stadium</option>');
+    expect(html).toContain('<option value="3">Arts &amp; Events</option>');
+  });
+
+  it('does not render venue lists on first-visit home', () => {
+    const html = renderFirstVisitVenueScreen(firstVisitScreenState());
     expect(html).not.toContain('Recently visited');
     expect(html).not.toContain('Other venues');
+  });
+
+  it('keeps the live fan count visible even when there are no feed posts', () => {
+    const html = renderFirstVisitVenueScreen(firstVisitScreenState({
+      venueOnlineCount: 2,
+      venueFeedPosts: [],
+      venueFeedLoading: true,
+    }));
+    expect(html).toContain('2 fan(s) here right now');
+    expect(html).toContain('class="first-visit-fans"');
   });
 
   it('overlays the feed while posts load', () => {
@@ -235,7 +202,7 @@ describe('first-visit venue home', () => {
     expect(html).toContain('aria-label="Loading posts"');
     expect(html).not.toContain('SwiftOtter_21');
     expect(html).not.toContain('class="first-visit-post"');
-    expect(html).not.toContain('No posts yet. Be the first to shout out.');
+    expect(html).not.toContain('No venue updates yet for this category.');
   });
 
   it('does not overlay a feed that already has posts', () => {

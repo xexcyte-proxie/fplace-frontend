@@ -60,9 +60,15 @@ export function sectionIdForLocation(
 export function sectionIdForMapLocation(
   sections: readonly SectionLocationRef[],
   locationId: string | null | undefined,
-  _locationName?: string | null,
+  locationName?: string | null,
 ): number | null {
-  return sectionIdForLocation(sections, locationId);
+  return (
+    sectionIdForLocation(sections, locationId) ??
+    sectionIdForLocation(
+      sections,
+      locationName ? slugifyLocationName(locationName) : null,
+    )
+  );
 }
 
 export function conversationLocationIdForSection(

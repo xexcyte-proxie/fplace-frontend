@@ -143,8 +143,19 @@ describe('startup location gate integration', () => {
     }
   });
 
-  it('try-again while permanently denied does not re-prompt', async () => {
-    const getCurrentPosition = vi.fn();
+  it('automatic denied preflight skips, but a user-triggered retry can request again', async () => {
+    const denied: GeolocationPositionError = {
+      code: 1,
+      message: 'denied',
+      PERMISSION_DENIED: 1,
+      POSITION_UNAVAILABLE: 2,
+      TIMEOUT: 3,
+    };
+    const getCurrentPosition = vi.fn(
+      (_success: PositionCallback, error?: PositionErrorCallback | null) => {
+        error?.(denied);
+      },
+    );
     vi.stubGlobal('navigator', {
       geolocation: { getCurrentPosition },
       permissions: {
@@ -154,7 +165,8 @@ describe('startup location gate integration', () => {
 
     const service = new LocationService();
     expect(await service.isPermanentlyDenied()).toBe(true);
-    // MapApp.retryLocationPermission short-circuits before requestLocation
     expect(getCurrentPosition).not.toHaveBeenCalled();
+    await expect(service.requestLocation()).rejects.toBe(denied);
+    expect(getCurrentPosition).toHaveBeenCalledOnce();
   });
 });

@@ -35,7 +35,9 @@ export function resolveMapCanvasRect(
 }
 
 /** Pixel radius around an anchor for treating a tap as a location-pill hit. */
-export const SOCIAL_PILL_HIT_RADIUS_PX = 52;
+// Include the label and the underlying ordinary Mappedin location in the
+// same tap target, so a section opens its modal consistently.
+export const SOCIAL_PILL_HIT_RADIUS_PX = 72;
 
 export function pickNearestScreenAnchorId(
   anchors: Array<{ id: string; screen: { x: number; y: number } | null }>,

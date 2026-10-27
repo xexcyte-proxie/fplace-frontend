@@ -766,6 +766,10 @@
   color: var(--vf-accent-green);
 }
 
+.venue-feed-upvote {
+  color: var(--vf-accent-green);
+}
+
 .venue-feed-upvote.is-active {
   color: var(--vf-accent-green);
 }

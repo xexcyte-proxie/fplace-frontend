@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { partitionHomeVenues } from './home-venues';
+import { partitionHomeVenues, sortVenuesByNameDescending } from './home-venues';
 
 const venues = [
   { id: 2, name: 'Arena' },
@@ -26,4 +26,11 @@ describe('partitionHomeVenues', () => {
     expect(split.recentlyVisited.map((item) => item.id)).toEqual([1]);
     expect(split.otherVenues.map((item) => item.id)).toEqual([2, 3]);
   });
+});
+
+it('sorts venue names Z to A regardless of case without changing the source', () => {
+  const catalog = [{ name: 'alpha' }, { name: 'Zulu' }, { name: 'beta' }];
+  expect(sortVenuesByNameDescending(catalog).map((venue) => venue.name))
+    .toEqual(['Zulu', 'beta', 'alpha']);
+  expect(catalog.map((venue) => venue.name)).toEqual(['alpha', 'Zulu', 'beta']);
 });

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import { VitePWA } from 'vite-plugin-pwa';
 
@@ -73,11 +73,15 @@ const BACKEND_WS_PROXY = {
   },
 };
 
-export default defineConfig({
-  plugins: [
-    basicSsl(),
-    serveArNav(),
-    VitePWA({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const devHttp = env.VITE_DEV_HTTP === '1';
+
+  return {
+    plugins: [
+      ...(devHttp ? [] : [basicSsl()]),
+      serveArNav(),
+      VitePWA({
       registerType: 'autoUpdate',
       injectRegister: false,
       includeAssets: ['favicon.svg'],
@@ -177,4 +181,5 @@ export default defineConfig({
       '/ws': BACKEND_WS_PROXY,
     },
   },
+  };
 });

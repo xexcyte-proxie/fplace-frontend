@@ -6,7 +6,7 @@
 
   window.FPLACES_AR_CONFIG = {
     /** Bumped when AR camera/SLAM boot changes - check console on load. */
-    buildId: "20260921-camera-unblocked-v3",
+    buildId: "20261027-align-conditional-v5",
     eighthWallAppKey: "",
     xrMode: "auto",
     arrowDistanceM: 2.5,
@@ -25,24 +25,39 @@
     usePathRibbon: false,
     /** Red current-position pin - off; trail chevrons + HUD carry guidance. */
     showLeadingLocationMarker: false,
-    /** Sliding 2-slot trail — reconcile to marks; never append/fan. */
+    /** Trail appearance: meters in the existing SLAM frame, local forward -Z. */
+    trailArrowWidthM: 0.75,
+    trailArrowLengthM: 0.6,
+    trailArrowDepthM: 0.018,
+    trailArrowColor: 0x14b8a6,
+    trailArrowEdgeColor: 0x0d9488,
+    trailArrowOpacity: 0.95,
+    trailArrowScale: 1.3, // XZ: 0.975 m wide × 0.78 m long.
+    trailArrowThicknessScale: 1.12, // Preserve the existing rendered thickness.
+    trailTangentSampleM: 0.75,
+    /** Do not blend across corners sharper than this angle. */
+    trailTangentMaxTurnDeg: 35,
+    /** Keep fixed positions; fade/hide near the camera, never billboard. */
+    trailMinCameraDepthM: 0.8,
+    trailCameraFadeM: 0.6,
+    trailMembershipStableMs: 180, // Stable slot set before noncritical creation/removal.
+    groundOffsetM: 0.04, // Above the estimated horizontal walking surface.
+    /** Sliding trail; retain meshes until their grid marks leave the window. */
     useIncrementalPath: true,
-    incrementalPathHorizonM: 22,
+    incrementalPathHorizonM: 16,
     /** Drop a chevron once the user is this close along the path (meters). */
     incrementalPathPassM: 0.8,
     /** Refuse a second chevron closer than this in world XZ (meters). */
-    incrementalPathMinSeparationM: 2.4,
-    incrementalPathSpacingM: 4,
-    incrementalPathMaxVisible: 2,
-    /**
-     * Opening stretch: 1–2 chevrons clearly in camera (~2.5 m lead), not a pile
-     * and not so far ahead that the road looks empty.
-     */
+    incrementalPathMinSeparationM: 1,
+    incrementalPathSpacingM: 2,
+    incrementalPathMaxVisible: 8,
+    /** Legacy density caps also constrain the incremental trail. */
     nearFieldStartM: 6,
-    nearFieldSpacingM: 4,
-    nearFieldMaxArrows: 2,
-    nearFieldArrowScale: 0.9,
-    nearFieldLeadGapM: 2.5,
+    nearFieldSpacingM: 2,
+    nearFieldMaxArrows: 8,
+    /** Legacy scale fallback when trailArrowScale is absent. */
+    nearFieldArrowScale: 1,
+    nearFieldLeadGapM: 2,
     /** When remaining path is short, shrink reveal + density instead of dumping a full trail. */
     shortRemainingThresholdM: 12,
     shortRemainingRevealM: 4,

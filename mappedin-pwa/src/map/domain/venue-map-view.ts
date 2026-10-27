@@ -28,10 +28,22 @@ export function isWorldScaleZoom(zoomLevel: number | null | undefined): boolean 
 
 export function clampVenueZoom(
   zoomLevel: number,
-  cameraMin: number,
-  cameraMax: number,
+  cameraMin: number | null | undefined,
+  cameraMax: number | null | undefined,
 ): number {
-  const lo = Math.max(cameraMin, VENUE_MAP_MIN_ZOOM);
-  const hi = Math.max(lo, cameraMax);
+  // Some Mappedin versions expose min/max as undefined until the first
+  // camera frame has rendered. Never pass NaN to animateTo in that window.
+  const lo = Math.max(
+    typeof cameraMin === 'number' && Number.isFinite(cameraMin)
+      ? cameraMin
+      : VENUE_MAP_MIN_ZOOM,
+    VENUE_MAP_MIN_ZOOM,
+  );
+  const hi = Math.max(
+    lo,
+    typeof cameraMax === 'number' && Number.isFinite(cameraMax)
+      ? cameraMax
+      : lo + 8,
+  );
   return Math.min(hi, Math.max(lo, zoomLevel));
 }

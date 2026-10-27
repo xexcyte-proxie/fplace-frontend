@@ -3130,3 +3130,68 @@ button.is-loading:disabled,
   color: #92400e;
   font-size: 0.875rem;
 }
+
+.location-dialog-secondary {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.location-dialog-secondary:hover { background: rgb(0 0 0 / 5%); }
+.location-dialog-secondary:focus-visible { outline: 2px solid var(--app-accent-blue); }
+.location-dialog-help { margin: 14px 0; padding-left: 22px; text-align: left; line-height: 1.55; }
+
+.location-diagnostics { margin-top: 16px; text-align: left; font-size: 13px; }
+.location-diagnostics summary { cursor: pointer; padding: 8px 0; }
+.location-diagnostics textarea {
+  width: 100%;
+  height: 150px;
+  box-sizing: border-box;
+  resize: vertical;
+  font: 12px/1.5 monospace;
+}
+#location-gate-dismiss .location-dialog { max-height: 85dvh; overflow-y: auto; }
+.gps-loading-dialog {
+  z-index: 45;
+  background: rgb(21 21 31 / 48%);
+  backdrop-filter: blur(3px);
+}
+.gps-loading-dialog .location-dialog {
+  width: min(100%, 360px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 34px 28px 30px;
+  border: 1px solid rgb(255 255 255 / 70%);
+  border-radius: 26px;
+  text-align: center;
+  box-shadow: 0 24px 70px rgb(21 21 31 / 28%);
+}
+.gps-loading-dialog .screen-loading-spinner {
+  display: block;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 22px;
+  border-width: 4px;
+}
+.gps-loading-dialog .location-dialog-title {
+  margin-bottom: 8px;
+  font-size: 25px;
+  letter-spacing: -0.5px;
+}
+.gps-loading-dialog .location-dialog-body {
+  max-width: 250px;
+  font-size: 16px;
+}
+
+.venue-select-children {
+  margin: 12px 0 4px 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--brand-orange);
+}

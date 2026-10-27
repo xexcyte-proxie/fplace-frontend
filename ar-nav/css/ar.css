@@ -1009,13 +1009,16 @@ body.lv-active #hud::before {
   display: none !important;
 }
 
+.calibrate-ar-btn[hidden] { display: none !important; }
+
 .calibrate-ar-btn {
   position: fixed;
   left: 50%;
-  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%);
+  top: 50%;
+  max-width: calc(100% - 32px);
+  transform: translate(-50%, -50%);
   z-index: 12;
-  padding: 14px 22px;
+  padding: 12px 18px;
   border: none;
   border-radius: 999px;
   background: var(--lv-cyan);
@@ -1029,7 +1032,7 @@ body.lv-active #hud::before {
 }
 
 .calibrate-ar-btn:active {
-  transform: translateX(-50%) scale(0.98);
+  transform: translate(-50%, -50%) scale(0.98);
 }
 
 /* Compact camera-only preview while the parent shows the map + PiP chrome. */

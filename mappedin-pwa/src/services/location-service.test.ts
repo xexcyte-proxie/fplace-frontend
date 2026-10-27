@@ -67,6 +67,71 @@ describe('LocationService', () => {
     );
   });
 
+  it('retries with relaxed accuracy when high-accuracy location times out', async () => {
+    const timeout: GeolocationPositionError = {
+      code: 3,
+      message: 'Timeout expired',
+      PERMISSION_DENIED: 1,
+      POSITION_UNAVAILABLE: 2,
+      TIMEOUT: 3,
+    };
+    const getCurrentPosition = vi.fn(
+      (
+        success: PositionCallback,
+        error?: PositionErrorCallback | null,
+      ) => {
+        if (getCurrentPosition.mock.calls.length === 1) {
+          error?.(timeout);
+          return;
+        }
+        success({
+          coords: {
+            latitude: 6.72,
+            longitude: 3.25,
+            accuracy: 120,
+            altitude: null,
+            altitudeAccuracy: null,
+            heading: null,
+            speed: null,
+            toJSON: () => ({}),
+          },
+          timestamp: 1,
+          toJSON: () => ({}),
+        });
+      },
+    );
+    vi.stubGlobal('navigator', {
+      geolocation: { getCurrentPosition },
+    });
+
+    const service = new LocationService();
+    await expect(service.requestLocation()).resolves.toEqual({
+      latitude: 6.72,
+      longitude: 3.25,
+      accuracy: 120,
+    });
+    expect(getCurrentPosition).toHaveBeenNthCalledWith(
+      1,
+      expect.any(Function),
+      expect.any(Function),
+      expect.objectContaining({
+        enableHighAccuracy: true,
+        timeout: 8000,
+        maximumAge: 0,
+      }),
+    );
+    expect(getCurrentPosition).toHaveBeenNthCalledWith(
+      2,
+      expect.any(Function),
+      expect.any(Function),
+      expect.objectContaining({
+        enableHighAccuracy: false,
+        timeout: 15_000,
+        maximumAge: 60_000,
+      }),
+    );
+  });
+
   it('streams live coordinates from watchPosition', () => {
     const watchPosition = vi.fn(
       (success: PositionCallback, _error?: PositionErrorCallback | null) => {

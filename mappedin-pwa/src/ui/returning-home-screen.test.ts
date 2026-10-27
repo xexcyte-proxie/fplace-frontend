@@ -136,7 +136,8 @@ describe('returning home', () => {
         updated_at: '',
       },
       pseudoNameDraft: '',
-      homeVenueSearchQuery: '',
+      venueFeedPosts: [],
+      venueFeedLoading: false,
       homeContent: {
         recentlyVisited: [
           {
@@ -169,7 +170,7 @@ describe('returning home', () => {
 
     expect(html).toContain('RowdyGull_47');
     expect(html).toContain('Where are you headed next?');
-    expect(html).toContain('Recent posts');
+    expect(html).toContain('Live from the crowd');
     expect(html).not.toContain('id="home-venue-search-input"');
     expect(html).not.toContain('data-tour-id="returning-search"');
     expect(html).not.toContain('data-tour-id="returning-recent"');
@@ -199,7 +200,8 @@ describe('returning home', () => {
         updated_at: '',
       },
       pseudoNameDraft: '',
-      homeVenueSearchQuery: '',
+      venueFeedPosts: [],
+      venueFeedLoading: false,
       homeContent: {
         recentlyVisited: [],
         otherVenues: [
@@ -230,7 +232,8 @@ describe('returning home', () => {
         updated_at: '',
       },
       pseudoNameDraft: '',
-      homeVenueSearchQuery: '',
+      venueFeedPosts: [],
+      venueFeedLoading: false,
       homeContent: {
         recentlyVisited: [],
         otherVenues: [],
@@ -252,7 +255,8 @@ describe('returning home', () => {
         updated_at: '',
       },
       pseudoNameDraft: '',
-      homeVenueSearchQuery: 'zzz',
+      venueFeedPosts: [],
+      venueFeedLoading: false,
       homeContent: {
         recentlyVisited: [
           {
@@ -291,7 +295,8 @@ describe('returning home', () => {
         updated_at: '',
       },
       pseudoNameDraft: '',
-      homeVenueSearchQuery: '',
+      venueFeedPosts: [],
+      venueFeedLoading: false,
       homeContent: {
         recentlyVisited: [
           {
@@ -321,7 +326,8 @@ describe('returning home', () => {
         updated_at: '',
       },
       pseudoNameDraft: '',
-      homeVenueSearchQuery: '',
+      venueFeedPosts: [],
+      venueFeedLoading: false,
       homeContent: null,
     });
     expect(html).toContain('screen-loading-overlay');

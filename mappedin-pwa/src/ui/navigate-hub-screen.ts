@@ -1,3 +1,4 @@
+import { sortVenuesByNameDescending } from '../home/domain/home-venues';
 import type { AppState } from '../types';
 import { buildReturningHomeViewModel } from '../home/presentation/returning-home-data';
 import type { RecentVenueVisit } from '../home/domain/entities';
@@ -10,14 +11,21 @@ import {
 import {
   firstVisitCameraIcon,
   firstVisitLocationIcon,
+  renderFirstVisitArPrompt,
 } from './first-visit-venue-screen';
 
-function renderVenueChoice(venue: RecentVenueVisit, loading: boolean): string {
+function renderVenueChoice(
+  venue: RecentVenueVisit,
+  loading: boolean,
+  mode: AppState['navigateVenuePickerMode'],
+): string {
+  const dataAttribute =
+    mode === 'ar' ? 'data-navigate-ar-venue-id' : 'data-navigate-expect-venue-id';
   return `
     <button
       type="button"
       class="navigate-venue-choice"
-      data-navigate-expect-venue-id="${escapeHtml(venue.id)}"
+      ${dataAttribute}="${escapeHtml(venue.id)}"
       ${loading ? 'disabled' : ''}
     >
       <span class="navigate-venue-choice-name">${escapeHtml(venue.name)}</span>
@@ -30,10 +38,13 @@ function renderVenuePickerDialog(options: {
   recentlyVisited: RecentVenueVisit[];
   otherVenues: RecentVenueVisit[];
   loading: boolean;
+  mode: AppState['navigateVenuePickerMode'];
 }): string {
-  const venues = [...options.recentlyVisited, ...options.otherVenues];
+  const venues = sortVenuesByNameDescending([...options.recentlyVisited, ...options.otherVenues]);
   const choices = venues.length
-    ? venues.map((venue) => renderVenueChoice(venue, options.loading)).join('')
+    ? venues
+        .map((venue) => renderVenueChoice(venue, options.loading, options.mode))
+        .join('')
     : '<p class="location-dialog-body">No venues are available right now.</p>';
 
   return `
@@ -176,7 +187,10 @@ export function renderNavigateHubScreen(state: AppState): string {
     state.floors[0]?.name ??
     'Venue floors';
   const venueContent = state.homeContent;
-  const navigateLoading = venueContent == null;
+  const navigateLoading =
+    venueContent == null ||
+    state.mapStatus === 'initial' ||
+    state.mapStatus === 'loading';
   const content = venueContent ?? {
     recentlyVisited: [],
     otherVenues: [],
@@ -200,8 +214,10 @@ export function renderNavigateHubScreen(state: AppState): string {
         recentlyVisited: view.recentlyVisited,
         otherVenues: view.otherVenues,
         loading: state.navigateDiscoverVenuePickerLoading,
+        mode: state.navigateVenuePickerMode,
       })
     : '';
+  const arPrompt = renderFirstVisitArPrompt(state);
 
   return `
     <section class="navigate-hub-screen screen-loading-host" aria-label="Navigate">
@@ -244,8 +260,8 @@ export function renderNavigateHubScreen(state: AppState): string {
             <span class="first-visit-action-icon" aria-hidden="true">
               ${firstVisitLocationIcon}
             </span>
-            <span class="first-visit-action-title">Discover</span>
-            <span class="first-visit-action-copy">Know what to expect at a venue</span>
+            <span class="first-visit-action-title">Use 2D Map</span>
+            <span class="first-visit-action-copy first-visit-action-copy--light">Browse venues before starting AR</span>
           </button>
           <button type="button" class="first-visit-action first-visit-action--ar" id="navigate-ar-btn">
             <span class="first-visit-action-icon" aria-hidden="true">
@@ -267,6 +283,7 @@ export function renderNavigateHubScreen(state: AppState): string {
       </div>
       ${navigateLoading ? renderContentLoadingOverlay('Loading navigate') : ''}
       ${venuePicker}
+      ${arPrompt}
     </section>
   `;
 }

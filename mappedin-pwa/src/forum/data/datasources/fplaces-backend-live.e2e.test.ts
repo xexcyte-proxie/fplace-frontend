@@ -75,7 +75,7 @@ async function obtainUserAccess(): Promise<string> {
 function venueWsUrl(venueId: number, token: string): string {
   const url = new URL(
     `/ws/venues/${venueId}/`,
-    `${toWebSocketOrigin(FPLACES_BACKEND_HTTP_ORIGIN)}/`,
+    `${FPLACES_BACKEND_WS_ORIGIN}/`,
   );
   url.searchParams.set('token', token);
   return url.toString();
@@ -84,7 +84,7 @@ function venueWsUrl(venueId: number, token: string): string {
 function notificationsWsUrl(token: string): string {
   const url = new URL(
     '/ws/notifications/',
-    `${toWebSocketOrigin(FPLACES_BACKEND_HTTP_ORIGIN)}/`,
+    `${FPLACES_BACKEND_WS_ORIGIN}/`,
   );
   url.searchParams.set('token', token);
   return url.toString();
@@ -119,7 +119,7 @@ function waitForSocketOpen(url: string): Promise<WebSocket> {
 describe('Live ALB REST + WebSocket', () => {
   it('maps the ALB HTTP origin to ws://', () => {
     expect(toWebSocketOrigin(FPLACES_BACKEND_HTTP_ORIGIN)).toBe(
-      FPLACES_BACKEND_WS_ORIGIN,
+      FPLACES_BACKEND_HTTP_ORIGIN.replace("http://", "ws://"),
     );
     expect(venueWsUrl(1, 'abc')).toBe(
       `${FPLACES_BACKEND_WS_ORIGIN}/ws/venues/1/?token=abc`,

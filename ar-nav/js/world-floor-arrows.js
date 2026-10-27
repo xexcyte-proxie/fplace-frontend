@@ -165,38 +165,58 @@
     };
   }
 
+  // Shared for the document lifetime, like the legacy geometry cache. Each
+  // instance owns one material because spawn/near-camera fades are independent.
+  let trailGeometry = null;
+
+  function ensureTrailGeometry(THREE) {
+    if (trailGeometry) return trailGeometry;
+    const c = window.FPLACES_AR_CONFIG || {};
+    const halfWidth = (c.trailArrowWidthM ?? 0.75) / 2;
+    const length = c.trailArrowLengthM ?? 0.6;
+    const shape = new THREE.Shape();
+    shape.moveTo(-halfWidth, 0);
+    shape.lineTo(0, length);
+    shape.lineTo(halfWidth, 0);
+    shape.lineTo(halfWidth * 0.52, 0);
+    shape.lineTo(0, length * 0.5);
+    shape.lineTo(-halfWidth * 0.52, 0);
+    shape.closePath();
+    trailGeometry = new THREE.ExtrudeGeometry(shape, {
+      depth: c.trailArrowDepthM ?? 0.018,
+      bevelEnabled: false,
+      steps: 1,
+      curveSegments: 1,
+    });
+    trailGeometry.rotateX(-Math.PI / 2);
+    // Color the side walls without a second mesh or material submission.
+    const normals = trailGeometry.getAttribute("normal");
+    const primary = new THREE.Color(c.trailArrowColor ?? TEAL);
+    const edge = new THREE.Color(c.trailArrowEdgeColor ?? TEAL_EDGE);
+    const colors = new Float32Array(normals.count * 3);
+    for (let i = 0; i < normals.count; i++) {
+      const color = Math.abs(normals.getY(i)) > 0.9 ? primary : edge;
+      color.toArray(colors, i * 3);
+    }
+    trailGeometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    trailGeometry.clearGroups();
+    return trailGeometry;
+  }
+
   function createArrowInstance(THREE, opacity, scale) {
-    ensureSharedAssets(THREE);
     const group = new THREE.Group();
-
-    const outline = new THREE.Mesh(
-      sharedGeoms.outline,
-      sharedMats.outline.clone(),
-    );
-    outline.material.opacity = opacity * 0.95;
-    outline.scale.set(1.07, 1.05, 1.07);
-    outline.position.y = -0.004;
-    outline.renderOrder = 511;
-
-    const body = new THREE.Mesh(sharedGeoms.body, sharedMats.body.clone());
-    body.material.opacity = opacity;
+    const material = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity,
+      depthTest: true,
+      depthWrite: false,
+      side: THREE.FrontSide,
+    });
+    const body = new THREE.Mesh(ensureTrailGeometry(THREE), material);
     body.renderOrder = 512;
-
-    const rim = new THREE.Mesh(sharedGeoms.rim, sharedMats.rim.clone());
-    rim.material.opacity = opacity * 0.88;
-    rim.position.y = 0.004;
-    rim.renderOrder = 512;
-
-    const stripe = new THREE.Mesh(
-      sharedGeoms.stripe,
-      sharedMats.stripe.clone(),
-    );
-    stripe.material.opacity = Math.min(1, opacity * 0.92);
-    stripe.position.y = 0.048;
-    stripe.renderOrder = 513;
-
-    group.add(outline, body, rim, stripe);
-    group.scale.setScalar(scale);
+    group.add(body);
+    group.scale.set(scale, (window.FPLACES_AR_CONFIG || {}).trailArrowThicknessScale ?? scale, scale);
     group.userData.kind = "straight";
     return group;
   }

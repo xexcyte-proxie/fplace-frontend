@@ -32,10 +32,7 @@
     if (options.cameraReady) cfg.cameraReady = true;
     if (options.pwaOrigin) cfg.pwaOrigin = options.pwaOrigin;
     window.__fplacesStartXrNow = !!options.startXrNow;
-    if (cfg.autoCalibrate) {
-      const calibrateBtn = document.getElementById('fplaces-calibrate-btn');
-      if (calibrateBtn) calibrateBtn.style.display = 'none';
-    }
+    window.FplacesSpatialAlignment?.syncButton?.();
   }
 
   function notifyEngineReady() {
@@ -263,6 +260,7 @@
     if (!window.__fplacesLiveViewRequested && !window.FplacesCameraStart?.isStarted?.()) {
       return;
     }
+    window.FplacesSpatialAlignment?.invalidate?.('Camera recovering.');
     window.__fplacesFallbackTriggered = false;
     window.__fplacesExpectSlam = true;
     activeMode = 'xr';
@@ -297,6 +295,7 @@
   }
 
   function pauseSlamForBackground() {
+    window.FplacesSpatialAlignment?.invalidate?.('Camera paused.');
     if (window.__fplacesLiveViewParked) return;
     if (activeMode !== 'xr') return;
     try {
@@ -647,6 +646,7 @@
   }
 
   window.setInterval(() => {
+    window.FplacesSpatialAlignment?.checkFreshness?.();
     const nav = window.__fplacesNavigator;
     if (!nav || typeof nav.managePositionSources !== 'function') return;
     nav.managePositionSources();

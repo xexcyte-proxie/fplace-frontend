@@ -40,9 +40,14 @@ export class ForumRepositoryImpl implements ForumRepository {
 
   listSections(
     venueId: number,
+    floorId?: number,
     page?: number,
   ): Promise<PaginatedList<ForumSection>> {
-    return forumRemoteDatasource.listSections(venueId, page);
+    return forumRemoteDatasource.listSections(venueId, floorId, page);
+  }
+
+  listFloors(venueId: number, page?: number) {
+    return forumRemoteDatasource.listFloors(venueId, page);
   }
 
   getSection(sectionId: number): Promise<ForumSection> {

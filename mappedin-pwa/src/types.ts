@@ -279,12 +279,15 @@ export interface ForumVenueSummary {
 export interface ForumSectionSummary {
   id: number;
   venue: number;
+  floor: number | null;
   name: string;
   code: string;
   is_active: boolean;
   /** Mappedin location id (`Section.mappedin_location_id`). */
   mappedinLocationId?: string | null;
 }
+
+export interface ForumFloorSummary { id: number; venue: number; name: string; order: number; }
 
 export interface ForumCategorySummary {
   id: number;
@@ -434,9 +437,11 @@ export interface AppState {
   interestOptions: string[];
   venueSearchQuery: string;
   selectedVenueId: string | null;
+  selectedFloorId: string | null;
   /** Selected forum section id (entry zone within the venue). */
   selectedGateId: string | null;
   forumVenues: ForumVenueSummary[];
+  forumFloors: ForumFloorSummary[];
   forumSections: ForumSectionSummary[];
   forumCategories: ForumCategorySummary[];
   forumFeedNext: string | null;
@@ -521,6 +526,7 @@ export interface AppState {
   /** Navigate Discover dialog for picking which venue's expectations to view. */
   navigateDiscoverVenuePickerOpen: boolean;
   navigateDiscoverVenuePickerLoading: boolean;
+  navigateVenuePickerMode: "discover" | "ar";
   /** Cached returning-home content (recent venues + stats). */
   homeContent: ReturningHomeContent | null;
   profileView: ProfileView;
@@ -640,8 +646,10 @@ export const initialAppState = (): AppState => ({
   interestOptions: [],
   venueSearchQuery: "",
   selectedVenueId: null,
+  selectedFloorId: null,
   selectedGateId: null,
   forumVenues: [],
+  forumFloors: [],
   forumSections: [],
   forumCategories: [],
   forumFeedNext: null,
@@ -691,6 +699,7 @@ export const initialAppState = (): AppState => ({
   homeVenueSearchQuery: "",
   navigateDiscoverVenuePickerOpen: false,
   navigateDiscoverVenuePickerLoading: false,
+  navigateVenuePickerMode: "discover",
   homeContent: null,
   profileView: "main",
   settingsConfirm: null,

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MapApp } from './map-app';
 import { initialAppState } from '../types';
 
@@ -27,6 +27,14 @@ function harness(atVenue = false) {
 }
 
 describe('venue navigation access', () => {
+  beforeEach(() => {
+    vi.stubEnv('VITE_ALLOW_REMOTE_AR', '');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it.each(['openAr', 'confirmGuestArOneTimeTrial', 'enterArFullscreen', 'confirmArRoutePrompt', 'openVenueArFromHome'])(
     'blocks off-site access through %s', async method => {
       const { app, state } = harness();

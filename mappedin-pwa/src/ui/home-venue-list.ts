@@ -1,3 +1,4 @@
+import { sortVenuesByNameDescending } from '../home/domain/home-venues';
 import { formatCountNoun } from '../auth/domain/user-stats';
 import type { RecentVenueVisit } from '../home/domain/entities';
 import { escapeHtml } from './escape-html';
@@ -65,13 +66,13 @@ export function renderHomeVenueSections(options: {
   const recentRows = loading
     ? ''
     : options.recentlyVisited.length
-      ? options.recentlyVisited.map(renderHomeVenueCard).join('')
+      ? sortVenuesByNameDescending(options.recentlyVisited).map(renderHomeVenueCard).join('')
       : searching
         ? ''
         : `<p class="returning-home-empty" role="status">No recent venues yet</p>`;
   const otherRows = loading
     ? ''
-    : options.otherVenues.map(renderHomeVenueCard).join('');
+    : sortVenuesByNameDescending(options.otherVenues).map(renderHomeVenueCard).join('');
   const showRecentSection = loading || Boolean(recentRows);
   const showOtherSection = !loading && Boolean(otherRows);
   const noSearchMatches =

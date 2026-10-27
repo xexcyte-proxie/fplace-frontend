@@ -11,6 +11,7 @@ import type {
   ForumComment,
   ForumPost,
   ForumSection,
+  ForumFloor,
   ForumVenue,
   ListCommentsParams,
   ListLocationMessagesParams,
@@ -55,6 +56,7 @@ export type {
   ForumComment,
   ForumPost,
   ForumSection,
+  ForumFloor,
   ForumVenue,
   ListCommentsParams,
   ListLocationMessagesParams,
@@ -99,8 +101,13 @@ export async function getForumVenue(venueId: number): Promise<ForumVenue> {
 
 export async function listAllSections(
   venueId: number,
+  floorId?: number,
 ): Promise<ForumSection[]> {
-  return collectAllPages((page) => forumRepository.listSections(venueId, page));
+  return collectAllPages((page) => forumRepository.listSections(venueId, floorId, page));
+}
+
+export async function listAllFloors(venueId: number): Promise<ForumFloor[]> {
+  return collectAllPages((page) => forumRepository.listFloors(venueId, page));
 }
 
 export async function getForumSection(
@@ -147,15 +154,17 @@ export async function getForumPost(postId: number): Promise<ForumPost> {
  * Categories are global; sections are scoped by venue.
  */
 export async function loadVenueCatalog(venueId: number): Promise<{
+  floors: ForumFloor[];
   sections: ForumSection[];
   categories: ForumCategory[];
 }> {
-  const [sections, categories] = await Promise.all([
-    listAllSections(venueId),
+  const [floors, categories] = await Promise.all([
+    listAllFloors(venueId),
     listAllCategories(),
   ]);
   return {
-    sections: sections.filter((section) => section.is_active),
+    floors,
+    sections: [],
     categories,
   };
 }

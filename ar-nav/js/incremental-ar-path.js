@@ -13,6 +13,10 @@
   const GOAL_GOLD = 0xffc107;
 
   let pathKeyCache = null;
+  let nextInstanceId = 1;
+  const membershipGate = window.FplacesIncrementalPathSpawn.createMembershipGate();
+  let cameraRef = null;
+  let cameraPoint = null;
   let trailGroup = null;
   let destinationGroup = null;
   let spawnedKeys = new Set();
@@ -30,13 +34,6 @@
 
   function segmentKey(place) {
     return `seg:${round2(place.alongM)}`;
-  }
-
-  function buildPathKey(points) {
-    if (!points?.length) return "empty";
-    const a = points[0];
-    const b = points[points.length - 1];
-    return `${points.length}:${a.x.toFixed(2)},${a.z.toFixed(2)}:${b.x.toFixed(2)},${b.z.toFixed(2)}`;
   }
 
   function buildSegmentTable(points) {
@@ -81,16 +78,41 @@
   }
 
   function placementsAtMarks(points, marks, floorY) {
-    const { segments } = buildSegmentTable(points);
+    const { segments, totalLen } = buildSegmentTable(points);
     if (!segments.length || !marks?.length) return [];
+    const sampleM = Math.max(0, cfg().trailTangentSampleM ?? 0.75);
+    const maxTurn = (cfg().trailTangentMaxTurnDeg ?? 35) * Math.PI / 180;
+    const pointAt = (along) => {
+      const segment = segments.find((s) => along < s.endAlong) || segments[segments.length - 1];
+      return pointOnSegmentAt(segment, along, floorY);
+    };
     const out = [];
-    for (let i = 0; i < marks.length; i++) {
-      const mark = marks[i];
-      const seg = segments.find(
-        (s) => mark >= s.startAlong - 0.001 && mark <= s.endAlong + 0.001,
-      );
-      if (!seg) continue;
-      out.push(pointOnSegmentAt(seg, mark, floorY));
+    for (const mark of marks) {
+      if (mark < 0 || mark > totalLen) continue;
+      // At a junction use the outgoing segment, never point back into the approach.
+      const seg = segments.find((s) => mark < s.endAlong) || segments[segments.length - 1];
+      const place = pointOnSegmentAt(seg, mark, floorY);
+      const before = Math.max(0, mark - sampleM);
+      const after = Math.min(totalLen, mark + sampleM);
+      let bend = 0;
+      for (let i = 1; i < segments.length; i++) {
+        const joint = segments[i].startAlong;
+        if (joint <= before || joint >= after) continue;
+        const delta = segments[i].yaw - segments[i - 1].yaw;
+        bend += Math.abs(Math.atan2(Math.sin(delta), Math.cos(delta)));
+      }
+      // Limit TOTAL curvature too: several short segments must not hide a hairpin.
+      if (sampleM > 0 && bend <= maxTurn) {
+        const a = pointAt(before);
+        const b = pointAt(after);
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        if (Math.hypot(dx, dz) > 0.001) {
+          place.rotationY = window.FplacesQuaternionAlignment?.pathHeadingYawRad?.(dx, dz)
+            ?? Math.atan2(dx, dz) + Math.PI;
+        }
+      }
+      out.push(place);
     }
     return out;
   }
@@ -103,16 +125,16 @@
     );
     if (spawn) return spawn;
     return {
-      spacing: 4,
-      revealAheadM: 8,
-      maxVisible: 2,
-      nearScale: 0.9,
+      spacing: 2,
+      revealAheadM: 16,
+      maxVisible: 8,
+      nearScale: 1,
       remaining: Math.max(0, totalLen - alongM),
       clearTrail: false,
-      spawnFrom: alongM + 2.5,
-      spawnTo: alongM + 8,
+      spawnFrom: alongM + 2,
+      spawnTo: alongM + 16,
       canSpawn: true,
-      minSeparationM: 2.4,
+      minSeparationM: 1,
       marks: [],
       candidates: [],
     };
@@ -128,27 +150,28 @@
     return trailGroup;
   }
 
-  function spawnPlacement(THREE, group, place, segmentIndex, density) {
+  function spawnPlacement(THREE, group, place, density) {
     const factory = window.FplacesFloorArrows?.createTrailSegment;
     if (!factory) return null;
 
-    const fade = Math.max(0.62, 1 - (segmentIndex % 8) * 0.04);
-    let scale = 1.05 - (segmentIndex % 6) * 0.03;
-    const nearScale = density?.nearScale ?? 1;
-    if (nearScale < 1) {
-      scale *= nearScale;
-    }
+    const fade = cfg().trailArrowOpacity ?? 0.95;
+    const scale = density?.nearScale ?? 1;
     const mesh = factory(THREE, place, fade, scale);
     mesh.userData.spawnAt = performance.now();
     mesh.userData.targetOpacity = fade;
     mesh.userData.segmentKey = segmentKey(place);
     mesh.userData.alongM = place.alongM;
+    mesh.userData.trailInstanceId = nextInstanceId++;
     group.add(mesh);
+    if (window.FplacesTrailDiagnostics?.enabled) window.FplacesTrailDiagnostics.record('create', {
+      id: mesh.userData.trailInstanceId, slot: mesh.userData.segmentKey, alongM: place.alongM,
+    });
     return mesh;
   }
 
-  function disposeTrailChild(child) {
+  function disposeTrailChild(child, reason = "slot-window-change") {
     if (!child) return;
+    window.FplacesTrailDiagnostics?.removed(child, reason);
     child.traverse((obj) => {
       if (!obj.isMesh) return;
       if (obj.material && !Array.isArray(obj.material)) {
@@ -171,6 +194,7 @@
   }
 
   function clearTrailMeshes() {
+    membershipGate.reset();
     if (!trailGroup) return;
     const toRemove = [...trailGroup.children];
     toRemove.forEach((child) => {
@@ -178,15 +202,26 @@
         spawnedKeys.delete(child.userData.segmentKey);
       }
       trailGroup.remove(child);
-      disposeTrailChild(child);
+      disposeTrailChild(child, "arrival-window");
     });
   }
 
   /**
-   * Desired set is the only set. Add missing, remove anything else.
+   * Commit stable desired membership, then add missing slots and remove obsolete ones.
    */
   function reconcileTrail(THREE, group, desired, density) {
     const desiredKeys = new Set(desired.map((place) => segmentKey(place)));
+    const configured = cfg().trailMembershipStableMs;
+    const delay = Number.isFinite(configured) ? Math.max(0, Math.min(500, configured)) : 180;
+    const accepted = membershipGate.accept([...desiredKeys].join('|'), performance.now(), delay);
+    if (!accepted) {
+      // Keep existing membership while still refreshing unchanged transforms.
+      desired.forEach(place => {
+        const retained = group.children.find(child => child.userData.segmentKey === segmentKey(place));
+        if (retained) { retained.position.set(place.x, place.y, place.z); retained.rotation.y = place.rotationY ?? 0; }
+      });
+      return;
+    }
 
     [...group.children].forEach((child) => {
       const key = child.userData?.segmentKey;
@@ -202,11 +237,16 @@
         .filter(Boolean),
     );
 
-    desired.forEach((place, index) => {
+    desired.forEach((place) => {
       const key = segmentKey(place);
-      if (have.has(key)) return;
+      if (have.has(key)) {
+        const retained = group.children.find(child => child.userData?.segmentKey === key);
+        retained.position.set(place.x, place.y, place.z);
+        retained.rotation.y = place.rotationY ?? 0;
+        return;
+      }
       spawnedKeys.add(key);
-      spawnPlacement(THREE, group, place, index, density);
+      spawnPlacement(THREE, group, place, density);
     });
   }
 
@@ -288,7 +328,17 @@
     const spawnAt = mesh.userData.spawnAt ?? now;
     const target = mesh.userData.targetOpacity ?? 1;
     const t = Math.min(1, (now - spawnAt) / FADE_IN_MS);
-    const opacity = target * (0.25 + 0.75 * t);
+    let proximity = 1;
+    if (cameraRef && cameraPoint) {
+      cameraPoint.copy(mesh.position);
+      cameraRef.worldToLocal(cameraPoint);
+      const minDepth = cfg().trailMinCameraDepthM ?? 0.8;
+      const fadeM = Math.max(0.001, cfg().trailCameraFadeM ?? 0.6);
+      proximity = Math.max(0, Math.min(1, (-cameraPoint.z - minDepth) / fadeM));
+    }
+    mesh.visible = proximity > 0;
+    if (window.FplacesTrailDiagnostics?.enabled) window.FplacesTrailDiagnostics.depthChanged(mesh, now);
+    const opacity = target * (0.25 + 0.75 * t) * proximity;
     mesh.traverse((obj) => {
       if (obj.isMesh && obj.material) {
         obj.material.opacity = opacity;
@@ -302,6 +352,7 @@
     lastVisualsAt = now;
     trailGroup.children.forEach((child) => applyFadeIn(child, now));
 
+    if (window.FplacesTrailDiagnostics?.enabled) window.FplacesTrailDiagnostics.sample(cameraRef, trailGroup, now);
     if (!destinationGroup) return;
     const dt = lastPulseAt ? (now - lastPulseAt) / 1000 : 0;
     lastPulseAt = now;
@@ -315,8 +366,11 @@
     });
   }
 
-  function reset(scene) {
+  function reset(scene, reason = "geometry-change") {
+    membershipGate.reset();
     pathKeyCache = null;
+    cameraRef = null;
+    cameraPoint = null;
     spawnedKeys = new Set();
     pulsePhase = 0;
     lastPulseAt = 0;
@@ -325,7 +379,7 @@
     if (scene) {
       const trail = scene.getObjectByName(TRAIL_GROUP_NAME);
       if (trail) {
-        [...trail.children].forEach((child) => disposeTrailChild(child));
+        [...trail.children].forEach((child) => disposeTrailChild(child, reason));
         scene.remove(trail);
       }
       const dest = scene.getObjectByName(DESTINATION_GROUP_NAME);
@@ -340,14 +394,15 @@
 
   function extend(THREE, scene, points, options) {
     const DBG = window.FplacesArDebug;
-    if (!THREE || !scene || !points?.length || points.length < 2) return null;
+    if (!THREE || !scene) return null;
+    if (!points?.length || points.length < 2) { reset(scene); return null; }
 
     const floorY = options?.floorY ?? 0.04;
     const userX = options?.cameraX;
     const userZ = options?.cameraZ;
     if (userX == null || userZ == null) return null;
 
-    const key = buildPathKey(points);
+    const key = options?.geometryIdentity ?? points;
     if (key !== pathKeyCache) {
       DBG?.log?.("IncrementalPath", "Route changed - reset incremental path", {
         previousKey: pathKeyCache,
@@ -357,16 +412,20 @@
       pathKeyCache = key;
     }
 
+    cameraRef = options?.camera || null;
+    if (cameraRef && !cameraPoint) cameraPoint = new THREE.Vector3();
+
     const navAlong =
       typeof options?.alongPathM === "number" && Number.isFinite(options.alongPathM)
         ? options.alongPathM
         : null;
     const camAlong =
       window.FplacesFloorArrows?.findAlongPathM?.(points, userX, userZ) ?? null;
-    const pick = window.FplacesIncrementalPathSpawn?.resolveTrailAlongM;
-    const findAlong = typeof pick === "function"
-      ? pick(camAlong, navAlong)
-      : (Number.isFinite(camAlong) ? camAlong : (navAlong ?? 0));
+    // Caller already reconciled authoritative navigation with visual progress.
+    const findAlong = navAlong ?? (Number.isFinite(camAlong) ? camAlong : 0);
+    if (window.FplacesTrailDiagnostics?.enabled) window.FplacesTrailDiagnostics.progress({
+      cameraAlongM: camAlong, selectedAlongM: findAlong, selectedSource: navAlong != null ? 'navigation' : 'camera',
+    });
 
     const { totalLen } = buildSegmentTable(points);
     const density = resolveTrailDensity(findAlong, totalLen);
@@ -374,7 +433,7 @@
     const destRevealM = cfg().destinationRevealRemainingM ?? 8;
     const group = ensureTrailGroup(THREE, scene);
 
-    if (remaining <= destRevealM) {
+    if (options?.isFinalSection !== false && remaining <= destRevealM) {
       const dest = points[points.length - 1];
       ensureDestinationMarker(THREE, scene, dest, floorY);
     } else {
@@ -393,7 +452,7 @@
       density.candidates?.length ? density.candidates : density.marks,
       floorY,
     );
-    const minSep = density.minSeparationM ?? 2.4;
+    const minSep = density.minSeparationM ?? 1;
     const desired = occupy
       ? occupy(raw, density.maxVisible, minSep)
       : raw.slice(0, density.maxVisible);
@@ -418,8 +477,8 @@
     return group;
   }
 
-  function dispose(scene) {
-    reset(scene);
+  function dispose(scene, reason = "dispose") {
+    reset(scene, reason);
   }
 
   window.FplacesIncrementalPath = {
@@ -429,5 +488,6 @@
     reset,
     dispose,
     updateVisuals,
+    placementsAtMarks,
   };
 })();

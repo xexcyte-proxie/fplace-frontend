@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:http": "VITE_DEV_HTTP=1 vite",
     "test": "vitest run",
     "slop": "node scripts/detect-slop.mjs",
     "prebuild": "npm run copy:ar:public",

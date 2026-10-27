@@ -33,8 +33,7 @@ export function isLoopbackOrPrivateHost(host: string): boolean {
 
 /**
  * Pick a WebSocket origin.
- * The backend WebSocket endpoint is plain `ws://`, so configured and fallback
- * origins are normalized to `ws://` even when the page itself is HTTPS.
+ * Preserve secure configured origins and use the secure backend fallback.
  */
 export function selectWsOrigin(input: {
   configured: string;
@@ -50,7 +49,7 @@ export function selectWsOrigin(input: {
   else if (api) origin = toWebSocketOrigin(api);
   else if (input.fallback) origin = toWebSocketOrigin(input.fallback);
   else if (input.pageHost) {
-    origin = `ws://${input.pageHost}`;
+    origin = `${input.pageProtocol === 'https:' ? 'wss' : 'ws'}://${input.pageHost}`;
   } else {
     origin = '';
   }

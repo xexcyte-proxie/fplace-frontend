@@ -40,7 +40,7 @@ export function normalizePseudoName(
   value: string | null | undefined,
 ): string | null {
   const name = value?.trim();
-  if (!name || name.includes('@')) return null;
+  if (!name) return null;
   return name;
 }
 
@@ -53,16 +53,25 @@ export interface VenueSelection {
 export type OnboardingStep = 'pseudo-name' | 'venue-select' | 'home';
 
 export function resolveDisplayName(
-  user: Pick<AuthUser, 'pseudo_name'> | null | undefined,
+  user:
+    | (Pick<AuthUser, 'pseudo_name'> & Partial<Pick<AuthUser, 'email'>>)
+    | null
+    | undefined,
 ): string {
   const name = normalizePseudoName(user?.pseudo_name);
-  return name || DEFAULT_DISPLAY_NAME;
+  if (!name) return DEFAULT_DISPLAY_NAME;
+  const email = user?.email?.trim().toLowerCase();
+  if (email && name.toLowerCase() === email) return DEFAULT_DISPLAY_NAME;
+  return name;
 }
 
 export function userNeedsPseudoName(
-  user: Pick<AuthUser, 'pseudo_name'> | null | undefined,
+  user:
+    | (Pick<AuthUser, 'pseudo_name'> & Partial<Pick<AuthUser, 'email'>>)
+    | null
+    | undefined,
 ): boolean {
-  return !normalizePseudoName(user?.pseudo_name);
+  return resolveDisplayName(user) === DEFAULT_DISPLAY_NAME;
 }
 
 export function hasCompleteVenueSelection(
@@ -73,7 +82,10 @@ export function hasCompleteVenueSelection(
 
 /** Profile-driven onboarding destination after authentication. */
 export function resolveOnboardingStep(
-  user: Pick<AuthUser, 'pseudo_name'> | null | undefined,
+  user:
+    | (Pick<AuthUser, 'pseudo_name'> & Partial<Pick<AuthUser, 'email'>>)
+    | null
+    | undefined,
   selection: VenueSelection | null | undefined,
 ): OnboardingStep {
   if (userNeedsPseudoName(user)) return 'pseudo-name';

@@ -9,6 +9,7 @@ import {
 export interface BuildFirstVisitVenueHomeInput {
   venueName: string;
   sectionLabel: string;
+  onlineCount?: number | null;
   posts: ReadonlyArray<{
     id: string;
     author: string;
@@ -51,12 +52,12 @@ export function buildFirstVisitVenueHomeContent(
     } satisfies FirstVisitCrowdPost;
   });
 
-  const fansCount = countDistinctFans(input.posts);
+  const fansCount = input.onlineCount ?? countDistinctFans(input.posts);
 
   return {
     venueName: input.venueName.trim(),
     sectionLabel: input.sectionLabel.trim() || 'Entry zone',
-    fansHereLabel: fansCount > 0 ? formatFansHereLabel(fansCount) : '',
+    fansHereLabel: formatFansHereLabel(fansCount),
     previewPosts,
   };
 }

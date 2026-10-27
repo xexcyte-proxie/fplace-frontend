@@ -59,7 +59,7 @@
     scene.remove(group);
   }
 
-  function disposePathVisuals(scene) {
+  function disposePathVisuals(scene, reason = "geometry-rebuild") {
     if (!scene) return;
 
     const existingRibbon = scene.getObjectByName(RIBBON_NAME);
@@ -74,6 +74,7 @@
     }
 
     ribbonTexture = null;
+    visualAlong = null;
     cachedRouteInput = null;
     cachedAnchorEngine = null;
     cachedFloorId = null;
@@ -84,7 +85,7 @@
     lastLeadingUpdateAt = 0;
 
     window.FplacesFloorArrows?.disposeFloorArrows?.(scene);
-    window.FplacesIncrementalPath?.dispose?.(scene);
+    window.FplacesIncrementalPath?.dispose?.(scene, reason);
 
     disposeTurnMarkers(scene);
   }
@@ -203,35 +204,16 @@
     return group;
   }
 
-  function slamPointCacheKey(coordinatesList, engine) {
-    const n = coordinatesList.length;
-    if (!n) return "";
-    const first = coordinatesList[0];
-    const mid = coordinatesList[n >> 1];
-    const last = coordinatesList[n - 1];
-    const origin = engine.origin || {};
-    return [
-      n,
-      first.latitude ?? first.lat,
-      first.longitude ?? first.lng,
-      mid.latitude ?? mid.lat,
-      mid.longitude ?? mid.lng,
-      last.latitude ?? last.lat,
-      last.longitude ?? last.lng,
-      origin.latitude,
-      origin.longitude,
-      engine.yawOffsetDeg,
-      engine.slamOriginX,
-      engine.slamOriginZ,
-    ].join(":");
+  function groundY(engine = cachedAnchorEngine) {
+    return engine?.getGroundY?.() ?? FLOOR_Y;
   }
 
   function toVector3List(coordinatesList, anchorEngine) {
     const engine = anchorEngine || window.FplacesAnchorEngine?.instance;
     if (!engine?.isCalibrated) return [];
 
-    const key = slamPointCacheKey(coordinatesList, engine);
-    if (key && slamPointCache.key === key && slamPointCache.points) {
+    const key = coordinatesList;
+    if (slamPointCache.key === key && slamPointCache.engine === engine && slamPointCache.revision === engine.revision && slamPointCache.points) {
       return slamPointCache.points;
     }
 
@@ -244,14 +226,15 @@
           latitude: lat,
           longitude: lng,
         });
-        return new window.THREE.Vector3(local.x, FLOOR_Y, local.z);
+        return new window.THREE.Vector3(local.x, groundY(engine), local.z);
       })
       .filter(Boolean);
-    slamPointCache = { key, points };
+    slamPointCache = { key, points, engine, revision: engine.revision };
     return points;
   }
 
   function resolveFloorPath(routeInput, floorId) {
+    if (routeInput?.startAlong != null) return routeInput.pathCoordinates;
     const route = normalizeRouteInput(routeInput);
     const path = route.pathCoordinates;
     if (!floorId || !window.FplacesFloorTransitions) return path;
@@ -277,10 +260,12 @@
   function resolveNavigatorAlongM(points) {
     const nav = window.__fplacesNavigator;
     let along =
+      finiteAlong(nav?._authoritativeAlongPathM) ??
       finiteAlong(nav?._displayAlongPathM) ??
       finiteAlong(nav?.snappedOnPath?.distanceAlongPathMeters);
 
     if (along == null) return null;
+    along -= cachedRouteInput?.startAlong ?? 0;
 
     const geoPath = cachedRouteInput
       ? resolveFloorPath(cachedRouteInput, cachedFloorId)
@@ -315,14 +300,16 @@
     return finiteAlong(along);
   }
 
+  let visualAlong = null;
   function resolveStartAlongM(points, camera) {
-    const pick = window.FplacesIncrementalPathSpawn?.resolveTrailAlongM;
-    const cam = resolveCameraAlongM(points, camera);
     const nav = resolveNavigatorAlongM(points);
-    if (typeof pick === "function") return pick(cam, nav);
-    if (cam != null) return cam;
-    if (nav != null) return nav;
-    return 0;
+    const cam = resolveCameraAlongM(points, camera);
+    visualAlong = window.FplacesVisualRouteState?.reconcile(visualAlong, nav, cam) ?? nav ?? cam ?? 0;
+    if (window.FplacesTrailDiagnostics?.enabled) window.FplacesTrailDiagnostics.progress({
+      cameraAlongM: cam, navigationLocalAlongM: nav, visualAlongM: visualAlong,
+      source: nav != null ? 'navigation' : 'camera',
+    });
+    return visualAlong;
   }
 
   /**
@@ -383,7 +370,9 @@
     lastArrowRefreshAt = now;
 
     window.FplacesIncrementalPath.extend(window.THREE, scene, points, {
-      floorY: FLOOR_Y,
+      floorY: groundY(),
+      isFinalSection: cachedRouteInput?.isFinalSection !== false,
+      camera,
       cameraX: camera?.position?.x,
       cameraZ: camera?.position?.z,
       alongPathM,
@@ -433,7 +422,8 @@
     try {
       const peek = window.FplacesFloorArrows.walkPathPlacements(points, {
         startAlongM,
-        floorY: FLOOR_Y,
+        floorY: groundY(),
+        isFinalSection: cachedRouteInput?.isFinalSection !== false,
         maxArrows: 1,
         leadInM: 0.5,
         spacingM: 99,
@@ -487,7 +477,8 @@
     if (floorId) cachedFloorId = floorId;
 
     window.FplacesFloorArrows.buildFloorArrows(window.THREE, scene, points, {
-      floorY: FLOOR_Y,
+      floorY: groundY(),
+      isFinalSection: cachedRouteInput?.isFinalSection !== false,
       cameraX: camera?.position?.x,
       cameraZ: camera?.position?.z,
       startAlongM,
@@ -539,7 +530,8 @@
     const alongPathM = resolveUserAlongM(points, camera);
 
     window.FplacesFloorArrows.updateLeadingArrow(window.THREE, scene, points, {
-      floorY: FLOOR_Y,
+      floorY: groundY(),
+      isFinalSection: cachedRouteInput?.isFinalSection !== false,
       cameraX: camera?.position?.x,
       cameraZ: camera?.position?.z,
       alongPathM,
@@ -569,26 +561,11 @@
     const floorId = options?.floorId || null;
     const coordinatesList = resolveFloorPath(routeInput, floorId);
 
-    if (!THREE || !threeScene || !coordinatesList?.length) return null;
+    if (!THREE || !threeScene) return null;
+    if (!coordinatesList?.length) { disposePathVisuals(threeScene); return null; }
 
     const incremental = useIncrementalPath();
-    if (incremental) {
-      // Keep the world-anchored trail. A full dispose here was wiping
-      // chevrons every time calibration / floor sync rebuilt the ribbon.
-      const existingRibbon = threeScene.getObjectByName(RIBBON_NAME);
-      if (existingRibbon) {
-        threeScene.remove(existingRibbon);
-        if (existingRibbon.geometry) {
-          existingRibbon.geometry.dispose();
-          existingRibbon.geometry = null;
-        }
-        disposeMaterial(existingRibbon.material);
-        existingRibbon.material = null;
-      }
-      disposeTurnMarkers(threeScene);
-    } else {
-      disposePathVisuals(threeScene);
-    }
+    disposePathVisuals(threeScene);
 
     let points = toVector3List(coordinatesList, anchorEngine);
     if (points.length < 2) {
@@ -639,7 +616,9 @@
     if (incremental) {
       const alongPathM = resolveUserAlongM(points, camera) ?? 0;
       window.FplacesIncrementalPath?.extend?.(THREE, threeScene, points, {
-        floorY: FLOOR_Y,
+        floorY: groundY(),
+        isFinalSection: cachedRouteInput?.isFinalSection !== false,
+        camera,
         cameraX: camera?.position?.x,
         cameraZ: camera?.position?.z,
         alongPathM,
@@ -649,7 +628,8 @@
       const rawAlong = resolveStartAlongM(points, camera) ?? 0;
       const startAlongM = quantizeStartAlongM(rawAlong);
       window.FplacesFloorArrows?.buildFloorArrows?.(THREE, threeScene, points, {
-        floorY: FLOOR_Y,
+        floorY: groundY(),
+        isFinalSection: cachedRouteInput?.isFinalSection !== false,
         cameraX: camera?.position?.x,
         cameraZ: camera?.position?.z,
         startAlongM,
@@ -658,7 +638,8 @@
     }
 
     window.FplacesFloorArrows?.updateLeadingArrow?.(THREE, threeScene, points, {
-      floorY: FLOOR_Y,
+      floorY: groundY(),
+      isFinalSection: cachedRouteInput?.isFinalSection !== false,
       cameraX: camera?.position?.x,
       cameraZ: camera?.position?.z,
     });
@@ -679,7 +660,7 @@
     });
 
     return (
-      mesh || threeScene.getObjectByName(window.FplacesFloorArrows?.GROUP_NAME)
+      mesh || threeScene.getObjectByName(window.FplacesIncrementalPath?.TRAIL_GROUP_NAME) || threeScene.getObjectByName(window.FplacesFloorArrows?.GROUP_NAME)
     );
   }
 

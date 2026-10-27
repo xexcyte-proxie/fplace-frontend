@@ -269,13 +269,14 @@ describe('MapMarkerService live navigation', () => {
     ) => Record<string, unknown> | undefined;
 
     const jitter = { latitude: 6.5245, longitude: 3.3792, accuracy: 40 };
-    expect(processor({}, jitter)).toEqual(
+    const processedJitter = processor({}, jitter);
+    expect(processedJitter).toEqual(
       expect.objectContaining({
         latitude: 6.5244,
         longitude: 3.3792,
-        heading: 'device',
       }),
     );
+    expect(processedJitter).not.toHaveProperty('heading');
   });
 
   it('makes the marker visible when live GPS tracking starts after ambient boot', async () => {
@@ -306,24 +307,25 @@ describe('MapMarkerService live navigation', () => {
     ) => Record<string, unknown> | undefined;
     expect(processor).toBeTypeOf('function');
 
-    // First fix anchors the dot and keeps the compass cone (GPS heading is null
-    // while stationary; forwarding that would hide Mappedin's glow).
+    // First fix anchors the dot. Heading is omitted until compass provides a
+    // numeric value; the BlueDot SDK rejects string sentinels.
     const first = { latitude: 6.5244, longitude: 3.3792, accuracy: 40 };
-    expect(processor({}, first)).toEqual({ ...first, heading: 'device' });
+    expect(processor({}, first)).toEqual(first);
 
     // ~11 m of drift with 40 m accuracy is noise: clamp back to the anchor.
     const jitter = { latitude: 6.5245, longitude: 3.3792, accuracy: 40 };
-    expect(processor({}, jitter)).toEqual(
+    const processedJitter = processor({}, jitter);
+    expect(processedJitter).toEqual(
       expect.objectContaining({
         latitude: 6.5244,
         longitude: 3.3792,
-        heading: 'device',
       }),
     );
+    expect(processedJitter).not.toHaveProperty('heading');
 
     // ~33 m exceeds the 20 m threshold: real movement is applied.
     const walked = { latitude: 6.5247, longitude: 3.3792, accuracy: 40 };
-    expect(processor({}, walked)).toEqual({ ...walked, heading: 'device' });
+    expect(processor({}, walked)).toEqual(walked);
 
     // GPS course is travel direction, not facing: never put it on the cone.
     const withCourse = {
@@ -332,10 +334,13 @@ describe('MapMarkerService live navigation', () => {
       accuracy: 40,
       heading: 91,
     };
-    expect(processor({}, withCourse)).toEqual({
-      ...withCourse,
-      heading: 'device',
+    const processedCourse = processor({}, withCourse);
+    expect(processedCourse).toEqual({
+      latitude: withCourse.latitude,
+      longitude: withCourse.longitude,
+      accuracy: withCourse.accuracy,
     });
+    expect(processedCourse).not.toHaveProperty('heading');
 
     // Non-numeric ('device') coordinates bypass the filter untouched.
     const device = { latitude: 'device', longitude: 'device' };
@@ -346,7 +351,7 @@ describe('MapMarkerService live navigation', () => {
     expect(blueDot.setPositionProcessor).toHaveBeenLastCalledWith(undefined);
   });
 
-  it('keeps the glow on device heading when a live GPS frame has none', () => {
+  it('omits heading when a live GPS frame has none', () => {
     const service = new MapMarkerService({} as never);
     const blueDot = blueDotMock.instances[0];
 
@@ -361,7 +366,7 @@ describe('MapMarkerService live navigation', () => {
     });
 
     expect(blueDot.update).toHaveBeenCalledWith(
-      expect.objectContaining({ heading: 'device' }),
+      expect.not.objectContaining({ heading: expect.anything() }),
       expect.anything(),
     );
   });

@@ -1,5 +1,6 @@
 import type { AppState } from '../types';
 import {
+  remoteArEnabled,
   userVenuePresence,
   venuePresenceAnchor,
 } from '../location/domain/venue-presence';
@@ -299,9 +300,10 @@ export function routeNavigationPresencePresentation(
       state.userLocation,
       venue,
     ) !== 'away';
+  const enabled = atVenue || remoteArEnabled();
   return {
-    enabled: atVenue,
-    label: atVenue
+    enabled,
+    label: enabled
       ? 'Start navigation'
       : "You're not at this venue",
   };

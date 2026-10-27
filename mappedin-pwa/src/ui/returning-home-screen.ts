@@ -62,6 +62,7 @@ export function renderReturningHomeScreen(
       ${renderHomeRecentPosts({
         posts: state.venueFeedPosts,
         loading: state.venueFeedLoading,
+        title: 'Live from the crowd',
       })}
       ${homeLoading ? renderContentLoadingOverlay('Loading home') : ''}
     </section>

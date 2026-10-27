@@ -66,27 +66,16 @@
     return transitions;
   }
 
-  function filterPathForFloor(path, floorId) {
+  function filterPathForFloor(path, floorId, alongMeters = 0) {
     if (!floorId || !path?.length) return path || [];
-    const enriched = ensurePathFloors(path);
-    const segments = [];
-    let current = [];
-
-    for (let i = 0; i < enriched.length; i++) {
-      const pt = enriched[i];
-      if (pt.floorId === floorId) {
-        if (!current.length && i > 0) current.push(enriched[i - 1]);
-        current.push(pt);
-      } else if (current.length) {
-        current.push(pt);
-        segments.push(current);
-        current = [];
-      }
-    }
-    if (current.length) segments.push(current);
-
-    if (!segments.length) return enriched.filter((p) => p.floorId === floorId);
-    return segments.reduce((a, b) => (a.length >= b.length ? a : b));
+    const state = window.FplacesVisualRouteState;
+    if (state) return state.select(state.prepare({ pathCoordinates: ensurePathFloors(path) }), floorId, alongMeters)?.pathCoordinates || [];
+    // Safe fallback before the renderer is loaded: never join disconnected visits.
+    const first = path.findIndex(p => p.floorId === floorId);
+    if (first < 0) return [];
+    let end = first + 1;
+    while (end < path.length && path[end].floorId === floorId) end++;
+    return path.slice(first, end);
   }
 
   function isInTransition(path, alongMeters, windowM = 3) {

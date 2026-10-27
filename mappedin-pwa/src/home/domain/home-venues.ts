@@ -24,3 +24,12 @@ export function partitionHomeVenues<T extends { id: number | string }>(
     otherVenues: venues.filter((venue) => !seen.has(String(venue.id))),
   };
 }
+
+/** Display venue names alphabetically from Z to A without mutating the catalog. */
+export function sortVenuesByNameDescending<T extends { name: string }>(
+  venues: readonly T[],
+): T[] {
+  return [...venues].sort((a, b) =>
+    b.name.trim().localeCompare(a.name.trim(), 'en', { sensitivity: 'base' }),
+  );
+}

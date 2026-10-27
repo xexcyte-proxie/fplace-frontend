@@ -49,6 +49,14 @@ export class VenuePreferenceLocalDatasource {
     delete map[String(userId)];
     writeMap(map);
   }
+
+  clearAll(): void {
+    try {
+      localStorage.removeItem(VENUE_PREFERENCE_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+  }
 }
 
 export const venuePreferenceLocalDatasource =

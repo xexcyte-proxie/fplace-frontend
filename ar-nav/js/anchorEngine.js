@@ -12,6 +12,8 @@
 (function () {
   class AnchorEngine {
     constructor() {
+      this.revision = (this.revision || 0) + 1;
+      this.ground = null;
       this.origin = null;
       this.isCalibrated = false;
       this.yawOffsetRad = 0;
@@ -21,6 +23,8 @@
     }
 
     reset() {
+      this.revision = (this.revision || 0) + 1;
+      this.ground = null;
       this.origin = null;
       this.isCalibrated = false;
       this.yawOffsetRad = 0;
@@ -36,7 +40,10 @@
      *   at calibration (anchor geo point maps there instead of the SLAM origin).
      */
     calibrate(baseCoordinates, alignment) {
-      if (!baseCoordinates || baseCoordinates.latitude == null || baseCoordinates.longitude == null) {
+      if (!baseCoordinates || !Number.isFinite(baseCoordinates.latitude) || !Number.isFinite(baseCoordinates.longitude) ||
+          Math.abs(baseCoordinates.latitude) > 90 || Math.abs(baseCoordinates.longitude) > 180 ||
+          (['groundY', 'yawOffsetDeg', 'slamX', 'slamZ'].some(key => alignment?.[key] != null && !Number.isFinite(alignment[key])))) {
+        this.reset();
         return false;
       }
       this.origin = {
@@ -48,8 +55,22 @@
       this.yawOffsetRad = (this.yawOffsetDeg * Math.PI) / 180;
       this.slamOriginX = Number.isFinite(alignment?.slamX) ? Number(alignment.slamX) : 0;
       this.slamOriginZ = Number.isFinite(alignment?.slamZ) ? Number(alignment.slamZ) : 0;
+      this.ground = Object.freeze({
+        y: alignment?.groundY ?? 0,
+        kind: alignment?.groundKind === 'estimated-origin-height' || alignment?.groundY == null
+          ? 'estimated-origin-height' : 'user-height-estimate',
+        normal: Object.freeze({ x: 0, y: 1, z: 0 }),
+        floorId: alignment?.floorId ?? null,
+        physicallyVerified: false,
+      });
+      this.revision += 1;
       this.isCalibrated = true;
       return true;
+    }
+
+    getGroundY() {
+      const offset = window.FPLACES_AR_CONFIG?.groundOffsetM;
+      return (this.ground?.y ?? 0) + (Number.isFinite(offset) ? offset : 0.04);
     }
 
     convertToSLAMSpace(targetCoordinates) {

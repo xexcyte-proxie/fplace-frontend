@@ -8,18 +8,56 @@ import {
 } from './entities';
 
 describe('auth user pseudo-name helpers', () => {
-  it('treats email-like pseudo-names as missing', () => {
-    expect(normalizePseudoName('Azeezat@fplaces')).toBeNull();
-    expect(resolveDisplayName({ pseudo_name: 'Azeezat@fplaces' })).toBe(
-      'Guest',
+  it('treats the account email as a missing pseudo-name', () => {
+    expect(normalizePseudoName('azeezat@example.com')).toBe(
+      'azeezat@example.com',
     );
-    expect(userNeedsPseudoName({ pseudo_name: 'Azeezat@fplaces' })).toBe(true);
+    expect(
+      resolveDisplayName({
+        email: 'azeezat@example.com',
+        pseudo_name: 'azeezat@example.com',
+      }),
+    ).toBe('Guest');
+    expect(
+      userNeedsPseudoName({
+        email: 'azeezat@example.com',
+        pseudo_name: 'azeezat@example.com',
+      }),
+    ).toBe(true);
     expect(
       resolveOnboardingStep(
-        { pseudo_name: 'Azeezat@fplaces' },
+        {
+          email: 'azeezat@example.com',
+          pseudo_name: 'azeezat@example.com',
+        },
         { venueId: '1', sectionId: '2' },
       ),
     ).toBe('pseudo-name');
+  });
+
+  it('keeps handle-style pseudo-names that include @', () => {
+    expect(normalizePseudoName('Azeezat@fplaces')).toBe('Azeezat@fplaces');
+    expect(
+      resolveDisplayName({
+        email: 'azeezat@example.com',
+        pseudo_name: 'Azeezat@fplaces',
+      }),
+    ).toBe('Azeezat@fplaces');
+    expect(
+      userNeedsPseudoName({
+        email: 'azeezat@example.com',
+        pseudo_name: 'Azeezat@fplaces',
+      }),
+    ).toBe(false);
+    expect(
+      resolveOnboardingStep(
+        {
+          email: 'azeezat@example.com',
+          pseudo_name: 'Azeezat@fplaces',
+        },
+        { venueId: '1', sectionId: '2' },
+      ),
+    ).toBe('home');
   });
 
   it('keeps normal pseudo-names', () => {

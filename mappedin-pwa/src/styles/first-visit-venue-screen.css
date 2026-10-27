@@ -434,3 +434,43 @@ div.first-visit-post-meta {
     padding-right: max(var(--fv-padding-x), calc((100% - var(--content-max)) / 2));
   }
 }
+
+.first-visit-venue-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.first-visit-venue-heading .first-visit-venue-name {
+  min-width: 0;
+  margin-bottom: 0;
+  overflow-wrap: anywhere;
+}
+
+.first-visit-venue-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: transparent;
+}
+
+.first-visit-venue-picker:focus-within {
+  outline: 2px solid white;
+  outline-offset: 3px;
+}
+
+.first-visit-venue-picker select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 16px;
+}

@@ -4,8 +4,15 @@ import type { VenuePresence } from '../../location/domain/venue-presence';
  * Viewing the map and feed is allowed remotely. Creating a post is not:
  * off-site posts make the live crowd feed misleading.
  */
-export function canCreateVenuePost(presence: VenuePresence): boolean {
-  return presence !== 'away';
+export function remoteVenuePostingEnabled(): boolean {
+  return import.meta.env.VITE_ALLOW_REMOTE_POSTING === '1';
+}
+
+export function canCreateVenuePost(
+  presence: VenuePresence,
+  allowRemotePosting = remoteVenuePostingEnabled(),
+): boolean {
+  return allowRemotePosting || presence !== 'away';
 }
 
 export function postingNotAtVenueCopy(venueName?: string | null): {

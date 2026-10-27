@@ -4,7 +4,7 @@
   --profile-text: #15151f;
   --profile-text-muted: #5c5f69;
   --profile-accent-purple: #7c5cbf;
-  --profile-upvote-accent: var(--brand-orange, #e07a33);
+  --profile-upvote-accent: var(--app-accent-green, #2e9e68);
   --profile-accent-blue: #3a5ba0;
   --profile-surface: #ffffff;
   --profile-border: #c7cad1;

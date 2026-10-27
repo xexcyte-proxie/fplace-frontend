@@ -3,6 +3,7 @@ import type { MapData, MapView } from "@mappedin/mappedin-js";
 import type { AppState, SectionHeatEntry } from "../types";
 import { appLog } from "../utils/logger";
 import { buildSectionLocationIndex } from "../forum/domain/section-locations";
+import { sectionIdForMapLocation } from "../forum/domain/section-locations";
 import {
   collectLocationAnchors,
   slugifyLocationName,
@@ -143,15 +144,45 @@ export class SocialMapMarkerService {
       id: entry.id,
       screen: this.screenPointForAnchor(entry),
     }));
+    const nearest = projected
+      .filter((entry) => entry.screen)
+      .map((entry) => ({
+        id: entry.id,
+        screen: entry.screen,
+        distance: Math.hypot(
+          (entry.screen?.x ?? 0) - canvasPoint.x,
+          (entry.screen?.y ?? 0) - canvasPoint.y,
+        ),
+      }))
+      .sort((a, b) => a.distance - b.distance)[0];
     const anchorId = pickNearestScreenAnchorId(
       projected,
       canvasPoint.x,
       canvasPoint.y,
     );
+    appLog("MapTap", "Location anchor hit test", {
+      client: { x: clientX, y: clientY },
+      canvas: canvasPoint,
+      anchorCount: this.anchors.length,
+      nearest,
+      hitRadius: 72,
+      matchedAnchorId: anchorId,
+    });
     if (!anchorId) return false;
 
     const entry = this.anchorById.get(anchorId);
     if (!entry) return false;
+
+    appLog("MapTap", "Resolved location anchor", {
+      anchorId: entry.id,
+      locationId: entry.locationId,
+      name: entry.name,
+      sectionId: sectionIdForMapLocation(
+        this.latestState?.forumSections ?? [],
+        entry.locationId,
+        entry.name,
+      ),
+    });
 
     this.viewedLocationIds.add(entry.locationId);
     this.onLocationSelect({
@@ -275,7 +306,9 @@ export class SocialMapMarkerService {
     socketLive: boolean,
   ): SocialMarkerModel {
     const locationId = entry.locationId;
-    const sectionId = sectionByLocationId.get(locationId) ?? null;
+    const sectionId =
+      sectionByLocationId.get(locationId) ??
+      sectionIdForMapLocation(this.latestState?.forumSections ?? [], locationId, entry.name);
     const heat =
       sectionId != null ? heatmapBySectionId.get(sectionId) : undefined;
 

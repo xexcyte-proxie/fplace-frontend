@@ -1,6 +1,8 @@
+import { getLocationDiagnosticReport } from '../location/domain/location-diagnostics';
 import type { MapApp } from '../services/map-app';
 import type { AppState } from '../types';
 import { evaluatePasswordStrength } from '../auth/domain/password-strength';
+import { appLog } from '../utils/logger';
 import { AUTH_AUTOFILL_ANIMATION_NAME } from './auth-autofill';
 
 export interface UiRootEventHost {
@@ -128,6 +130,10 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     app.dismissLegalWebView();
     return;
   }
+  if (target.id === 'location-gate-dismiss') {
+    void app.dismissLocationGate();
+    return;
+  }
   if (target.id === 'location-action-dismiss') {
     app.dismissLocationActionPrompt();
     return;
@@ -144,7 +150,13 @@ function handleClick(event: Event, host: UiRootEventHost): void {
 
   const homeVenue = target.closest<HTMLElement>('[data-home-venue-id]');
   if (homeVenue?.dataset.homeVenueId) {
-    app.selectHomeRecentVenue(homeVenue.dataset.homeVenueId);
+    // The Navigate hub reuses the venue-list cards, but must keep the user in
+    // Navigate and return to the 2D map after a new venue finishes loading.
+    if (app.isNavigateSurface()) {
+      app.selectNavigateVenue(homeVenue.dataset.homeVenueId);
+    } else {
+      app.selectHomeRecentVenue(homeVenue.dataset.homeVenueId);
+    }
     return;
   }
 
@@ -153,6 +165,14 @@ function handleClick(event: Event, host: UiRootEventHost): void {
   );
   if (expectVenue?.dataset.navigateExpectVenueId) {
     void app.openSocialExpectForVenue(expectVenue.dataset.navigateExpectVenueId);
+    return;
+  }
+
+  const arVenue = target.closest<HTMLButtonElement>(
+    '[data-navigate-ar-venue-id]',
+  );
+  if (arVenue?.dataset.navigateArVenueId) {
+    void app.openArForNavigateVenue(arVenue.dataset.navigateArVenueId);
     return;
   }
 
@@ -196,6 +216,11 @@ function handleClick(event: Event, host: UiRootEventHost): void {
   const gate = target.closest<HTMLButtonElement>('[data-gate-id]');
   if (gate?.dataset.gateId) {
     app.selectOnboardingGate(gate.dataset.gateId);
+    return;
+  }
+  const floor = target.closest<HTMLButtonElement>('[data-floor-id]');
+  if (floor?.dataset.floorId) {
+    app.selectOnboardingFloor(floor.dataset.floorId);
     return;
   }
 
@@ -295,6 +320,8 @@ function handleClick(event: Event, host: UiRootEventHost): void {
       void app.clearSearch();
       return;
     case 'first-visit-discover-btn':
+      app.openVenueDiscover();
+      return;
     case 'first-visit-see-all-btn':
       app.openVenueDiscover();
       return;
@@ -321,7 +348,7 @@ function handleClick(event: Event, host: UiRootEventHost): void {
       app.openNavigateMap();
       return;
     case 'navigate-ar-btn':
-      void app.openVenueArFromHome();
+      app.openNavigateArVenuePicker();
       return;
     case 'zoom-in-btn':
       app.zoomIn();
@@ -419,13 +446,26 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     case 'reset-password-login-link':
       app.dismissResetPasswordConfirm();
       return;
+    case 'location-copy-debug-btn':
+      void navigator.clipboard?.writeText(getLocationDiagnosticReport()).then(
+        () => app.showToast('Location debug report copied.'),
+        () => app.showToast('Select the debug report text to copy it manually.'),
+      );
+      if (!navigator.clipboard) app.showToast('Select the debug report text to copy it manually.');
+      return;
+    case 'location-dismiss-btn':
+      void app.dismissLocationGate();
+      return;
     case 'location-enable-btn':
+      appLog('LocationGate', 'Enable Location button clicked');
       void app.enableLocationPermission();
       return;
     case 'location-try-again-btn':
+      appLog('LocationGate', 'Try Again button clicked');
       void app.retryLocationPermission();
       return;
     case 'location-retry-btn':
+      appLog('LocationGate', 'Retry button clicked');
       void app.retryLocationRetrieval();
       return;
     case 'auth-terms-link':
@@ -676,7 +716,9 @@ function handleInput(event: Event, host: UiRootEventHost): void {
 function handleChange(event: Event, host: UiRootEventHost): void {
   const target = event.target;
   if (target instanceof HTMLSelectElement) {
-    if (target.id === 'venue-feed-section-select') {
+    if (target.id === 'first-visit-venue-select') {
+      appOf(host)?.selectFirstVisitVenue(target.value);
+    } else if (target.id === 'venue-feed-section-select') {
       void appOf(host)?.setVenueFeedSection(target.value || null);
     }
     return;
@@ -808,6 +850,11 @@ function handleKeydown(event: KeyboardEvent, host: UiRootEventHost): void {
   const target = event.target;
 
   if (event.key === 'Escape') {
+    if (host.root.querySelector('#location-gate-dismiss')) {
+      event.preventDefault();
+      void app.dismissLocationGate();
+      return;
+    }
     const tour = host.root.querySelector('.product-tour');
     if (tour && (target === tour || tour.contains(target as Node))) {
       app.skipProductTour();
@@ -840,6 +887,12 @@ export function installUiRootEventDelegation(
   );
   root.addEventListener('submit', (event) => handleSubmit(event, host));
   root.addEventListener('keydown', (event) => handleKeydown(event, host));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !root.contains(event.target as Node) &&
+        root.querySelector('#location-gate-dismiss')) {
+      handleKeydown(event, host);
+    }
+  });
 }
 
 export { syncAuthPasswordStrength };

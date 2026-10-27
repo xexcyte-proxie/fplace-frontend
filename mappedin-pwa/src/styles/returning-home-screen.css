@@ -5,6 +5,7 @@
   --home-text-muted: #8b8f98;
   --home-surface: #ffffff;
   --home-accent: #e07a33;
+  --home-upvote: #1f9d5a;
   --home-pin: #e07a33;
   --home-globe: #3a5ba0;
   --home-padding-x: 24px;
@@ -24,7 +25,7 @@
 }
 
 .returning-home-header {
-  margin-bottom: 22px;
+  margin-bottom: 38px;
 }
 
 .returning-home-greeting {
@@ -209,7 +210,7 @@
 }
 
 .returning-home-stat-value--accent {
-  color: var(--home-accent);
+  color: var(--home-upvote);
 }
 
 .returning-home-stat-label {
@@ -231,6 +232,7 @@
   --vf-help-border: rgba(200, 30, 30, 0.28);
 
   margin: 0 0 8px;
+  padding-top: 16px;
 }
 
 .returning-home-screen .home-recent-posts .first-visit-feed-title {

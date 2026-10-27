@@ -8,12 +8,16 @@ import {
 
 describe('canCreateVenuePost', () => {
   it('allows posting at the venue or when presence is unknown', () => {
-    expect(canCreateVenuePost('at-venue')).toBe(true);
-    expect(canCreateVenuePost('unknown')).toBe(true);
+    expect(canCreateVenuePost('at-venue', false)).toBe(true);
+    expect(canCreateVenuePost('unknown', false)).toBe(true);
   });
 
   it('blocks posting when GPS shows the user is away', () => {
-    expect(canCreateVenuePost('away')).toBe(false);
+    expect(canCreateVenuePost('away', false)).toBe(false);
+  });
+
+  it('allows remote posting when the temporary test bypass is enabled', () => {
+    expect(canCreateVenuePost('away', true)).toBe(true);
   });
 });
 

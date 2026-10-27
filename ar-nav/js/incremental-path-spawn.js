@@ -2,24 +2,24 @@
  * Domain: which AR trail chevrons may exist.
  * Pure; no DOM / Three.js.
  *
- * Sliding window of at most `maxVisible` slots (default 2). As the user
+ * Sliding window of at most `maxVisible` slots (default 8). As the user
  * passes a chevron it leaves the set and the next grid mark ahead enters.
  * Occupancy (`occupyTrailSlots`) refuses any candidate closer in XZ than
  * minSeparation — stacking is structurally impossible.
  */
 (function (root) {
   const DEFAULTS = {
-    incrementalPathHorizonM: 22,
-    incrementalPathSpacingM: 4,
-    incrementalPathMaxVisible: 2,
+    incrementalPathHorizonM: 16,
+    incrementalPathSpacingM: 2,
+    incrementalPathMaxVisible: 8,
     incrementalPathPassM: 0.8,
-    incrementalPathMinSeparationM: 2.4,
+    incrementalPathMinSeparationM: 1,
     arrivalClearRemainingM: 1.8,
-    nearFieldSpacingM: 4,
-    nearFieldMaxArrows: 2,
-    nearFieldArrowScale: 0.9,
+    nearFieldSpacingM: 2,
+    nearFieldMaxArrows: 8,
+    nearFieldArrowScale: 1,
     /** Meters ahead of progress before the first opening chevron may spawn. */
-    nearFieldLeadGapM: 2.5,
+    nearFieldLeadGapM: 2,
   };
 
   function finiteAlong(value) {
@@ -63,7 +63,9 @@
     );
     const passM = Math.max(0, num(c.incrementalPathPassM, DEFAULTS.incrementalPathPassM));
     const nearLead = num(c.nearFieldLeadGapM, DEFAULTS.nearFieldLeadGapM);
-    const nearScale = num(c.nearFieldArrowScale, DEFAULTS.nearFieldArrowScale);
+    // Preserve old launch configs, but make the uniform scale explicit.
+    const nearScale = num(c.trailArrowScale,
+      num(c.nearFieldArrowScale, DEFAULTS.nearFieldArrowScale));
 
     // Same rule as 2D arrival: a brand-new short path is not "arrived".
     const minTravel = Math.min(3, Math.max(arrivalClearM, total * 0.35));
@@ -75,7 +77,7 @@
     const revealAheadM = Math.min(horizonM, spacing * slotCap);
     const spawnTo = Math.min(
       Math.max(0, total - 0.2),
-      spawnFrom + revealAheadM,
+      along + revealAheadM,
     );
 
     const canSpawn =
@@ -112,8 +114,8 @@
   }
 
   /**
-   * Exact along-path marks for the sliding window, plus extra grid candidates
-   * so occupancy can refill a slot when a hairpin would stack two chevrons.
+   * Exact along-path marks inside the visual horizon. Occupancy may leave
+   * fewer slots at hairpins instead of extending the trail beyond the horizon.
    */
   function resolveTrailMarks(alongM, totalLen, cfg) {
     const window = resolveTrailSpawnWindow(alongM, totalLen, cfg);
@@ -124,10 +126,8 @@
       return { ...window, marks, candidates };
     }
 
-    const hardEnd = Math.min(
-      total - 0.2,
-      window.spawnTo + window.spacing * window.maxVisible * 3,
-    );
+    // Never refill past the visual horizon, including on hairpins.
+    const hardEnd = Math.min(total - 0.2, window.spawnTo);
     let mark = firstGridMark(window.spawnFrom, window.spacing);
     const budget = window.maxVisible * 4;
     while (mark <= hardEnd + 1e-9 && candidates.length < budget) {
@@ -170,8 +170,24 @@
     return kept;
   }
 
+  /** Stabilize only slot membership; route reset and arrival bypass this gate. */
+  function createMembershipGate() {
+    let committed = null, pending = null, since = 0;
+    return {
+      reset() { committed = null; pending = null; },
+      accept(signature, now, delayMs) {
+        if (committed == null || !(delayMs > 0)) { committed = signature; pending = null; return true; }
+        if (signature === committed) { pending = null; return true; }
+        if (signature !== pending) { pending = signature; since = now; return false; }
+        if (now - since < delayMs) return false;
+        committed = signature; pending = null; return true;
+      },
+    };
+  }
+
   const api = {
     DEFAULTS,
+    createMembershipGate,
     firstGridMark,
     resolveTrailSpawnWindow,
     resolveTrailMarks,

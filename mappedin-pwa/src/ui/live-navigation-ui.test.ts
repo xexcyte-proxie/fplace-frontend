@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { initialAppState } from '../types';
 import {
@@ -375,6 +375,14 @@ describe('classifyUiStateChange', () => {
 });
 
 describe('myLocationFabPresentation', () => {
+  beforeEach(() => {
+    vi.stubEnv('VITE_ALLOW_REMOTE_AR', '');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   const atVenue = {
     locationPermission: 'granted' as const,
     userLocation: {
@@ -495,6 +503,17 @@ describe('myLocationFabPresentation', () => {
       enabled: false,
       label: "You're not at this venue",
     });
+  });
+
+  it('enables route navigation controls for remote AR test sessions', () => {
+    vi.stubEnv('VITE_ALLOW_REMOTE_AR', '1');
+
+    expect(routeNavigationPresencePresentation(away)).toEqual({
+      enabled: true,
+      label: 'Start navigation',
+    });
+
+    vi.unstubAllEnvs();
   });
 });
 

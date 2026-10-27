@@ -24,17 +24,17 @@ const venues: ForumVenueSummary[] = [
 const user = { latitude: 43.64, longitude: -79.38, accuracy: 5 };
 
 describe('venuesForPicker', () => {
-  it('keeps catalog order and omits distance when location is denied', () => {
+  it('sorts Z to A and omits distance when location is denied', () => {
     const options = venuesForPicker(venues, '', 'denied', user);
-    expect(options.map((item) => item.id)).toEqual(['2', '1', '3']);
-    expect(options[0]?.subtitle).toBe('Toronto');
+    expect(options.map((item) => item.id)).toEqual(['3', '1', '2']);
+    expect(options[2]?.subtitle).toBe('Toronto');
   });
 
-  it('sorts by live distance and labels granted results', () => {
+  it('keeps Z to A order while showing live distance labels', () => {
     const options = venuesForPicker(venues, '', 'granted', user);
-    expect(options.map((item) => item.id)).toEqual(['1', '2', '3']);
-    expect(options[0]?.subtitle).toMatch(/^[\d.]+ (m|km) · Downtown$/);
-    expect(options[2]?.subtitle).toBe('Mystery');
+    expect(options.map((item) => item.id)).toEqual(['3', '1', '2']);
+    expect(options[1]?.subtitle).toMatch(/^[\d.]+ (m|km) · Downtown$/);
+    expect(options[0]?.subtitle).toBe('Mystery');
   });
 
   it('filters by name when searching', () => {

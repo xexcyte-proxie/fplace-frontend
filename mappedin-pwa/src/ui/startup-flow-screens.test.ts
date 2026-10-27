@@ -98,7 +98,7 @@ describe('startup flow screens (widget)', () => {
       locationGateLoading: false,
       locationPermanentlyDenied: false,
     });
-    expect(html).toContain('Location Permission Required');
+    expect(html).toContain('Location is off');
     expect(html).toContain('id="location-try-again-btn"');
     expect(html).toContain('role="dialog"');
   });
@@ -108,7 +108,10 @@ describe('startup flow screens (widget)', () => {
       locationGateLoading: false,
       locationPermanentlyDenied: true,
     });
-    expect(html).toMatch(/browser settings/i);
+    expect(html).toMatch(/Your browser has blocked location/i);
+    expect(html).toContain('browser or page settings');
+    expect(html).not.toContain('location-try-again-btn');
+    expect(html).not.toContain('Location debug details');
   });
 
   it('renders Location Error with Retry', () => {
@@ -122,3 +125,15 @@ describe('startup flow screens (widget)', () => {
     expect(html).toContain('role="dialog"');
   });
 });
+
+ it('keeps Not now enabled in every location dialog while waiting', () => {
+  for (const html of [
+    renderLocationPermissionScreen({ locationGateLoading: true }),
+    renderLocationPermissionRequiredScreen({ locationGateLoading: true, locationPermanentlyDenied: true }),
+    renderLocationErrorScreen({ locationGateLoading: true, locationGateError: 'Timeout' }),
+  ]) {
+    expect(html).toContain('id="location-gate-dismiss"');
+    expect(html).toMatch(/<button[^>]*id="location-dismiss-btn"[^>]*>Not now<\/button>/);
+    expect(html.match(/<button[^>]*id="location-dismiss-btn"[^>]*>/)?.[0]).not.toContain('disabled');
+  }
+ });

@@ -515,6 +515,9 @@ export class UiRoot {
 
     this.root.innerHTML = `
       ${this.loadingOverlay(state)}
+      ${state.locationGateLoading && !isLocationGateAuthStep(state.authStep)
+        ? renderLocationPermissionScreen({ locationGateLoading: true })
+        : ""}
       ${onNavigateMap && showMapBootOverlay ? renderMapBootOverlay(state) : ""}
       ${showOnboardingScreen ? renderOnboardingScreen({
         guestAccessAllowed: state.guestAccessAllowed,
@@ -575,8 +578,10 @@ export class UiRoot {
       ${showVenueSelect ? renderVenueSelectScreen({
         venueSearchQuery: this.venueSearchDraft ?? state.venueSearchQuery,
         selectedVenueId: state.selectedVenueId,
+        selectedFloorId: state.selectedFloorId,
         selectedGateId: state.selectedGateId,
         forumVenues: state.forumVenues,
+        forumFloors: state.forumFloors,
         forumSections: state.forumSections,
         authLoading: state.authLoading,
         authFieldErrors: state.authFieldErrors,

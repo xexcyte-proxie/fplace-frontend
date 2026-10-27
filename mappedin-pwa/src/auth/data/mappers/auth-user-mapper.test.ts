@@ -72,14 +72,14 @@ describe('coerceAuthUser', () => {
     expect(coerceAuthUser(null)).toBeNull();
   });
 
-  it('does not accept an email-like value as a pseudo-name', () => {
+  it('keeps handle-style values as pseudo-names', () => {
     const user = coerceAuthUser({
       id: 3,
       email: 'azeezat@example.com',
       pseudo_name: 'Azeezat@fplaces',
       is_email_verified: true,
     });
-    expect(user?.pseudo_name).toBeNull();
+    expect(user?.pseudo_name).toBe('Azeezat@fplaces');
   });
 });
 

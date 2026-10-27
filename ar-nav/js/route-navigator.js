@@ -334,6 +334,7 @@
         this.applyNavigationSync(window.__fplacesPendingNavigationSync);
         window.__fplacesPendingNavigationSync = null;
       }
+      window.FplacesWorldRoute?.setRoute?.(this);
     }
 
     isParentEmbeddedNav() {
@@ -964,6 +965,7 @@
     updateFloorTracking(floorId) {
       if (!floorId) return;
       const prev = this._trackedFloorId;
+      this._trackedFloorId = floorId;
       if (prev && prev !== floorId) {
         const transitions =
           window.FplacesFloorTransitions?.detectTransitions?.(this.route) || [];
@@ -1003,28 +1005,11 @@
       this._trackedFloorId = floorId;
     }
 
-    /** When indoor GPS is off the venue polyline, infer slow walk if facing the route. */
+    /** Orientation alone is not evidence of physical translation. */
     effectiveMoveSpeedMps() {
-      if (this._moveSpeedMps > 0.03) return this._moveSpeedMps;
-      if (
-        this.positionSource === "route" ||
-        this.positionSource === "none" ||
-        this.positionSource === "calibrate"
-      ) {
-        return this._moveSpeedMps;
-      }
-      if (this.isGpsSnapTrustworthy()) return this._moveSpeedMps;
-
-      const heading = window.FplacesSlamHeading?.isActive?.()
-        ? window.FplacesSlamHeading.getHeadingDegrees?.()
-        : (window.FplacesOrientationCompass?.getDeviceHeading?.() ??
-          this.externalHeadingDegrees);
-      const target = this.getTargetBearingDegrees();
-      if (heading == null || target == null) return 0;
-
-      const delta = Math.abs(normalizeDeltaDegrees(heading, target));
-      if (delta > 40) return 0;
-      return 0.55;
+      return Number.isFinite(this._moveSpeedMps) && this._moveSpeedMps > 0.03
+        ? this._moveSpeedMps
+        : 0;
     }
 
     /** Live progress along route polyline - blends GPS snap + walking extrapolation. */

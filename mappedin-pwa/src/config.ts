@@ -18,9 +18,8 @@ export const appConfig = {
   /**
    * WebSocket origin for live rooms (`/ws/venues/<id>/`,
    * `/ws/venues/<id>/locations/<location_id>/`, `/ws/notifications/`).
-   * Required in production (Netlify cannot proxy WebSocket upgrades).
-   * Local dev: leave unset to use Vite's `/ws` proxy, or set to bypass proxy issues.
-   * `http://` values are converted to `ws://`.
+   * Defaults to wss://api.fplaces.com when API and WebSocket overrides are unset.
+   * HTTP(S) values are converted to WS(S), preserving transport security.
    */
   wsUrl: (import.meta.env.VITE_WS_URL ?? '').replace(/\/$/, ''),
   /**

@@ -1,9 +1,11 @@
+import { recordLocationDiagnostic, locationErrorDetail } from '../location/domain/location-diagnostics';
 import {
   coordinatesFromPosition,
   isPermissionDeniedError,
   type GeolocationPermissionState,
   type UserCoordinates,
 } from '../location/domain/geolocation-permission';
+import { appLog, appWarn } from '../utils/logger';
 
 export type {
   GeolocationPermissionState,
@@ -13,18 +15,32 @@ export type {
 export class LocationService {
   /** Query current geolocation permission without prompting (Permissions API). */
   async queryPermission(): Promise<GeolocationPermissionState> {
-    if (!navigator.geolocation) return 'unsupported';
-    if (!navigator.permissions?.query) return 'prompt';
+    if (!navigator.geolocation) {
+      appLog('LocationService', 'queryPermission: geolocation unsupported');
+      recordLocationDiagnostic('permission', { state: 'unsupported' });
+      return 'unsupported';
+    }
+    if (!navigator.permissions?.query) {
+      appLog('LocationService', 'queryPermission: Permissions API unavailable; assuming prompt');
+      recordLocationDiagnostic('permission', { state: 'unknown', reason: 'Permissions API unavailable' });
+      return 'prompt';
+    }
 
     try {
       const status = await navigator.permissions.query({
         name: 'geolocation',
       });
+      recordLocationDiagnostic('permission', { state: status.state });
+      appLog('LocationService', 'queryPermission result', {
+        state: status.state,
+      });
       if (status.state === 'granted') return 'granted';
       if (status.state === 'denied') return 'denied';
       return 'prompt';
-    } catch {
+    } catch (error) {
+      recordLocationDiagnostic('permission-query-failed', locationErrorDetail(error));
       // Safari and some browsers reject geolocation permission queries.
+      appWarn('LocationService', 'queryPermission failed; assuming prompt', error);
       return 'prompt';
     }
   }
@@ -39,17 +55,47 @@ export class LocationService {
 
   async getCurrentPosition(options?: {
     timeoutMs?: number;
+    enableHighAccuracy?: boolean;
+    maximumAgeMs?: number;
   }): Promise<GeolocationPosition> {
     if (!navigator.geolocation) {
+      appWarn('LocationService', 'getCurrentPosition: geolocation unsupported');
       throw new Error('Geolocation is not supported in this browser.');
     }
 
+    const requestOptions = {
+      enableHighAccuracy: options?.enableHighAccuracy ?? true,
+      timeout: options?.timeoutMs ?? 8000,
+      maximumAge: options?.maximumAgeMs ?? 0,
+    };
+    const started = Date.now();
+    recordLocationDiagnostic('position-request', {
+      ...requestOptions,
+      userActivationActive: navigator.userActivation?.isActive ?? 'unknown',
+    });
+    appLog('LocationService', 'getCurrentPosition requesting', requestOptions);
+
     return new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        enableHighAccuracy: true,
-        timeout: options?.timeoutMs ?? 8000,
-        maximumAge: 0,
-      });
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          appLog('LocationService', 'getCurrentPosition success', {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+          });
+          recordLocationDiagnostic('position-success', { elapsedMs: Date.now() - started, accuracyMeters: position.coords.accuracy });
+          resolve(position);
+        },
+        (error) => {
+          appWarn('LocationService', 'getCurrentPosition error', {
+            code: error.code,
+            message: error.message,
+          });
+          recordLocationDiagnostic('position-failed', { ...locationErrorDetail(error), elapsedMs: Date.now() - started });
+          reject(error);
+        },
+        requestOptions,
+      );
     });
   }
 
@@ -57,8 +103,26 @@ export class LocationService {
   async requestLocation(options?: {
     timeoutMs?: number;
   }): Promise<UserCoordinates> {
-    const position = await this.getCurrentPosition(options);
-    return coordinatesFromPosition(position);
+    appLog('LocationService', 'requestLocation start', options);
+    let position: GeolocationPosition;
+    try {
+      position = await this.getCurrentPosition(options);
+    } catch (error) {
+      if (!isTimeoutError(error)) throw error;
+      recordLocationDiagnostic('retry-relaxed-accuracy', { reason: 'High-accuracy request timed out' });
+      appWarn(
+        'LocationService',
+        'high-accuracy position timed out; retrying with relaxed options',
+      );
+      position = await this.getCurrentPosition({
+        timeoutMs: Math.max(options?.timeoutMs ?? 0, 15_000),
+        enableHighAccuracy: false,
+        maximumAgeMs: 60_000,
+      });
+    }
+    const coords = coordinatesFromPosition(position);
+    appLog('LocationService', 'requestLocation resolved', coords);
+    return coords;
   }
 
   /**
@@ -110,4 +174,15 @@ export class LocationService {
         return 'Could not get your location.';
     }
   }
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    typeof (error as GeolocationPositionError).code === 'number' &&
+    typeof (error as GeolocationPositionError).TIMEOUT === 'number' &&
+    (error as GeolocationPositionError).code ===
+      (error as GeolocationPositionError).TIMEOUT
+  );
 }

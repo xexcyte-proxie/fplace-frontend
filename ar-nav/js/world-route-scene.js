@@ -1,162 +1,67 @@
-/**
- * Map-anchored world route - calibrated floor ribbon (shim over pathGeometry).
- * Route geometry lives in stable world space; only camera pose updates each frame.
- */
+/** Event-built route snapshots rendered in a stable, calibrated XR world. */
 (function () {
-  let sceneRef = null;
-  let cameraRef = null;
-  let rootGroup = null;
-  let attached = false;
-  let ribbonBuilt = false;
-  let lastFloorId = null;
-  let clearedForArrival = false;
-
-  function clearTrailForArrival() {
-    if (!sceneRef || clearedForArrival) return;
-    // Trail + leading marker are parented on the XR scene (not rootGroup),
-    // so hiding rootGroup alone leaves the clogged chevrons on screen.
-    window.FplacesIncrementalPath?.dispose?.(sceneRef);
-    window.FplacesFloorArrows?.disposeFloorArrows?.(sceneRef);
-    clearedForArrival = true;
-    window.FplacesArDebug?.log?.(
-      "WorldRoute",
-      "Trail cleared on arrival",
-    );
+  let sceneRef = null, cameraRef = null, routeRef = null, snapshot = null;
+  let activeSection = null, builtRevision = null, lastFloorId = null;
+  let visualRouteRevision = 0;
+  const state = () => window.FplacesVisualRouteState;
+  function invalidate(reason = "route-section-anchor-change") {
+    window.FplacesPathGeometry?.disposePathVisuals?.(sceneRef, reason);
+    activeSection = null;
+    builtRevision = null;
   }
-
+  function accept(nav) {
+    const next = state().prepare(nav?.route);
+    routeRef = nav?.route;
+    if (snapshot?.signature === next.signature) return;
+    snapshot = next;
+    visualRouteRevision++;
+    invalidate("route-replaced");
+  }
   window.FplacesWorldRoute = {
     attach({ THREE, scene, camera }) {
-      if (!THREE || !scene || !camera || attached) return false;
-
-      sceneRef = scene;
-      cameraRef = camera;
-      rootGroup = new THREE.Group();
-      rootGroup.name = "fplaces-world-route-root";
-      scene.add(rootGroup);
-
-      attached = true;
-      ribbonBuilt = false;
-      lastFloorId = null;
-      clearedForArrival = false;
+      if (!THREE || !scene || !camera || sceneRef) return false;
+      sceneRef = scene; cameraRef = camera;
       window.FplacesPathArrows?.setWebGlActive?.(true);
       window.FplacesOrientationCompass?.setWebGlActive?.(true);
-      window.FplacesArDebug?.log(
-        "WorldRoute",
-        "Calibrated ribbon route attached",
-      );
       return true;
     },
-
     detach() {
-      window.FplacesPathGeometry?.disposePathVisuals?.(sceneRef);
-      if (rootGroup && sceneRef) sceneRef.remove(rootGroup);
-      sceneRef = null;
-      cameraRef = null;
-      rootGroup = null;
-      attached = false;
-      ribbonBuilt = false;
-      lastFloorId = null;
-      clearedForArrival = false;
+      invalidate("detach"); sceneRef = null; cameraRef = null;
+      routeRef = null; snapshot = null; lastFloorId = null;
       window.FplacesPathArrows?.setWebGlActive?.(false);
       window.FplacesOrientationCompass?.setWebGlActive?.(false);
     },
-
-    isAttached() {
-      return attached;
+    invalidate,
+    getDiagnosticIdentity() {
+      return { routeId: routeRef?.routeId ?? null, routeVersion: routeRef?.routeVersion ?? routeRef?.version ?? null,
+        visualRouteRevision, sectionId: activeSection?.id ?? null, anchorRevision: builtRevision };
     },
-
-    ensureRibbon(floorId) {
-      if (!attached || !sceneRef || !window.FplacesAnchorEngine?.isCalibrated) {
-        return false;
+    isAttached() { return !!sceneRef; },
+    // Explicit acceptance also supports a caller mutating a route object in place.
+    setRoute(nav) { accept(nav); this.ensureRibbon(undefined, nav); },
+    ensureRibbon(floorId, nav = window.__fplacesNavigator) {
+      if (!sceneRef || !nav) return false;
+      if (nav.route !== routeRef || !snapshot) accept(nav);
+      const floor = floorId ?? nav._trackedFloorId ?? nav.lastPosition?.floorId ?? nav.route?.pathCoordinates?.[0]?.floorId;
+      if (lastFloorId != null && floor != null && lastFloorId !== floor) {
+        window.FplacesSpatialAlignment?.invalidate?.('Floor changed. Realign on this floor.');
       }
-      const nav = window.__fplacesNavigator;
-      const route = nav?.route;
-      if (!route?.pathCoordinates?.length) return false;
-
-      const resolvedFloor =
-        floorId || nav._trackedFloorId || nav.lastPosition?.floorId || null;
-
-      if (
-        ribbonBuilt &&
-        resolvedFloor === lastFloorId &&
-        window.FplacesPathGeometry?.hasRibbon?.(sceneRef)
-      ) {
-        return true;
-      }
-
-      window.FplacesPathGeometry?.generateWorldMeshPath?.(
-        sceneRef,
-        route,
-        window.FplacesAnchorEngine.instance,
-        { camera: cameraRef, floorId: resolvedFloor },
-      );
-      ribbonBuilt = true;
-      lastFloorId = resolvedFloor;
-      window.FplacesArDebug?.log("WorldRoute", "Floor ribbon ensured", {
-        floorId: resolvedFloor,
-      });
+      lastFloorId = floor;
+      const anchor = window.FplacesAnchorEngine?.instance;
+      if (!anchor?.isCalibrated || nav.arrived) { if (activeSection) invalidate(); return false; }
+      const section = state().select(snapshot, floor, state().along(nav));
+      if (!section) { if (activeSection) invalidate(); return false; }
+      if (activeSection === section && builtRevision === anchor.revision) return true;
+      invalidate(builtRevision !== anchor.revision ? "anchor-revision" : "section-changed");
+      window.FplacesPathGeometry?.generateWorldMeshPath?.(sceneRef, section, anchor, { camera: cameraRef, floorId: floor });
+      activeSection = section; builtRevision = anchor.revision;
       return true;
     },
-
-    setRoute(navigator) {
-      const path = navigator?.route?.pathCoordinates || [];
-      if (!path.length || !attached) return;
-
-      const floorId =
-        navigator._trackedFloorId ||
-        navigator.lastPosition?.floorId ||
-        path[0]?.floorId ||
-        null;
-
-      clearedForArrival = false;
-
-      if (window.FplacesAnchorEngine?.isCalibrated && sceneRef) {
-        window.FplacesPathGeometry?.generateWorldMeshPath?.(
-          sceneRef,
-          navigator.route,
-          window.FplacesAnchorEngine.instance,
-          { camera: cameraRef, floorId },
-        );
-        ribbonBuilt = true;
-        lastFloorId = floorId;
-      }
-
-      window.FplacesArDebug?.log("WorldRoute", "Route prepared", {
-        points: path.length,
-        ribbonBuilt,
-        floorId,
-      });
-    },
-
     update({ navigator }) {
-      if (!attached || !rootGroup || !navigator) return;
-
-      const state = navigator.getState?.() || {};
-      if (state.arrived) {
-        rootGroup.visible = false;
-        clearTrailForArrival();
-        return;
-      }
-
-      const path = navigator.route?.pathCoordinates || [];
-      if (!path.length) return;
-
-      clearedForArrival = false;
-      rootGroup.visible = true;
-      rootGroup.position.set(0, 0, 0);
-
-      const floorId =
-        navigator._trackedFloorId ||
-        navigator.lastPosition?.floorId ||
-        path[0]?.floorId ||
-        null;
-
-      if (window.FplacesAnchorEngine?.isCalibrated) {
-        if (!ribbonBuilt || (floorId && floorId !== lastFloorId)) {
-          this.ensureRibbon(floorId);
-        }
-        // Progress-driven arrow refresh (straight ahead / turn at junction).
-        window.FplacesPathGeometry?.update?.(sceneRef, cameraRef, floorId);
+      if (!sceneRef || !navigator) return;
+      if (navigator.getState?.().arrived) { if (activeSection) invalidate("navigation-arrived"); return; }
+      if (this.ensureRibbon(undefined, navigator)) {
+        window.FplacesPathGeometry?.update?.(sceneRef, cameraRef, lastFloorId);
       }
     },
   };

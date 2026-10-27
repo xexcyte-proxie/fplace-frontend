@@ -25,6 +25,7 @@ export function installCameraFollowRelease(
   container: HTMLElement,
   onUserPan: () => void,
 ): MapGestureGuard {
+  const activePointers = new Map<number, { x: number; y: number }>();
   let pointerId: number | null = null;
   let startX = 0;
   let startY = 0;
@@ -34,6 +35,17 @@ export function installCameraFollowRelease(
   let lastPointerClient: MapPointerClient | null = null;
 
   const onDown = (event: PointerEvent) => {
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    console.debug('[FplacesMapGesture] pointerdown', {
+      pointerId: event.pointerId,
+      pointers: activePointers.size,
+      x: event.clientX,
+      y: event.clientY,
+    });
+    // A second finger belongs to the same camera gesture. Do not replace the
+    // primary pointer's pan state or let its eventual pointerup clean up the
+    // whole gesture prematurely.
+    if (activePointers.size > 1) return;
     pointerId = event.pointerId;
     startX = event.clientX;
     startY = event.clientY;
@@ -46,11 +58,20 @@ export function installCameraFollowRelease(
   };
 
   const onMove = (event: PointerEvent) => {
+    if (activePointers.has(event.pointerId)) {
+      activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
     if (pointerId == null || event.pointerId !== pointerId || panning) return;
     const dx = event.clientX - startX;
     const dy = event.clientY - startY;
     if (dx * dx + dy * dy < PAN_DETECT_PX * PAN_DETECT_PX) return;
     panning = true;
+    console.debug('[FplacesMapGesture] pan-detected', {
+      pointerId: event.pointerId,
+      pointers: activePointers.size,
+      dx,
+      dy,
+    });
     if (!unlockedFollow) {
       unlockedFollow = true;
       onUserPan();
@@ -58,7 +79,21 @@ export function installCameraFollowRelease(
   };
 
   const onUp = (event: PointerEvent) => {
-    if (event.pointerId !== pointerId) return;
+    activePointers.delete(event.pointerId);
+    console.debug('[FplacesMapGesture] pointerup/cancel', {
+      pointerId: event.pointerId,
+      remainingPointers: activePointers.size,
+      primaryPointerId: pointerId,
+      panning,
+    });
+    if (activePointers.size > 0) return;
+    if (event.pointerId !== pointerId) {
+      // The primary pointer may have ended before the secondary pointer.
+      pointerId = null;
+      panning = false;
+      unlockedFollow = false;
+      return;
+    }
     lastPointerClient = { x: event.clientX, y: event.clientY };
     pointerId = null;
     unlockedFollow = false;

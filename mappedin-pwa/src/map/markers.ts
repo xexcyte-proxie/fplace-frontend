@@ -190,7 +190,7 @@ export class MapMarkerService {
     const heading =
       resolved ??
       (this.lastDeviceHeading != null ? this.lastDeviceHeading : undefined);
-    const headingForDot = heading ?? this.lastPublishedHeading ?? "device";
+    const headingForDot = heading ?? this.lastPublishedHeading ?? undefined;
     const isFirstFix = this.lastPosition == null;
     const samePlace =
       this.lastPosition != null &&
@@ -202,7 +202,7 @@ export class MapMarkerService {
         {
           latitude: frame.latitude,
           longitude: frame.longitude,
-          heading: headingForDot,
+          ...(headingForDot != null ? { heading: headingForDot } : {}),
           accuracy: Math.min(
             frame.accuracy ?? MAX_INJECTED_ACCURACY_METERS,
             MAX_INJECTED_ACCURACY_METERS,
@@ -217,7 +217,7 @@ export class MapMarkerService {
       this.blueDot.reportPosition({
         latitude: frame.latitude,
         longitude: frame.longitude,
-        heading: headingForDot as number | undefined,
+        ...(headingForDot != null ? { heading: headingForDot } : {}),
         accuracy: frame.accuracy,
         confidence: 0.75,
       });
@@ -553,15 +553,19 @@ export class MapMarkerService {
           typeof incoming.accuracy === "number" ? incoming.accuracy : undefined,
       });
       const heading = this.headingForDevicePosition(incoming.heading);
+      const { heading: _incomingHeading, ...position } = incoming;
       if (!held) {
-        return { ...incoming, heading };
+        return {
+          ...position,
+          ...(heading != null ? { heading } : {}),
+        };
       }
       return {
-        ...incoming,
+        ...position,
         latitude: fix.latitude,
         longitude: fix.longitude,
         ...(fix.accuracy != null ? { accuracy: fix.accuracy } : {}),
-        heading,
+        ...(heading != null ? { heading } : {}),
       };
     });
   }
@@ -593,13 +597,12 @@ export class MapMarkerService {
   }
 
   /**
-   * Mappedin hides the glow when `heading` is `undefined`/`null`.
-   * GPS `coords.heading` is null while stationary, so the processor must not
-   * forward that through: use `'device'` so the compass cone stays on.
+   * Mappedin now validates `heading` as numeric. Omit it until compass or a
+   * previous published heading is available.
    */
   private headingForDevicePosition(
     _incoming?: number | "device" | null,
-  ): number | "device" {
+  ): number | undefined {
     if (
       this.lastDeviceHeading != null &&
       Number.isFinite(this.lastDeviceHeading)
@@ -612,7 +615,7 @@ export class MapMarkerService {
     ) {
       return this.lastPublishedHeading;
     }
-    return "device";
+    return undefined;
   }
 
   private isCompassDrivingCone(): boolean {

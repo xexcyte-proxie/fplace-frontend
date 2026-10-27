@@ -55,6 +55,21 @@
   margin-top: 4px;
 }
 
+.navigate-hub-screen .first-visit-action--discover {
+  background: var(--brand-orange, #e07a33);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(224, 122, 51, 0.22);
+}
+
+.navigate-hub-screen .first-visit-action--discover .first-visit-action-icon {
+  color: #ffffff;
+}
+
+.navigate-hub-screen .first-visit-action--discover .first-visit-action-copy--light {
+  color: #ffffff;
+}
+
 .navigate-stage-card,
 .navigate-search-card,
 .navigate-info-strip {

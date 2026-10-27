@@ -15,6 +15,7 @@ describe('renderLocationPermissionScreen', () => {
     expect(html).toContain('id="location-dialog-desc"');
     expect(html).toContain('id="location-enable-btn"');
     expect(html).toContain('Used to place you on the map and start indoor routes.');
+    expect(html).not.toContain('Location debug details');
   });
 });
 
@@ -27,7 +28,7 @@ describe('renderLocationPermissionRequiredScreen', () => {
     expect(html).toContain('id="location-required-title"');
     expect(html).toContain('id="location-required-desc"');
     expect(html).toContain('id="location-try-again-btn"');
-    expect(html).toContain('Allow location when prompted to continue.');
+    expect(html).toContain('Allow location to use live positioning, or continue without it.');
     expect(html).toContain('Try Again');
   });
 
@@ -36,9 +37,10 @@ describe('renderLocationPermissionRequiredScreen', () => {
       locationGateLoading: false,
       locationPermanentlyDenied: true,
     });
-    expect(html).toContain(
-      'Location is blocked. Allow it in browser settings, then try again.',
-    );
+    expect(html).toContain('Your browser has blocked location for this site.');
+    expect(html).toContain('browser or page settings');
+    expect(html).not.toContain('location-try-again-btn');
+    expect(html).not.toContain('Location debug details');
   });
 });
 
