@@ -1,3 +1,4 @@
+import { navigationDiagnostics as navDiag } from '../position/debug/navigation-diagnostics';
 import { recordLocationDiagnostic, locationErrorDetail } from '../location/domain/location-diagnostics';
 import {
   coordinatesFromPosition,
@@ -84,6 +85,7 @@ export class LocationService {
             accuracy: position.coords.accuracy,
           });
           recordLocationDiagnostic('position-success', { elapsedMs: Date.now() - started, accuracyMeters: position.coords.accuracy });
+          this.recordDiagnosticFix(position, 'LocationService.getCurrentPosition');
           resolve(position);
         },
         (error) => {
@@ -102,13 +104,17 @@ export class LocationService {
   /** Request permission (via position read) and return coordinates. */
   async requestLocation(options?: {
     timeoutMs?: number;
-  }): Promise<UserCoordinates> {
+    /** Observational hook; never invoked in production or allowed to affect the result. */
+    onDiagnosticFix?: (position: GeolocationPosition, acquisition: { relaxedRetryUsed: boolean; maximumAgeMs: number; enableHighAccuracy: boolean }) => void;
+  }): Promise<UserCoordinates & { timestamp: number }> {
     appLog('LocationService', 'requestLocation start', options);
     let position: GeolocationPosition;
+    let relaxedRetryUsed = false;
     try {
       position = await this.getCurrentPosition(options);
     } catch (error) {
       if (!isTimeoutError(error)) throw error;
+      relaxedRetryUsed = true;
       recordLocationDiagnostic('retry-relaxed-accuracy', { reason: 'High-accuracy request timed out' });
       appWarn(
         'LocationService',
@@ -120,9 +126,12 @@ export class LocationService {
         maximumAgeMs: 60_000,
       });
     }
+    if (import.meta.env.DEV && options?.onDiagnosticFix) {
+      try { options.onDiagnosticFix(position, { relaxedRetryUsed, maximumAgeMs: relaxedRetryUsed ? 60000 : 0, enableHighAccuracy: !relaxedRetryUsed }); } catch { /* Diagnostic observers cannot change positioning. */ }
+    }
     const coords = coordinatesFromPosition(position);
     appLog('LocationService', 'requestLocation resolved', coords);
-    return coords;
+    return { ...coords, timestamp: position.timestamp };
   }
 
   /**
@@ -138,8 +147,9 @@ export class LocationService {
       return () => {};
     }
 
+    navDiag?.record('subscription', 'LocationService.watchLocation', { action: 'start', purpose: 'presence' });
     const watchId = navigator.geolocation.watchPosition(
-      (position) => onUpdate(coordinatesFromPosition(position)),
+      (position) => { this.recordDiagnosticFix(position, 'LocationService.watchLocation:presence'); onUpdate(coordinatesFromPosition(position)); },
       (error) => onError?.(error),
       {
         enableHighAccuracy: true,
@@ -149,8 +159,16 @@ export class LocationService {
     );
 
     return () => {
+      navDiag?.record('subscription', 'LocationService.watchLocation', { action: 'stop', purpose: 'presence' });
       navigator.geolocation.clearWatch(watchId);
     };
+  }
+
+  private recordDiagnosticFix(position: GeolocationPosition, source: string): void {
+    navDiag?.record('raw-gps', source, { raw: { latitude: position.coords.latitude, longitude: position.coords.longitude },
+      accuracy: position.coords.accuracy, speed: position.coords.speed, heading: position.coords.heading,
+      timestamp: position.timestamp, ageMs: Date.now()-position.timestamp, acceptedForNavigation: null,
+      reason: 'presence-or-reference-acquisition-not-navigation-acceptance' });
   }
 
   isPermissionDeniedError(error: unknown): boolean {

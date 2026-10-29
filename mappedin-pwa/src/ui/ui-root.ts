@@ -1060,7 +1060,9 @@ export class UiRoot {
 
   private routeSheet(state: AppState, _app: MapApp): string {
     const summary = buildRouteSheetSummary(state);
-    const navigationPresence = routeNavigationPresencePresentation(state);
+    const navigationPresence = routeNavigationPresencePresentation(
+      state, _app.isVenueGeolocationSimulationActive,
+    );
     const resetDisabled = summary.isCalculating;
     const beginDisabled =
       summary.isCalculating ||

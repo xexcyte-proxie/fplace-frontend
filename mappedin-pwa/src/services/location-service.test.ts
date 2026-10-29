@@ -59,6 +59,7 @@ describe('LocationService', () => {
       latitude: 1.23,
       longitude: 4.56,
       accuracy: 8,
+      timestamp: 1,
     });
     expect(getCurrentPosition).toHaveBeenCalledWith(
       expect.any(Function),
@@ -109,6 +110,7 @@ describe('LocationService', () => {
       latitude: 6.72,
       longitude: 3.25,
       accuracy: 120,
+      timestamp: 1,
     });
     expect(getCurrentPosition).toHaveBeenNthCalledWith(
       1,
@@ -192,4 +194,33 @@ describe('LocationService', () => {
     expect(service.isPermissionDeniedError(denied)).toBe(true);
     expect(service.geolocationErrorMessage(denied)).toMatch(/denied/i);
   });
+  it('observes the browser timestamp and actual retrieval mode without changing the returned coordinates', async () => {
+    const service = new LocationService();
+    const position = { coords: { latitude: 6.1, longitude: 3.2, accuracy: 8 }, timestamp: 123456 } as GeolocationPosition;
+    vi.spyOn(service, 'getCurrentPosition').mockResolvedValue(position);
+    const observer = vi.fn(() => { throw Error('diagnostics unavailable'); });
+    await expect(service.requestLocation({ onDiagnosticFix: observer })).resolves.toEqual({ latitude: 6.1, longitude: 3.2, accuracy: 8, timestamp: 123456 });
+    expect(observer).toHaveBeenCalledWith(position, { relaxedRetryUsed: false, maximumAgeMs: 0, enableHighAccuracy: true });
+    vi.restoreAllMocks();
+  });
+  it('reports when acquisition used the existing relaxed timeout retry', async () => {
+    const service = new LocationService();
+    const position = { coords: { latitude: 6.1, longitude: 3.2, accuracy: 25 }, timestamp: 123456 } as GeolocationPosition;
+    vi.spyOn(service, 'getCurrentPosition').mockRejectedValueOnce({ code: 3, TIMEOUT: 3 }).mockResolvedValueOnce(position);
+    const observer = vi.fn();
+    await service.requestLocation({ onDiagnosticFix: observer });
+    expect(observer).toHaveBeenCalledWith(position, { relaxedRetryUsed: true, maximumAgeMs: 60000, enableHighAccuracy: false });
+    vi.restoreAllMocks();
+  });
+  it('does not pass precise GPS data to diagnostic observers in production', async () => {
+    const service = new LocationService();
+    vi.spyOn(service, 'getCurrentPosition').mockResolvedValue({ coords: { latitude: 6, longitude: 3, accuracy: 5 }, timestamp: 1 } as GeolocationPosition);
+    const observer = vi.fn();
+    vi.stubEnv('DEV', false);
+    try {
+      await expect(service.requestLocation({ onDiagnosticFix: observer })).resolves.toEqual({ latitude: 6, longitude: 3, accuracy: 5, timestamp: 1 });
+      expect(observer).not.toHaveBeenCalled();
+    } finally { vi.unstubAllEnvs(); vi.restoreAllMocks(); }
+  });
+
 });

@@ -1,4 +1,4 @@
-import { haversineMeters } from '../../utils/geo-math';
+import { geoToLocalMeters, haversineMeters } from '../../utils/geo-math';
 
 /**
  * Raw GPS fixes scatter by tens of metres indoors even while the phone is
@@ -18,6 +18,8 @@ export interface PositionFixSample {
   longitude: number;
   /** Reported accuracy radius in meters. */
   accuracy?: number | null;
+  /** Original sample time; never substituted with receipt time. */
+  timestamp?: number;
 }
 
 export interface StationaryPositionFilterOptions {
@@ -32,6 +34,8 @@ export interface StationaryPositionFilterOptions {
   accuracyImprovementRatio?: number;
   /** Accuracy assumed when a fix reports none. */
   defaultAccuracyMeters?: number;
+  /** Confirm borderline displacements using separate, consistent timed fixes. */
+  confirmationSamples?: number;
 }
 
 export interface StationaryFilterResult {
@@ -39,6 +43,13 @@ export interface StationaryFilterResult {
   fix: PositionFixSample;
   /** True when the incoming fix was clamped to the anchored position. */
   held: boolean;
+  reason: string;
+  classification: 'stationary' | 'moving' | 'uncertain';
+  displacementM: number | null;
+  thresholdM: number | null;
+  elapsedMs: number | null;
+  impliedSpeedMps: number | null;
+  physicalMovementProven: false;
 }
 
 export interface StationaryPositionFilter {
@@ -68,6 +79,9 @@ export function createStationaryPositionFilter(
     options?.accuracyImprovementRatio ?? DEFAULT_ACCURACY_IMPROVEMENT_RATIO;
 
   let anchor: PositionFixSample | null = null;
+  let candidate: { point: PositionFixSample; count: number } | null = null;
+  let lastTimestamp: number | null = null;
+  const confirmations = Math.max(1, options?.confirmationSamples ?? 1);
 
   function effectiveAccuracy(fix: PositionFixSample): number {
     return fix.accuracy != null && Number.isFinite(fix.accuracy) && fix.accuracy > 0
@@ -76,41 +90,45 @@ export function createStationaryPositionFilter(
   }
 
   function process(incoming: PositionFixSample): StationaryFilterResult {
-    if (
-      !Number.isFinite(incoming.latitude) ||
-      !Number.isFinite(incoming.longitude)
-    ) {
-      // Malformed fix: keep whatever we have.
-      if (anchor) return { fix: anchor, held: true };
-      return { fix: incoming, held: false };
+    const valid = Number.isFinite(incoming.latitude) && Number.isFinite(incoming.longitude);
+    const distance = anchor && valid ? haversineMeters(anchor, incoming) : null;
+    const threshold = significantMoveThresholdMeters(effectiveAccuracy(incoming), options);
+    const elapsed = anchor?.timestamp != null && incoming.timestamp != null ? incoming.timestamp - anchor.timestamp : null;
+    const result = (held: boolean, reason: string, classification: StationaryFilterResult['classification']): StationaryFilterResult => ({
+      fix: held && anchor ? anchor : incoming, held, reason, classification, displacementM: distance,
+      thresholdM: threshold, elapsedMs: elapsed, impliedSpeedMps: elapsed != null && elapsed > 0 && distance != null ? distance / (elapsed / 1000) : null,
+      physicalMovementProven: false,
+    });
+    if (!valid) return result(!!anchor, 'invalid-coordinate', 'uncertain');
+    if (incoming.timestamp != null && lastTimestamp != null && incoming.timestamp <= lastTimestamp) {
+      return result(true, 'non-increasing-timestamp', 'uncertain');
     }
-
-    if (!anchor) {
-      anchor = incoming;
-      return { fix: incoming, held: false };
+    if (incoming.timestamp != null) lastTimestamp = incoming.timestamp;
+    if (!anchor) { anchor = incoming; return result(false, 'first-fix-not-movement-evidence', 'uncertain'); }
+    const improved = effectiveAccuracy(incoming) < effectiveAccuracy(anchor) * improvementRatio;
+    const moved = distance! >= threshold;
+    const timedConfirmation = confirmations > 1 && incoming.timestamp != null && anchor.timestamp != null;
+    // Better precision alone is not evidence for sub-minimum geographic movement.
+    if (timedConfirmation && improved && distance! < (options?.minMoveMeters ?? DEFAULT_MIN_MOVE_METERS)) {
+      candidate = null; return result(true, 'accuracy-improved-without-significant-displacement', 'stationary');
     }
-
-    const distance = haversineMeters(anchor, incoming);
-    const threshold = significantMoveThresholdMeters(
-      effectiveAccuracy(incoming),
-      options,
-    );
-
-    const movedSignificantly = distance >= threshold;
-    const accuracyImproved =
-      effectiveAccuracy(incoming) < effectiveAccuracy(anchor) * improvementRatio;
-
-    if (movedSignificantly || accuracyImproved) {
-      anchor = incoming;
-      return { fix: incoming, held: false };
+    if (!moved && !improved) { candidate = null; return result(true, 'inside-accuracy-scaled-deadband', 'stationary'); }
+    const strong = distance! >= Math.max(threshold * 2, effectiveAccuracy(anchor) + effectiveAccuracy(incoming));
+    if (timedConfirmation && !strong) {
+      const gap = candidate?.point.timestamp != null ? incoming.timestamp! - candidate.point.timestamp : null;
+      const a = geoToLocalMeters(anchor, incoming), b = candidate ? geoToLocalMeters(anchor, candidate.point) : null;
+      const cosine = b ? (a.x * b.x + a.z * b.z) / Math.max(.0001, Math.hypot(a.x, a.z) * Math.hypot(b.x, b.z)) : -1;
+      const consistent = gap != null && gap >= 250 && gap <= 5000 && cosine >= .8;
+      candidate = { point: incoming, count: consistent ? candidate!.count + 1 : 1 };
+      if (candidate.count < confirmations) return result(true, 'waiting-for-consistent-timed-displacement', 'uncertain');
     }
-
-    // Hold both position and accuracy so the ring does not pulse with GPS noise.
-    return { fix: anchor, held: true };
+    const accepted = result(false, improved ? 'accuracy-refinement-with-displacement' : strong ? 'displacement-beyond-combined-uncertainty' : 'consistent-timed-displacement',
+      elapsed != null && elapsed > 0 ? 'moving' : 'uncertain');
+    anchor = incoming; candidate = null; return accepted;
   }
 
   function reset(): void {
-    anchor = null;
+    anchor = null; candidate = null; lastTimestamp = null;
   }
 
   return { process, reset };

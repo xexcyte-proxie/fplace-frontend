@@ -1,0 +1,134 @@
+[
+  {
+    "id": 6,
+    "name": "Airport",
+    "location": "",
+    "latitude": "43.901411",
+    "longitude": "-79.577836",
+    "mappedin_map_id": "6686b845c9f6d600bc30300",
+    "notes": "",
+    "created_at": "2026-10-19T20:32:56.513793Z",
+    "updated_at": "2026-10-21T09:35:19.536346Z"
+  },
+  {
+    "id": 7,
+    "name": "Arena Demo",
+    "location": "",
+    "latitude": "6.615911",
+    "longitude": "3.355013",
+    "mappedin_map_id": "672a6f4f3a45ba000b893e1c",
+    "notes": "",
+    "created_at": "2026-10-19T20:33:18.034488Z",
+    "updated_at": "2026-10-23T19:48:59.732815Z"
+  },
+  {
+    "id": 8,
+    "name": "Community Centre Demo",
+    "location": "",
+    "latitude": "6.615911",
+    "longitude": "3.355013",
+    "mappedin_map_id": "660c0bb9ae0596d87766f2d9",
+    "notes": "",
+    "created_at": "2026-10-19T20:33:35.624108Z",
+    "updated_at": "2026-10-23T19:49:04.640331Z"
+  },
+  {
+    "id": 9,
+    "name": "Craft Show Demo",
+    "location": "",
+    "latitude": "6.615911",
+    "longitude": "3.355013",
+    "mappedin_map_id": "67bf60e9679a9d000bfacd6f",
+    "notes": "",
+    "created_at": "2026-10-19T20:34:03.228131Z",
+    "updated_at": "2026-10-23T19:46:24.905468Z"
+  },
+  {
+    "id": 10,
+    "name": "Event Space Demo",
+    "location": "",
+    "latitude": "6.615911",
+    "longitude": "3.355013",
+    "mappedin_map_id": "660c0c3aae0596d87766f2da",
+    "notes": "",
+    "created_at": "2026-10-19T20:34:23.816762Z",
+    "updated_at": "2026-10-23T19:45:20.968313Z"
+  },
+  {
+    "id": 11,
+    "name": "Grocery Store Demo",
+    "location": "",
+    "latitude": "6.615911",
+    "longitude": "3.355013",
+    "mappedin_map_id": "6679882a8298d5000b85ee89",
+    "notes": "",
+    "created_at": "2026-10-19T20:34:44.406762Z",
+    "updated_at": "2026-10-23T19:48:06.642478Z"
+  },
+  {
+    "id": 12,
+    "name": "Hospital Demo",
+    "location": "",
+    "latitude": "6.615911",
+    "longitude": "3.355013",
+    "mappedin_map_id": "67881b4666a208000badecc4",
+    "notes": "",
+    "created_at": "2026-10-19T20:35:03.195804Z",
+    "updated_at": "2026-10-23T19:47:43.812355Z"
+  },
+  {
+    "id": 13,
+    "name": "Mall Demo - Consumer",
+    "location": "",
+    "latitude": "6.615911",
+    "longitude": "3.355013",
+    "mappedin_map_id": "660c0c6e7c0c4fe5b4cc484c",
+    "notes": "",
+    "created_at": "2026-10-19T20:35:20.480076Z",
+    "updated_at": "2026-10-23T19:49:34.301595Z"
+  },
+  {
+    "id": 14,
+    "name": "Mall Demo - Facility",
+    "location": "",
+    "latitude": "43.463393",
+    "longitude": "-80.523515",
+    "mappedin_map_id": "65c0ff7430b94e3fabd5bb8c",
+    "notes": "",
+    "created_at": "2026-10-19T20:35:41.025312Z",
+    "updated_at": "2026-10-19T20:35:41.025329Z"
+  },
+  {
+    "id": 16,
+    "name": "Multifamily High-Rise",
+    "location": "",
+    "latitude": "6.615911",
+    "longitude": "3.355013",
+    "mappedin_map_id": "67a6641530e940000bac3c1a",
+    "notes": "",
+    "created_at": "2026-10-19T20:36:29.096136Z",
+    "updated_at": "2026-10-23T19:46:51.470036Z"
+  },
+  {
+    "id": 15,
+    "name": "Multifamily Mid-Rise",
+    "location": "",
+    "latitude": "6.615911",
+    "longitude": "3.355013",
+    "mappedin_map_id": "666ca6a48dd908000bf47803",
+    "notes": "",
+    "created_at": "2026-10-19T20:36:04.214553Z",
+    "updated_at": "2026-10-23T19:46:55.055932Z"
+  },
+  {
+    "id": 18,
+    "name": "Riverside Stadium",
+    "location": "1 Riverside Way",
+    "latitude": "43.463393",
+    "longitude": "-80.523515",
+    "mappedin_map_id": "65c0ff7430b94e3fabd5bb8c",
+    "notes": "",
+    "created_at": "2026-10-21T09:47:29.534879Z",
+    "updated_at": "2026-10-23T19:37:45.533665Z"
+  }
+]

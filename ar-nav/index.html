@@ -12,7 +12,7 @@
       content="camera=(self), geolocation=(self), gyroscope=(self), accelerometer=(self), magnetometer=(self), xr-spatial-tracking=(self)"
     />
     <title>Live View</title>
-    <link rel="stylesheet" href="./css/ar.css?v=20261027-align-conditional-v5" />
+    <link rel="stylesheet" href="./css/ar.css?v=20261027-centered-align-v4" />
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <link
       rel="preload"
@@ -57,6 +57,7 @@
     </script>
   </head>
   <body>
+    <button id="fplaces-calibrate-btn" type="button" class="calibrate-ar-btn" hidden>Align route</button>
     <video id="camera" autoplay playsinline muted></video>
     <canvas id="camerafeed"></canvas>
 
@@ -161,11 +162,6 @@
         </div>
       </div>
 
-      <div id="floor-banner" class="lv-floor hidden">
-        <span class="lv-icon" data-lv-icon="layers" aria-hidden="true"></span>
-        <span id="floor-banner-text"></span>
-      </div>
-
       <div id="hero-distance" class="lv-hero hidden">
         <span id="hero-distance-value">-</span>
         <span id="hero-distance-unit">m</span>
@@ -247,15 +243,16 @@
     </div>
 
     <script defer src="./js/ui-icons.js?v=20260923-inline-icons-v1"></script>
-    <script defer src="./config.js?v=20261027-align-conditional-v5"></script>
+    <script defer src="./config.js?v=20261027-conditional-align-v5"></script>
     <script defer src="./js/slam-diagnostics.js?v=20260825-compass-lighting-v1"></script>
+    <script defer src="./js/diagnostic-report.js?v=20261027-alignment-recovery-v2"></script>
     <script defer src="./js/ar-debug.js"></script>
     <script defer src="./js/geo-math.js"></script>
     <script defer src="./js/ar-quaternion-alignment.js?v=20260709-heading-fix-v1"></script>
     <script defer src="./js/route-services.js"></script>
     <script defer src="./js/route-bridge.js?v=20260922-arrival-lock-v1"></script>
     <script defer src="./js/anchorEngine.js?v=20261027-align-tap-v4"></script>
-    <script defer src="./js/spatial-alignment.js?v=20261027-align-conditional-v5"></script>
+    <script defer src="./js/spatial-alignment.js?v=20261027-conditional-align-v5"></script>
     <script defer src="./js/visual-route-state.js?v=20261026-spatial-v2"></script>
     <script defer src="./js/route-geometry.js"></script>
     <script defer src="./js/floor-transitions.js?v=20261026-spatial-v2"></script>
@@ -263,8 +260,9 @@
     <script defer src="./js/world-floor-arrows.js?v=20261027-align-conditional-v5"></script>
     <script defer src="./js/incremental-path-spawn.js?v=20261027-visibility-v3"></script>
     <script defer src="./js/trail-diagnostics.js?v=20261027-visibility-v3"></script>
-    <script defer src="./js/incremental-ar-path.js?v=20261027-visibility-v3"></script>
+    <script defer src="./js/incremental-ar-path.js?v=20261027-conditional-align-v5"></script>
     <script defer src="./js/pathGeometry.js?v=20261027-visibility-v3"></script>
+    <script defer src="./js/stationary-diagnostic-marker.js"></script>
     <script defer src="./js/world-route-scene.js?v=20261027-visibility-v3"></script>
     <script defer src="./js/demo-sim-walk.js"></script>
     <script defer src="./js/live-guidance.js?v=20260908-no-advance-turns-v1"></script>
@@ -272,7 +270,7 @@
     <script defer src="./js/route-lane-heading.js?v=20260825-compass-lighting-v1"></script>
     <script defer src="./js/slam-heading.js"></script>
     <script defer src="./js/slam-pose-bridge.js?v=20261027-visibility-v3"></script>
-    <script defer src="./js/live-view-hud.js?v=20260922-arrival-lock-v1"></script>
+    <script defer src="./js/live-view-hud.js?v=20261027-centered-align-v4"></script>
     <script defer src="./js/lv-chrome.js?v=20260922-arrival-lock-v1"></script>
     <script defer src="./js/camera-start.js?v=20260921-camera-unblocked-v3"></script>
     <script defer src="./js/live-view-arrows-3d.js?v=20260708-align-debug-v1"></script>
@@ -285,7 +283,7 @@
     <script defer src="./js/fallback-nav.js?v=20260825-compass-lighting-v1"></script>
     <script defer src="./js/fplaces-xr-renderer-patch.js?v=20260707-camera-v18"></script>
     <script id="xr-bootstrap"></script>
-    <script defer src="./js/xr-nav-scene.js?v=20261027-align-conditional-v5"></script>
-    <script defer src="./js/bootstrap.js?v=20261027-align-conditional-v5"></script>
+    <script defer src="./js/xr-nav-scene.js?v=20261027-conditional-align-v5"></script>
+    <script defer src="./js/bootstrap.js?v=20261027-alignment-control-v3"></script>
   </body>
 </html>

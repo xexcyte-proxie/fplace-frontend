@@ -1,3 +1,4 @@
+import { navigationDiagnostics as navDiag } from '../debug/navigation-diagnostics';
 import { PositionProvider, type PositionProviderStartOptions } from '../positionProvider';
 import type { FplacesPositionFrame } from '../types';
 import {
@@ -19,6 +20,7 @@ export class GpsPositionProvider extends PositionProvider {
   private lastLng: number | null = null;
   private lastOrientationEmitAt = 0;
   private lastFixTimestamp = 0;
+  private diagnosticPreviousRaw: { latitude: number; longitude: number; timestamp: number } | null = null;
 
   protected onStart(_options?: PositionProviderStartOptions): void {
     if (!navigator.geolocation) {
@@ -27,26 +29,39 @@ export class GpsPositionProvider extends PositionProvider {
     }
     const generation = this.generation;
 
+    navDiag?.record('subscription', 'GpsPositionProvider.onStart', { action: 'start', generation, enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+    navDiag?.update('gps-environment', 'GpsPositionProvider.onStart', { secureContext: globalThis.isSecureContext ?? null, geolocationAvailable: !!navigator.geolocation, userAgent: navigator.userAgent, platform: navigator.platform, orientationAvailable: typeof DeviceOrientationEvent !== 'undefined' });
     this.watchId = navigator.geolocation.watchPosition(
       (position) => {
         if (!this.running || generation !== this.generation) return;
+        const previous = this.diagnosticPreviousRaw;
+        const raw = { latitude: position.coords.latitude, longitude: position.coords.longitude, timestamp: position.timestamp };
+        const diagnosticCause = navDiag?.update('raw-gps', 'GpsPositionProvider.watchPosition', { raw, accuracy: position.coords.accuracy,
+          speed: position.coords.speed, heading: position.coords.heading, timestamp: position.timestamp,
+          ageMs: Date.now()-position.timestamp, previousRaw: previous,
+          elapsedFixMs: previous ? position.timestamp - previous.timestamp : null,
+          impliedSpeedMps: previous && position.timestamp > previous.timestamp ? navDiag!.distance(raw, previous)! / ((position.timestamp - previous.timestamp)/1000) : null, distanceFromPreviousM: previous ? Math.hypot((raw.latitude-previous.latitude)*111195, (raw.longitude-previous.longitude)*111195*Math.cos(raw.latitude*Math.PI/180)) : null, generation });
+        if (navDiag) this.diagnosticPreviousRaw = raw;
         this.lastFixTimestamp = position.timestamp;
         this.lastAccuracy = position.coords.accuracy ?? this.lastAccuracy;
         this.lastLat = position.coords.latitude;
         this.lastLng = position.coords.longitude;
         const heading = this.resolveHeading(position.coords.heading);
-        this.emit({
+        const previousCause = navDiag?.cause ?? null;
+        if (navDiag) navDiag.cause = diagnosticCause ?? null;
+        try { this.emit({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
           ...(heading != null ? { heading } : {}),
           accuracy: this.lastAccuracy,
           timestamp: this.lastFixTimestamp,
-        });
+        }); } finally { if (navDiag) navDiag.cause = previousCause; }
       },
       (error) => {
         if (!this.running || generation !== this.generation) return;
-        this.lastLat = null;
-        this.lastLng = null;
+        // Keep the last sample for heading-only turns. Its original timestamp
+        // remains unchanged, so this cannot fabricate a fresh physical fix.
+        navDiag?.record('error', 'GpsPositionProvider.watchPosition', { reason: error.code === 1 ? 'permission-denied' : error.code === 3 ? 'timeout' : 'position-unavailable', code: error.code, message: error.message, subscriptionRunning: this.running, generation });
         this.reportStatus(error.code === 1 ? 'error' : 'inactive');
         // Surface why live tracking is silent (permission denied, timeout…).
         appWarn('GPS', 'watchPosition error', {
@@ -62,6 +77,7 @@ export class GpsPositionProvider extends PositionProvider {
 
   protected onStop(): void {
     if (this.watchId != null) {
+      navDiag?.record('subscription', 'GpsPositionProvider.onStop', { action: 'stop', generation: this.generation });
       navigator.geolocation.clearWatch(this.watchId);
       this.watchId = null;
     }
@@ -104,8 +120,10 @@ export class GpsPositionProvider extends PositionProvider {
         return;
       }
       this.lastOrientationEmitAt = now;
+      navDiag?.record('heading-only', 'GpsPositionProvider.orientation', { heading: this.lastHeading, timestamp: this.lastFixTimestamp });
 
       this.emit({
+        headingOnly: true,
         latitude: this.lastLat,
         longitude: this.lastLng,
         heading: this.lastHeading,
@@ -126,7 +144,7 @@ export class GpsPositionProvider extends PositionProvider {
   }
 
   private async requestOrientationPermission(): Promise<boolean> {
-    return requestDeviceOrientationPermission();
+    return requestDeviceOrientationPermission('GpsPositionProvider');
   }
 
   private resolveHeading(geoHeading: number | null): number | undefined {
@@ -146,8 +164,11 @@ declare global {
   }
 }
 
-export async function requestDeviceOrientationPermission(): Promise<boolean> {
-  if (typeof DeviceOrientationEvent === 'undefined') return false;
+export async function requestDeviceOrientationPermission(source = 'orientation'): Promise<boolean> {
+  if (typeof DeviceOrientationEvent === 'undefined') {
+    navDiag?.update('compass-permission', source, { permission: 'unsupported', reason: 'orientation-api-unavailable' });
+    return false;
+  }
 
   const requestPermission = (
     DeviceOrientationEvent as typeof DeviceOrientationEvent & {
@@ -156,13 +177,17 @@ export async function requestDeviceOrientationPermission(): Promise<boolean> {
   ).requestPermission;
 
   if (typeof requestPermission !== 'function') {
+    navDiag?.update('compass-permission', source, { permission: 'not-required', reason: 'browser-has-no-explicit-orientation-permission-api' });
     return true;
   }
 
+  navDiag?.record('compass-permission-attempt', source, { reason: 'direct-orientation-permission-request', userActivation: typeof navigator === 'undefined' ? null : navigator.userActivation?.isActive ?? null });
   try {
     const state = await requestPermission.call(DeviceOrientationEvent);
+    navDiag?.update('compass-permission', source, { permission: state, reason: 'browser-permission-result' });
     return state === 'granted';
-  } catch {
+  } catch (error) {
+    navDiag?.update('compass-permission', source, { permission: 'denied-or-gesture-required', reason: 'browser-permission-threw', severity: 'error', error: error instanceof Error ? error.message : String(error) });
     return false;
   }
 }

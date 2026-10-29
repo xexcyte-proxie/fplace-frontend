@@ -12,7 +12,7 @@ export interface VenueMapLoadRequest {
 
 /**
  * Resolve the map to load for the selected venue.
- * Uses the venue's backend map id, then the Demo Mall fallback.
+ * Uses the venue's bundled map id, then the Demo Mall fallback.
  */
 export function venueMapLoadRequest(input: {
   mappedinMapId: string | null | undefined;

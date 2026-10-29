@@ -1,8 +1,16 @@
+import { beginLocationButtonTrace } from '../position/debug/location-button-trace';
+import { geoToLocalMeters } from '../utils/geo-math';
+import { resolveVenueSimulationAnchor } from '../position/domain/venue-simulation-anchor';
+import { haversineMeters } from '../utils/geo-math';
+import { createStationaryPositionFilter } from '../position/domain/stationary-position-filter';
+import { navigationDiagnostics as navDiag } from '../position/debug/navigation-diagnostics';
 import { recordLocationDiagnostic } from '../location/domain/location-diagnostics';
 import { show3dMap } from "@mappedin/mappedin-js";
 import type { MapData, MapView } from "@mappedin/mappedin-js";
 
 import { appConfig } from "../config";
+import { VenueGpsReference } from '../position/domain/venue-gps-reference';
+import { recordPhonePosition } from '../position/debug/phone-position-report';
 import { isHeadingOnlyPositionFix } from "../position/domain/heading-only-frame";
 import { FloorOrchestrator } from "../position/debug/floorOrchestrator";
 import { positionTelemetry } from "../position/debug/telemetryLogger";
@@ -31,7 +39,7 @@ import {
   LiveAlongPathStabilizer,
   resolveLiveNavigationStartAlongMeters,
 } from "../routing/route-progress";
-import { isUsableLiveFix, isUsableRouteSnap } from "../position/domain/live-fix-quality";
+import { describePositionFixQuality, isUsableDisplayFix, isUsableLiveFix, isUsableRouteSnap } from "../position/domain/live-fix-quality";
 import type { PositionProviderStatus } from "../position/positionProvider";
 import { DEFAULT_MAX_ALONG_DELTA_METERS } from "../routing/snap-along-continuity";
 import { isArrivalLocked } from "../routing/arrival-lock";
@@ -326,6 +334,59 @@ type EnterVenueOptions = {
 };
 
 export class MapApp {
+  private venueGpsReference: VenueGpsReference | null = null;
+  private venueGpsReferenceId: string | null = null;
+  private lastBlueDotAvailabilityReason: string | null = null;
+
+  get isVenueGeolocationSimulationActive(): boolean {
+    return this.venueGpsReference != null;
+  }
+
+  private initializeVenueGpsReference(): void {
+    if (!appConfig.positioning.enableVenueGeolocationSimulation) return;
+    const venueId = this.store.get().selectedVenueId;
+    if (!venueId) return;
+    if (this.venueGpsReference && this.venueGpsReferenceId === venueId) {
+      this.initializeVenueSimulationMapAnchor();
+      return;
+    }
+    navDiag?.record('simulation-reset', 'MapApp.initializeVenueGpsReference', { venueId, previousVenueId: this.venueGpsReferenceId, reason: 'new-reference-instance' });
+    const selectedVenue = this.store.get().forumVenues.find(v => String(v.id) === venueId);
+    navDiag?.update('venue-reference', 'MapApp.initializeVenueGpsReference', { venueReference: { latitude: selectedVenue?.latitude == null ? null : Number(selectedVenue.latitude), longitude: selectedVenue?.longitude == null ? null : Number(selectedVenue.longitude) } });
+    const reference = new VenueGpsReference({ id: venueId, name: selectedVenue?.name });
+    this.venueGpsReference = reference;
+    this.venueGpsReferenceId = venueId;
+    this.initializeVenueSimulationMapAnchor();
+    this.blueDotService?.setSimulatorParallelMode(true, { compassGlow: true });
+    void this.locationService.getCurrentPosition({ timeoutMs: 8000, maximumAgeMs: 0 }).then(position => {
+      if (this.venueGpsReference !== reference) return;
+      const coords = position.coords;
+      if (!isUsableDisplayFix({ latitude: coords.latitude, longitude: coords.longitude,
+        accuracy: coords.accuracy, timestamp: position.timestamp, source: 'gps' })) return;
+      reference.capture(coords);
+      this.publishUserLocation(coords);
+      this.handleProviderFrame({ latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy, timestamp: position.timestamp, source: 'gps' });
+      appLog('Position', 'Development GPS reference captured; using the loaded venue map anchor');
+    }).catch(error => {
+      if (this.venueGpsReference !== reference) return;
+      appWarn('Position', 'Development GPS reference unavailable', error);
+    });
+  }
+  private initializeVenueSimulationMapAnchor(): void {
+    const reference = this.venueGpsReference;
+    if (!reference || reference.diagnosticSnapshot().mapAnchor || !this.mapData) return;
+    const state = this.store.get();
+    const section = state.forumSections.find(item => String(item.id) === state.selectedGateId);
+    const anchor = resolveVenueSimulationAnchor(this.mapData,
+      this.mapView?.currentFloor?.id ?? state.currentFloorId ?? undefined,
+      section?.mappedinLocationId);
+    if (!anchor) {
+      this.reportBlueDotAvailability('simulation-map-anchor-unavailable');
+      return;
+    }
+    reference.anchor(anchor.coordinate, { source: anchor.source, objectId: anchor.objectId, name: anchor.name });
+  }
+
   private mapView: MapView | null = null;
   private mapData: MapData | null = null;
   private routePlanner: RoutePlanner | null = null;
@@ -357,6 +418,11 @@ export class MapApp {
   private stopUserLocationWatch: (() => void) | null = null;
   private lastPublishedUserLocation: UserLocationCoords | null = null;
   private lastUserLocationPublishAt = 0;
+  private providerPositionFilter?: ReturnType<typeof createStationaryPositionFilter>;
+  private providerFilterIdentity?: string;
+  private approximatePositionFilter?: ReturnType<typeof createStationaryPositionFilter>;
+  private approximateFilterIdentity?: string;
+  private lastNavigationPosition?: { route: RoutePayload; frame: FplacesPositionFrame };
   private lastProviderFix: { latitude: number; longitude: number; timestamp?: number } | null =
     null;
   private mapGestureGuard: {
@@ -500,6 +566,13 @@ export class MapApp {
 
     this.socialMarkerSyncUnsub?.();
     this.socialMarkerSyncUnsub = this.store.subscribe((state) => {
+      navDiag?.metadata({ venueId: state.selectedVenueId, venueName: state.forumVenues.find(v => String(v.id) === state.selectedVenueId)?.name ?? null, floorId: state.currentFloorId,
+        simulationEnabled: !!this.venueGpsReference, navigationActive: this.liveRouteTracking || state.routeSimulating,
+        arActive: state.arPresentation !== 'closed', routeId: state.route?.routeId,
+        routeVersion: state.route?.routeVersion, trackingState: state.blueDotStatus });
+      navDiag?.update('store', 'MapApp.store', { alongPathMeters: state.routeTraveledMeters,
+        remainingMeters: state.routeRemainingMeters, arrivalLatch: state.routeSimulationComplete,
+        arrivalDialogOpen: state.arrivalDialogOpen, currentLegIndex: state.currentLegIndex });
       if (state.mapStatus !== "ready") return;
       this.syncSocialMapMarkers(state);
     });
@@ -726,7 +799,11 @@ export class MapApp {
     }
     const request = this.selectedVenueMapLoadRequest();
     const key = venueMapLoadKey(request);
-    if (this.loadedMapKey === key && this.mapView) return;
+    if (this.loadedMapKey === key && this.mapView) {
+      this.initializeVenueGpsReference();
+      void this.maybeAutoStartBlueDot();
+      return;
+    }
     if (this.mapLoadInFlight && this.mapLoadInFlightKey === key) {
       await this.mapLoadInFlight;
       return;
@@ -752,6 +829,9 @@ export class MapApp {
   }
 
   private teardownMappedinScene(options?: { cancelInFlight?: boolean }): void {
+    navDiag?.record('map-lifecycle', 'MapApp.teardownMappedinScene', { reason: 'map-replacement-or-exit', previousState: { mapId: this.loadedVenueMapId }, newState: { renderer: null } });
+    this.venueGpsReference = null;
+    this.venueGpsReferenceId = null;
     if (options?.cancelInFlight) {
       this.mapLoadGeneration += 1;
       this.mapLoadInFlight = null;
@@ -864,6 +944,7 @@ export class MapApp {
         onStatus: (status) => this.handleBlueDotStatus(status),
       });
       this.blueDotService.prepare({ simulatorBoot: false });
+      this.initializeVenueGpsReference();
 
       this.wireMapEvents();
       this.publishFloors();
@@ -1589,6 +1670,7 @@ export class MapApp {
       state.mapStatus === "ready" &&
       this.mapView
     ) {
+      this.initializeVenueGpsReference();
       this.openNavigateMap();
       return;
     }
@@ -2685,7 +2767,7 @@ export class MapApp {
       state.userLocation,
       venuePresenceAnchor(venue, this.mapPresenceCoordinate()),
     );
-    if (presence === "at-venue") return false;
+    if (presence === "at-venue" || this.venueGpsReference) return false;
     this.store.patch({
       arRoutePromptOpen: false,
       arRouteSetupActive: false,
@@ -2859,6 +2941,7 @@ export class MapApp {
 
   private publishUserLocation(coords: UserLocationCoords): void {
     if (this.store.get().locationPermission !== "granted") return;
+    if (coords.accuracy != null && coords.accuracy <= 30) this.venueGpsReference?.capture(coords);
     if (this.liveRouteTracking || this.store.get().routeSimulating) return;
 
     const now =
@@ -5285,6 +5368,7 @@ export class MapApp {
           : {}),
       });
 
+      void this.maybeAutoStartBlueDot();
       if (hasDestination) {
         this.scheduleAutoRoute();
       } else if (continueArSetup) {
@@ -6454,6 +6538,7 @@ export class MapApp {
           routeTraveledMeters: 0,
           routeRemainingMeters: null,
         });
+        void this.maybeAutoStartBlueDot();
         this.showToast(
           continueArSetup
             ? "Start set. Now search for your destination."
@@ -6664,111 +6749,271 @@ export class MapApp {
     return this.activePositionSource;
   }
 
+  /** User-gesture entry for the mobile debugger; never requests or changes GPS. */
+  async enableCompassForDiagnostics(): Promise<void> {
+    if (!import.meta.env.DEV) return;
+    if (!this.blueDotService) {
+      navDiag?.record('warning', 'MapApp.enableCompassForDiagnostics', { reason: 'map-not-ready', name: 'compass-enable-request-rejected' });
+      throw new Error('Open a venue map before enabling its compass.');
+    }
+    await this.blueDotService.enableHeading({ forceDuringSimulator: true });
+  }
+
+  /** Explicit diagnostic reads never start sensors, providers or navigation. */
+  getLocationDiagnosticsSnapshot(): unknown {
+    return import.meta.env.DEV ? this.locationButtonDiagnosticContext() : null;
+  }
+
+  private locationButtonDiagnosticContext() {
+    const state = this.store.get();
+    const venue = state.forumVenues.find(item => String(item.id) === state.selectedVenueId);
+    const simulation = this.venueGpsReference?.diagnosticSnapshot() ?? null;
+    const center = this.mapView?.Camera?.center;
+    return {
+      selectedVenue: { id: state.selectedVenueId, name: venue?.name ?? null,
+        originalGeographicCoordinates: { latitude: venue?.latitude ?? null, longitude: venue?.longitude ?? null },
+        loadedMapId: this.loadedVenueMapId ?? null },
+      simulation: { configured: appConfig.positioning.enableVenueGeolocationSimulation,
+        active: !!this.venueGpsReference, reference: simulation,
+        simulatedGeographicReference: { physicalOrigin: simulation?.physical ?? null,
+          pairedMapCoordinate: simulation?.mapAnchor ?? null, anchor: simulation?.mapAnchorInfo ?? null },
+        catalogCoordinatesAreModified: false },
+      permission: state.locationPermission, mapStatus: state.mapStatus, positioningStatus: state.blueDotStatus,
+      navigation: { active: this.liveRouteTracking || state.routeSimulating, arrived: state.routeSimulationComplete,
+        routePresent: !!state.route, distanceM: state.route?.distanceMeters ?? null, traveledM: state.routeTraveledMeters,
+        remainingM: state.routeRemainingMeters, start: state.route?.pathCoordinates[0] ?? null,
+        destination: state.route?.pathCoordinates.at(-1) ?? null, legIndex: state.currentLegIndex },
+      routeDependency: { routePresent: !!state.route, startSelected: !!state.markers.origin,
+        destinationSelected: !!state.markers.destination, routeRequiredByLocationPolicy: false,
+        mapAnchorAvailable: !!simulation?.mapAnchor, physicalOriginAvailable: !!simulation?.physical,
+        mapAnchorSource: simulation?.mapAnchorInfo?.source ?? null },
+      provider: { running: this.positionProvider?.isRunning ?? false, signalStatus: this.positionProvider?.signalStatus ?? null, source: this.activePositionSource ?? null },
+      blueDot: this.blueDotService?.getLocationDiagnosticSnapshot?.() ?? null,
+      camera: { center: center ? { latitude: center.latitude, longitude: center.longitude, floorId: center.floorId } : null,
+        bearing: this.mapView?.Camera?.bearing ?? null,
+        floorId: this.mapView?.currentFloor?.id ?? state.currentFloorId ?? null },
+    };
+  }
+
   async goToMyLocation(): Promise<void> {
-    if (!this.mapView || !this.blueDotService) {
-      this.showToast("Map is still loading. Try again in a moment.");
-      return;
-    }
-
-    if (this.maybeShowContextualProductTour("my-location")) return;
-
-    if (!(await this.ensureLocationEnabledForAction())) return;
-
-    if (this.isAwayFromSelectedVenue()) {
-      const state = this.store.get();
-      const venue = state.forumVenues.find(
-        (item) => String(item.id) === state.selectedVenueId,
-      );
-      this.showToast(myLocationNotAtVenueCopy(venue?.name).body);
-      return;
-    }
-
+    const trace = beginLocationButtonTrace(() => this.locationButtonDiagnosticContext());
     try {
-      this.store.patch({ locationGateLoading: true });
-      const coords = await this.locationService.requestLocation({
-        timeoutMs: 15_000,
-      });
-      this.persistLocationChoice("granted");
-      this.publishUserLocation(coords);
-
-      if (this.isAwayFromSelectedVenue()) {
-        const state = this.store.get();
-        const venue = state.forumVenues.find(
-          (item) => String(item.id) === state.selectedVenueId,
-        );
-        this.blueDotService.stopFollow();
-        this.store.patch({ blueDotFollowing: false });
-      this.showToast(myLocationNotAtVenueCopy(venue?.name).body);
+      if (!this.mapView || !this.blueDotService) {
+        this.showToast("Map is still loading. Try again in a moment.");
+        trace?.finish('map-not-ready', () => this.locationButtonDiagnosticContext());
         return;
       }
 
-      const floorId =
-        this.mapView.currentFloor?.id ??
-        this.store.get().currentFloorId ??
-        undefined;
-
-      this.blueDotService.showLivePosition(
-        {
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-          accuracy: coords.accuracy,
-          floorId,
-        },
-        { follow: true },
-      );
-
-      if (!this.blueDotService.isTracking) {
-        await this.blueDotService.startTracking({
-          follow: true,
-          watchDevicePosition: true,
-        });
-        await this.blueDotService.enableHeading().catch(() => undefined);
-      } else {
-        this.blueDotService.follow();
-        this.blueDotService.focusOnUser();
+      if (this.maybeShowContextualProductTour("my-location")) {
+        trace?.finish('product-tour-shown'); return;
       }
-
-      this.store.patch({
-        blueDotFollowing: true,
-        blueDotStatus: "active",
+      // Prime the existing compass watcher during the tap, before asynchronous GPS retrieval.
+      void this.blueDotService.enableHeading({ forceDuringSimulator: true }).catch(error => {
+        trace?.step('BlueDot', 'Compass startup unavailable; location acquisition continues', () => ({ error }), 'warning');
       });
+      trace?.step('Location', 'Checking location permission', () => ({ permission: this.store.get().locationPermission }));
+      if (!(await this.ensureLocationEnabledForAction())) {
+        trace?.finish('permission-action-required', () => this.locationButtonDiagnosticContext()); return;
+      }
+      trace?.step('Location', 'Location permission accepted', () => ({ permission: this.store.get().locationPermission }), 'success');
 
-      // Indoor GPS is often tens of metres off the Mappedin path. Only adopt it
-      // as the route start when the fix is tight enough to trust.
-      const accuracyOk =
-        coords.accuracy != null &&
-        Number.isFinite(coords.accuracy) &&
-        coords.accuracy <= 40;
-      if (accuracyOk && this.routePlanner && !this.routePlanner.hasOrigin) {
-        const origin =
-          this.blueDotService.coordinate ??
-          this.mapView.createCoordinate?.(
-            coords.latitude,
-            coords.longitude,
-            this.mapView.currentFloor ?? undefined,
+      const mapView = this.mapView;
+      const blueDotService = this.blueDotService;
+      const reference = this.venueGpsReference;
+      const restartFailedProvider = this.store.get().blueDotStatus === 'error';
+      navDiag?.record("location-button", "MapApp.goToMyLocation", { action: "request", simulated: !!reference });
+      try {
+        this.store.patch({ locationGateLoading: true });
+        trace?.step('Location', 'Requesting device GPS', () => ({ timeoutMs: 15000, preferredAccuracy: 'high',
+          fallbackPolicy: 'on timeout, relaxed accuracy with maximumAge 60000ms', requestedAt: new Date().toISOString() }));
+        let gpsTimestamp: number | null = null;
+        let coords = await this.locationService.requestLocation({
+          timeoutMs: 15_000,
+          ...(trace ? { onDiagnosticFix: (position: GeolocationPosition, acquisition: { relaxedRetryUsed: boolean; maximumAgeMs: number; enableHighAccuracy: boolean }) => {
+            gpsTimestamp = position.timestamp;
+            trace.step('Location', 'Device GPS response', () => ({ latitude: position.coords.latitude,
+              longitude: position.coords.longitude, accuracyMeters: position.coords.accuracy,
+              timestamp: position.timestamp, timestampIso: Number.isFinite(position.timestamp) ? new Date(position.timestamp).toISOString() : null,
+              ageMs: Date.now() - position.timestamp, speedMps: position.coords.speed, headingDegrees: position.coords.heading, acquisition }), acquisition.relaxedRetryUsed ? 'warning' : 'success');
+          } } : {}),
+        });
+        // Acquisition time is behavioral evidence in every build, not a DEV-only observer.
+        gpsTimestamp = coords.timestamp;
+        trace?.step('Location', 'Physical coordinates returned to location action', () => ({ ...coords, timestamp: gpsTimestamp,
+          timestampEvidence: gpsTimestamp == null ? 'unavailable from acquisition observer' : 'browser GeolocationPosition.timestamp' }));
+        if (this.mapView !== mapView || this.blueDotService !== blueDotService || this.venueGpsReference !== reference) {
+          trace?.finish('stale-interaction-ignored', () => ({ mapChanged: this.mapView !== mapView,
+            markerServiceChanged: this.blueDotService !== blueDotService, referenceChanged: this.venueGpsReference !== reference }));
+          return;
+        }
+        const physicalFix: FplacesPositionFrame = { ...coords, accuracy: coords.accuracy ?? NaN, source: 'gps' };
+        if (!isUsableDisplayFix(physicalFix)) {
+          this.handleLivePositionStatus('inactive', 'location-button-fix-rejected');
+          this.showToast('GPS is too old or imprecise to place a new position. Keeping the last known position when available.');
+          trace?.finish('unusable-display-fix', () => ({ physicalFix, retained: this.blueDotService?.getLocationDiagnosticSnapshot?.() ?? null }));
+          return;
+        }
+        navDiag?.record("location-button", "MapApp.goToMyLocation", { action: "fix", physical: coords, simulated: !!reference });
+        this.persistLocationChoice("granted");
+        this.publishUserLocation(coords);
+
+        if (this.venueGpsReference) {
+          trace?.step('Simulation', 'Reference before initialization', () => this.venueGpsReference?.diagnosticSnapshot());
+          this.venueGpsReference.capture(coords);
+          this.initializeVenueSimulationMapAnchor();
+          trace?.step('Simulation', 'Reference after map-anchor initialization', () => ({
+            ...this.venueGpsReference?.diagnosticSnapshot(), routePresent: !!this.store.get().route,
+            routeRequiredByLocationPolicy: false }));
+          const translated = this.venueGpsReference.translate(coords);
+          trace?.step('Simulation', 'Physical-to-map coordinate transformation', () => {
+            const snapshot = this.venueGpsReference!.diagnosticSnapshot();
+            const offset = snapshot.physical ? geoToLocalMeters(snapshot.physical, coords) : null;
+            return { physicalInput: { ...coords, timestamp: gpsTimestamp }, physicalOrigin: snapshot.physical,
+              mapOrigin: snapshot.mapAnchor, anchor: snapshot.mapAnchorInfo, revision: snapshot.revision,
+              localOffsetMeters: offset ? { east: offset.x, north: -offset.z, slamX: offset.x, slamZ: offset.z } : null,
+              coordinateDeltaDegrees: snapshot.physical ? { latitude: coords.latitude - snapshot.physical.latitude,
+                longitude: coords.longitude - snapshot.physical.longitude } : null,
+              method: 'north-aligned local metre offset; inverse latitude conversion and target mid-latitude cosine for longitude',
+              simulatedOutput: translated, inversePhysicalCheck: translated ? this.venueGpsReference!.toPhysical(translated) : null,
+              determinedWithoutRoute: !!translated && !this.store.get().route,
+              routeUsedAsAnchor: false, mapReferenceIsSimulatedPlacement: true };
+          }, translated ? 'success' : 'warning');
+          if (!translated) {
+            this.reportBlueDotAvailability('simulation-map-anchor-unavailable');
+            this.showToast('Development simulation could not find a mapped reference on this floor. Try reopening the venue map.');
+            trace?.finish('simulation-reference-unavailable', () => this.locationButtonDiagnosticContext());
+            return;
+          }
+          coords = translated;
+        } else {
+          trace?.step('Simulation', 'Simulation inactive; using physical coordinates directly', () => ({
+            configured: appConfig.positioning.enableVenueGeolocationSimulation, physicalCoordinate: coords }));
+        }
+
+        if (!this.venueGpsReference && this.isAwayFromSelectedVenue()) {
+          const state = this.store.get();
+          const venue = state.forumVenues.find(
+            (item) => String(item.id) === state.selectedVenueId,
           );
-        if (origin) {
-          try {
-            this.routePlanner.setOrigin(origin, "my location");
-            this.store.patch({ markers: this.routePlanner.markersState });
-            this.scheduleAutoRoute();
-          } catch {
-            // GPS can fall outside indoor geometry; the marker still shows you.
+          this.blueDotService.stopFollow();
+          this.store.patch({ blueDotFollowing: false });
+          this.showToast(myLocationNotAtVenueCopy(venue?.name).body);
+          trace?.finish('outside-selected-venue', () => this.locationButtonDiagnosticContext());
+          return;
+        }
+
+        const floorId = reference?.diagnosticSnapshot().mapAnchor?.floorId ??
+          this.mapView.currentFloor?.id ?? this.store.get().currentFloorId ?? undefined;
+        // GPS supplies no indoor floor. Center on the established simulated floor,
+        // rather than silently moving the marker to whichever floor is being browsed.
+        if (floorId && this.mapView.currentFloor?.id !== floorId) {
+          this.mapView.setFloor(floorId);
+          this.store.patch({ currentFloorId: floorId });
+        }
+
+        trace?.step('BlueDot', 'Submitting blue-dot position and requesting camera follow', () => ({
+          renderInput: { ...coords, floorId }, follow: true, simulated: !!reference,
+          before: this.blueDotService?.getLocationDiagnosticSnapshot?.(coords) ?? null }));
+        this.blueDotService.showLivePosition(
+          {
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            accuracy: coords.accuracy,
+            timestamp: gpsTimestamp,
+            floorId,
+          },
+          { follow: true },
+        );
+
+        this.store.patch({ blueDotStatus: isUsableLiveFix(physicalFix) ? 'active' : 'inactive' });
+        this.blueDotService.setPositionAvailability?.(isUsableLiveFix(physicalFix) ? 'live' : 'approximate');
+
+        trace?.step('BlueDot', 'SDK state immediately after blue-dot submission', () =>
+          this.blueDotService?.getLocationDiagnosticSnapshot?.(coords) ?? { unavailable: true });
+        trace?.step('Location', 'Ensuring ongoing tracking and centering', () => ({
+          alreadyTracking: this.blueDotService?.isTracking, providerRunning: this.positionProvider?.isRunning ?? false,
+          requestNativeGpsWatch: !this.venueGpsReference && !this.positionProvider?.isRunning }));
+        if (!this.blueDotService.isTracking) {
+          await this.blueDotService.startTracking({
+            follow: true,
+            watchDevicePosition: !this.venueGpsReference && !this.positionProvider?.isRunning,
+          });
+          await this.blueDotService.enableHeading().catch(error => {
+            trace?.step('BlueDot', 'Optional heading initialization failed; location flow continues', () => ({ error }), 'warning');
+          });
+        } else {
+          this.blueDotService.follow();
+          this.blueDotService.focusOnUser();
+        }
+
+        if (reference && (!this.positionProvider?.isRunning || restartFailedProvider)) {
+          trace?.step('Location', 'Starting continuous simulation provider', () => ({ source: 'gps', restartingAfterError: restartFailedProvider,
+            routePresent: !!this.store.get().route, routePointCount: this.store.get().route?.pathCoordinates.length ?? 0,
+            routeRequiredByLocationPolicy: false }));
+          this.startPositionProvider(this.store.get().route?.pathCoordinates ?? []);
+        }
+        trace?.step('BlueDot', 'Camera centering/follow requested; observing SDK state', () => ({
+          requestedCenter: coords, camera: this.locationButtonDiagnosticContext().camera,
+          marker: this.blueDotService?.getLocationDiagnosticSnapshot?.(coords) ?? null,
+          animationCompletionVerified: false }));
+        this.store.patch({
+          blueDotFollowing: true,
+        });
+
+        // Indoor GPS is often tens of metres off the Mappedin path. Only adopt it
+        // as the route start when the fix is tight enough to trust.
+        const accuracyOk =
+          coords.accuracy != null &&
+          Number.isFinite(coords.accuracy) &&
+          isUsableLiveFix(physicalFix);
+        if (accuracyOk && this.routePlanner && !this.routePlanner.hasOrigin) {
+          const origin =
+            this.blueDotService.coordinate ??
+            this.mapView.createCoordinate?.(
+              coords.latitude,
+              coords.longitude,
+              this.mapView.currentFloor ?? undefined,
+            );
+          if (origin) {
+            try {
+              trace?.step('Location', 'Offering located coordinate as optional route origin after positioning', () => ({
+                locationAlreadyDetermined: true, originWasRequiredForLocation: false,
+                coordinate: serializeCoordinate(origin) }));
+              this.routePlanner.setOrigin(origin, "my location");
+              this.store.patch({ markers: this.routePlanner.markersState });
+              this.scheduleAutoRoute();
+            } catch (error) {
+              trace?.step('Location', 'Optional route-origin adoption failed; location remains available', () => ({ error }), 'warning');
+              // GPS can fall outside indoor geometry; the marker still shows you.
+            }
           }
         }
-      }
 
-      this.showToast(
-        coords.accuracy != null
-          ? `You are here (±${Math.round(coords.accuracy)} m).`
-          : "You are here.",
-      );
-    } catch (error) {
-      await this.showLocationGateForRequiredAction(error);
-    } finally {
-      if (!isLocationGateAuthStep(this.store.get().authStep)) {
-        this.store.patch({ locationGateLoading: false });
+        const state = this.store.get();
+        const venue = state.forumVenues.find(item => String(item.id) === state.selectedVenueId);
+        const place = venue?.name ? ` at ${venue.name}` : ` (${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)})`;
+        const anchorInfo = reference?.diagnosticSnapshot().mapAnchorInfo;
+        const referenceLabel = anchorInfo ? `; map reference: ${anchorInfo.name || anchorInfo.objectId || anchorInfo.source}` : '';
+        this.showToast(`${reference ? "Development simulated position" : "Your location"}${place}${referenceLabel}${coords.accuracy != null ? ` (${reference ? "GPS uncertainty " : ""}±${Math.round(coords.accuracy)} m)` : ""}.`);
+        navDiag?.record("location-button", "MapApp.goToMyLocation", { action: "centered", simulated: !!reference, displayed: coords });
+        trace?.step('BlueDot', 'Final comparison against calculated location', () => this.blueDotService?.getLocationDiagnosticSnapshot?.(coords) ?? { unavailable: true });
+        trace?.finish('success', () => ({ ...this.locationButtonDiagnosticContext(), calculatedMapPosition: coords }));
+      } catch (error) {
+        trace?.step('Location', 'Get Current Location failed', () => ({ error }), 'error');
+        trace?.finish('failed', () => this.locationButtonDiagnosticContext());
+        navDiag?.record("location-button", "MapApp.goToMyLocation", { action: "failed", reason: error instanceof Error ? error.message : String(error) });
+        await this.showLocationGateForRequiredAction(error);
+      } finally {
+        if (!isLocationGateAuthStep(this.store.get().authStep)) {
+          this.store.patch({ locationGateLoading: false });
+        }
       }
+    } catch (error) {
+      trace?.step('Location', 'Location action interrupted before or during permission handling', () => ({ error }), 'error');
+      trace?.finish('failed', () => this.locationButtonDiagnosticContext());
+      throw error;
+    } finally {
+      trace?.finish('interrupted', () => this.locationButtonDiagnosticContext());
     }
   }
 
@@ -6795,6 +7040,7 @@ export class MapApp {
   }
 
   async clearRoute(): Promise<void> {
+    navDiag?.update('route-lifecycle', 'MapApp.clearRoute', { reason: 'route-cleared', path: null, markerRestoration: 'resume-idle-positioning' });
     if (!this.routePlanner) return;
     this.routePlanner.clearRoute();
     this.routePlanner.endGuidedNavigation();
@@ -6815,6 +7061,7 @@ export class MapApp {
     });
 
     this.stopPositionProvider();
+    void this.maybeAutoStartBlueDot();
   }
 
   routePreviousLeg(): void {
@@ -7017,7 +7264,7 @@ export class MapApp {
     }
     if (!this.blueDotService?.isTracking) {
       try {
-        await this.blueDotService?.startTracking();
+        await this.blueDotService?.startTracking({ watchDevicePosition: !this.venueGpsReference });
         await this.blueDotService?.enableHeading();
       } catch {
         /* AR can still use one-shot seed */
@@ -7063,7 +7310,11 @@ export class MapApp {
    */
   lockNavigationArrival(): void {
     const state = this.store.get();
-    if (state.arrivalDialogHandled) return;
+    navDiag?.update('arrival', 'MapApp.lockNavigationArrival:AR-message', {
+      remainingMeters: state.routeRemainingMeters, latchBefore: state.routeSimulationComplete,
+      eligible: !state.arrivalDialogHandled && state.routeSimulationComplete, triggered: !state.arrivalDialogHandled && state.routeSimulationComplete,
+      reason: state.arrivalDialogHandled ? 'already-handled' : !state.routeSimulationComplete ? 'parent-arrival-not-confirmed' : 'AR-arrival-message', basis: 'parent-confirmation', accuracy: null });
+    if (state.arrivalDialogHandled || !state.routeSimulationComplete) return;
     this.liveRouteTracking = false;
     const showDialog = state.arPresentation !== "fullscreen";
     this.store.patch({
@@ -7105,6 +7356,7 @@ export class MapApp {
   }
 
   private resolveNavigationSource(): PositionSourceType {
+    if (this.venueGpsReference) return 'gps';
     return PositionProviderRegistry.resolveNavigationSource(this.loadedVenueMapId ?? undefined);
   }
 
@@ -7197,6 +7449,8 @@ export class MapApp {
         previousAlongMeters: this.store.get().routeTraveledMeters,
       },
     );
+    navDiag?.update('route-snap', 'MapApp.projectFrameOntoRoute', { input: frame, snapped,
+      previousAlongMeters: this.store.get().routeTraveledMeters });
     if (!snapped) return frame;
 
     return {
@@ -7246,7 +7500,7 @@ export class MapApp {
     this.blueDotService?.applySimulatorFrame({
       latitude: point.latitude,
       longitude: point.longitude,
-      heading: this.blueDotService.getLastPosition()?.heading ?? 0,
+      heading: this.blueDotService.getLastPosition()?.heading,
       accuracy: 4,
       source: "gps",
       floorId: point.floorId,
@@ -7278,10 +7532,16 @@ export class MapApp {
     }
 
     const lastPos = this.blueDotService?.getLastPosition();
-    const latitude = lastPos?.coordinate.latitude;
-    const longitude = lastPos?.coordinate.longitude;
+    const routePosition = state.route && (state.routeSimulating || this.liveRouteTracking)
+      ? this.lastNavigationPosition?.route === state.route ? this.lastNavigationPosition.frame
+        : coordinateTransformationService.snapAtDistanceAlongPath(state.route.pathCoordinates, routeTraveledMeters)
+      : null;
+    // The approximate display position must never become AR navigation evidence.
+    const coordinate = routePosition ?? lastPos?.coordinate;
+    const latitude = coordinate?.latitude;
+    const longitude = coordinate?.longitude;
     const heading = lastPos?.heading ?? undefined;
-    const floorId = lastPos?.floorId ?? lastPos?.coordinate.floorId;
+    const floorId = coordinate?.floorId ?? lastPos?.floorId;
 
     return {
       alongPathMeters,
@@ -7327,6 +7587,7 @@ export class MapApp {
     alongPathMeters?: number;
     resetProgress?: boolean;
   }): Promise<void> {
+    navDiag?.record('navigation-lifecycle', 'MapApp.startRouteMovement', { reason: 'navigation-start-request', options });
     if (await this.blockNavigationOutsideVenue()) return;
     const state = this.store.get();
     if (!state.route?.pathCoordinates?.length) {
@@ -7418,7 +7679,10 @@ export class MapApp {
     options?: {
       offRouteMeters?: number;
       accuracyMeters?: number | null;
+      diagnosticSnapped?: FplacesPositionFrame;
+      destinationDistanceM?: number | null;
       force?: boolean;
+      positionHeld?: boolean;
     },
   ): number | null {
     const state = this.store.get();
@@ -7429,6 +7693,7 @@ export class MapApp {
 
     // Once arrival is locked, keep navigation frozen until Okay / clearRoute.
     if (isArrivalLocked(state)) {
+      navDiag?.update('arrival', 'MapApp.syncLiveRouteProgress', { triggered: false, latchBefore: true, reason: 'already-latched', remainingMeters: state.routeRemainingMeters });
       this.liveRouteTracking = false;
       this.store.patch({
         routeSimulating: false,
@@ -7463,7 +7728,7 @@ export class MapApp {
       dtSeconds,
       maxAlongDeltaMeters: DEFAULT_MAX_ALONG_DELTA_METERS,
     });
-    const traveled = Math.max(
+    const traveled = options?.positionHeld ? state.routeTraveledMeters : Math.max(
       0,
       Math.min(total, Math.max(stabilizedAlong, continuousAlong)),
     );
@@ -7475,12 +7740,23 @@ export class MapApp {
       alongPathMeters: traveled,
       offRouteMeters: options?.offRouteMeters,
     });
-    const atEnd = options?.accuracyMeters != null && options.accuracyMeters <= 10 && hasArrivedAtDestination({
+    const atEnd = options?.destinationDistanceM != null && options.destinationDistanceM <= 4 &&
+      options?.accuracyMeters != null && options.accuracyMeters >= 0 && options.accuracyMeters <= 10 && hasArrivedAtDestination({
       totalPathMeters: total,
       alongPathMeters: traveled,
       offRouteMeters: options?.offRouteMeters,
     });
 
+    navDiag?.update('progress', 'MapApp.syncLiveRouteProgress', { alongPathMeters: traveled,
+      previousAlongMeters: state.routeTraveledMeters, delta: traveled - state.routeTraveledMeters,
+      rawAlongMeters: alongPathMeters, stabilizedAlong, continuousAlong, positionHeld: options?.positionHeld ?? false, remainingMeters: remaining,
+      offRouteMeters: options?.offRouteMeters, accuracy: options?.accuracyMeters, currentLegIndex: state.currentLegIndex, maneuver: state.routeInstructions });
+    navDiag?.update('arrival', 'MapApp.syncLiveRouteProgress', { thresholdM: 0.75, offRouteThresholdM: 4,
+      accuracyThresholdM: 10, accuracy: options?.accuracyMeters, remainingMeters: remaining,
+      alongPathMeters: traveled, offRouteMeters: options?.offRouteMeters, latchBefore: false,
+      snapped: options?.diagnosticSnapped ?? null, destinationDistanceM: options?.destinationDistanceM ?? null,
+      eligible: atEnd, triggered: atEnd && traveled > 0, basis: 'snapped-progress',
+      reason: atEnd && traveled > 0 ? '2D-end-criteria-met' : '2D-end-criteria-not-met' });
     if (atEnd && traveled > 0) {
       this.liveRouteTracking = false;
       this.store.patch({
@@ -7589,10 +7865,16 @@ export class MapApp {
       const floorId =
         (event as { floor?: { id?: string } }).floor?.id ??
         this.mapView?.currentFloor?.id;
-      if (floorId) this.store.patch({ currentFloorId: floorId });
+      if (floorId) {
+        navDiag?.update('map-floor', 'MapApp.floor-change', { reason: 'SDK-floor-change', previousState: this.store.get().currentFloorId, newState: floorId, movementEvidence: false });
+        this.store.patch({ currentFloorId: floorId });
+      }
     });
 
     this.mapView.on("camera-change", () => {
+      navDiag?.sample('map-camera', 'MapApp.camera-change', { movementEvidence: false,
+        center: this.mapView?.Camera.center ? { latitude: this.mapView.Camera.center.latitude, longitude: this.mapView.Camera.center.longitude } : null,
+        bearing: this.mapView?.Camera.bearing, zoom: this.mapView?.Camera.zoomLevel });
       const camera = this.mapView?.Camera;
       appLog("MapCamera", "camera-change", {
         zoom: camera?.zoomLevel,
@@ -7665,6 +7947,7 @@ export class MapApp {
   }
 
   private scheduleAutoRoute(): void {
+    void this.maybeAutoStartBlueDot();
     if (!this.routePlanner?.hasOrigin || !this.routePlanner?.hasDestination) {
       return;
     }
@@ -7715,10 +7998,12 @@ export class MapApp {
       });
     } finally {
       this.store.patch({ isCalculatingRoute: false });
+      void this.maybeAutoStartBlueDot();
     }
   }
 
   private applyRoute(route: RoutePayload): void {
+    navDiag?.update('route-lifecycle', 'MapApp.applyRoute', { reason: 'route-created-or-recalculated', path: route.pathCoordinates, distanceM: route.distanceMeters, floorTransitions: route.floorTransitions });
     if (!this.routePlanner) return;
     this.routePlanner.setRoutePlanningPaused(true);
     const instructions = legInstructions(route.legs[0]);
@@ -7791,6 +8076,7 @@ export class MapApp {
       accuracy?: number;
       heading?: number;
       floorId?: string;
+      timestamp?: number;
     },
     animated = false,
   ): void {
@@ -7806,10 +8092,10 @@ export class MapApp {
       latitude: position.coordinate.latitude,
       longitude: position.coordinate.longitude,
       accuracy: position.accuracy ?? 15,
-      heading: position.heading ?? 0,
+      heading: position.heading,
       source: this.activePositionSource,
       floorId: position.floorId ?? position.coordinate.floorId,
-      timestamp: Date.now(),
+      timestamp: position.timestamp,
     });
   }
 
@@ -7818,17 +8104,20 @@ export class MapApp {
     accuracy?: number;
     heading?: number;
     floorId?: string;
+    timestamp?: number;
   }): void {
+    navDiag?.record('mappedin-sensor', 'MapApp.handleBlueDotSensorPosition', { coordinate: position.coordinate, accuracy: position.accuracy, ignored: !!this.venueGpsReference || !!navDiag?.frozen });
+    if (this.venueGpsReference || navDiag?.frozen) return;
     this.ingestPositionFrame({
       latitude: position.coordinate.latitude,
       longitude: position.coordinate.longitude,
-      heading: position.heading ?? 0,
+      heading: position.heading,
       accuracy: position.accuracy ?? 15,
       source: this.positionProvider?.isRunning
         ? this.activePositionSource
         : "gps",
       floorId: position.floorId ?? position.coordinate.floorId,
-      timestamp: Date.now(),
+      timestamp: position.timestamp,
     });
     this.streamPositionToAr(position, false);
   }
@@ -7839,7 +8128,9 @@ export class MapApp {
     accuracy?: number;
     heading?: number;
     floorId?: string;
+    timestamp?: number;
   }): void {
+    navDiag?.update('mappedin-display', 'MapApp.handleBlueDotAnimatedPosition', { coordinate: position.coordinate, accuracy: position.accuracy, floorId: position.floorId });
     const coordinate = position.mapCoordinate;
     if (coordinate && this.store.get().route) {
       this.mapView?.Navigation?.trackCoordinate?.(coordinate, {
@@ -7852,19 +8143,20 @@ export class MapApp {
       this.ingestPositionFrame({
         latitude: position.coordinate.latitude,
         longitude: position.coordinate.longitude,
-        heading: position.heading ?? 0,
+        heading: position.heading,
         accuracy: position.accuracy ?? 15,
         source: this.positionProvider?.isRunning
           ? this.activePositionSource
           : "gps",
         floorId: position.floorId ?? position.coordinate.floorId,
-        timestamp: Date.now(),
+        timestamp: position.timestamp,
       });
       this.streamPositionToAr(position, true);
     }
   }
 
   private startPositionProvider(path: RoutePayload["pathCoordinates"]): void {
+    this.initializeVenueSimulationMapAnchor();
     this.stopPositionProvider({ preserveProgress: true });
     this.activePositionSource = this.resolveNavigationSource();
     positionTelemetry.setActiveSource(this.activePositionSource);
@@ -7912,7 +8204,7 @@ export class MapApp {
   private stopPositionProvider(options?: { preserveProgress?: boolean }): void {
     this.positionProvider?.stop();
     this.positionProvider = null;
-    this.blueDotService?.setSimulatorParallelMode(false);
+    this.blueDotService?.setSimulatorParallelMode(Boolean(this.venueGpsReference));
     this.lastArStreamAt = 0;
     this.lastArProviderStreamAt = 0;
     this.lastProviderFix = null;
@@ -8027,7 +8319,13 @@ export class MapApp {
     }
   }
 
-  private handleLivePositionStatus(status: PositionProviderStatus): void {
+  private handleLivePositionStatus(status: PositionProviderStatus, reason = 'provider-signal'): void {
+    navDiag?.update('positioning-status', 'MapApp.handleLivePositionStatus', { status, reason,
+      providerSignalStatus: this.positionProvider?.signalStatus ?? null });
+    if (status !== 'active') {
+      this.blueDotService?.setPositionAvailability?.('retained');
+      this.reportBlueDotAvailability(`provider-${status}`, { positioningStatus: status, statusReason: reason, providerSignalStatus: this.positionProvider?.signalStatus ?? null, subscriptionRunning: this.positionProvider?.isRunning ?? false });
+    }
     if (status === 'active') return; // Only accepted fixes restore live UI status.
     const previous = this.store.get().blueDotStatus;
     this.store.patch({ blueDotStatus: status });
@@ -8047,33 +8345,122 @@ export class MapApp {
   }
 
   private handleProviderFrame(frame: FplacesPositionFrame): void {
-    if (!isUsableLiveFix(frame)) {
-      this.handleLivePositionStatus('inactive');
+    const previousCause = navDiag?.cause ?? null;
+    const cause = navDiag?.record('provider-frame', 'MapApp.handleProviderFrame', { raw: frame,
+      gpsAgeMs: frame.timestamp == null ? null : Date.now() - frame.timestamp });
+    if (navDiag) navDiag.cause = cause ?? null;
+    try { this.handleDiagnosticProviderFrame(frame); }
+    finally { if (navDiag) navDiag.cause = previousCause; }
+  }
+
+  private handleHeadingOnlyFrame(heading: number | undefined): void {
+    if (heading == null || !Number.isFinite(heading)) return;
+    this.blueDotService?.applyHeadingOnly(heading);
+    if (!(isArFrameVisible() || isArSessionActive(this.store.get().arPresentation))) return;
+    const now = performance.now();
+    if (now - this.lastArProviderStreamAt >= 90) {
+      this.lastArProviderStreamAt = now;
+      // Share compass turns with AR using the unchanged trusted navigation
+      // position/clock, never the cached GPS attached to the orientation event.
+      if (this.liveRouteTracking || this.store.get().routeSimulating) {
+        syncNavigationToAr(this.getNavigationProgressSnapshot());
+      }
+    }
+  }
+
+  private handleDiagnosticProviderFrame(frame: FplacesPositionFrame): void {
+    if (frame.headingOnly) {
+      this.handleHeadingOnlyFrame(frame.heading);
+      navDiag?.record('heading-only', 'MapApp.handleProviderFrame', { heading: frame.heading,
+        originalGpsTimestamp: frame.timestamp, navigationEligible: false });
       return;
     }
+    navDiag?.update('gps-fix-quality', 'MapApp.handleProviderFrame', describePositionFixQuality(frame));
+    if (!isUsableDisplayFix(frame)) {
+      this.reportBlueDotAvailability('unusable-position-fix', { accuracy: frame.accuracy, ageMs: frame.timestamp == null ? null : Date.now()-frame.timestamp });
+      recordPhonePosition(frame, null, null, 'rejected-fix', !!this.venueGpsReference);
+      navDiag?.update('position', 'MapApp.handleProviderFrame', { raw: frame, accepted: false, reason: !Number.isFinite(frame.latitude) || !Number.isFinite(frame.longitude) || Math.abs(frame.latitude)>90 || Math.abs(frame.longitude)>180 ? 'invalid-coordinate' : !Number.isFinite(frame.accuracy) || frame.accuracy<0 || frame.accuracy>50 ? 'accuracy-outside-0-to-50m' : 'missing-invalid-stale-or-future-timestamp', gpsAgeMs: frame.timestamp == null ? null : Date.now()-frame.timestamp });
+      this.handleLivePositionStatus('inactive', 'unusable-display-fix');
+      return;
+    }
+    const physicalFrame = frame;
+    if (this.venueGpsReference && frame.source === 'gps') {
+      this.initializeVenueSimulationMapAnchor();
+      this.venueGpsReference.capture(frame);
+      const translated = this.venueGpsReference.translate(frame);
+      if (!translated) {
+        this.reportBlueDotAvailability('simulation-map-anchor-unavailable');
+        recordPhonePosition(frame, null, null, 'waiting-for-reference', true);
+        return;
+      }
+      const anchorFloor = this.venueGpsReference.diagnosticSnapshot().mapAnchor?.floorId;
+      const viewFloor = this.mapView?.currentFloor?.id ?? this.store.get().currentFloorId;
+      frame = { ...translated, floorId: translated.floorId ??
+        (this.store.get().route ? viewFloor ?? anchorFloor : anchorFloor ?? viewFloor) };
+    }
+    const translatedFrame = frame;
+    const filterIdentity = `${this.loadedVenueMapId}:${frame.source}:${this.venueGpsReference?.diagnosticSnapshot().revision ?? 'physical'}`;
+    if (!isUsableLiveFix(physicalFrame)) {
+      // Coarse fixes may locate the dot, but never feed route projection,
+      // progress, arrival, floor orchestration or the AR navigation clock.
+      // Keep this display filter separate so it cannot seed precise navigation.
+      if (!this.approximatePositionFilter || this.approximateFilterIdentity !== filterIdentity) {
+        this.approximatePositionFilter = createStationaryPositionFilter({ minMoveMeters: 1.5, accuracyFraction: 0.35, confirmationSamples: 2 });
+        this.approximateFilterIdentity = filterIdentity;
+        const previous = this.blueDotService?.getLastPosition?.();
+        if (previous) this.approximatePositionFilter.process({ ...previous.coordinate, accuracy: previous.accuracy });
+      }
+      const stabilized = this.approximatePositionFilter.process(frame);
+      navDiag?.update('provider-filter', 'MapApp.approximate-display', { ...stabilized, incoming: translatedFrame });
+      if (stabilized.reason === 'non-increasing-timestamp') return;
+      const display = { ...frame, latitude: stabilized.fix.latitude, longitude: stabilized.fix.longitude };
+      this.blueDotService?.applySimulatorFrame(display);
+      navDiag?.update('renderer-submission', 'MapApp.approximate-display', { rawMapCoordinate: translatedFrame, submitted: display,
+        rawToRenderedM: navDiag.distance(translatedFrame, this.blueDotService?.coordinate ?? display), renderer: this.blueDotService?.getLocationDiagnosticSnapshot?.(), navigationEligible: false });
+      this.handleLivePositionStatus('inactive', 'approximate-display-only');
+      this.blueDotService?.setPositionAvailability?.('approximate');
+      this.reportBlueDotAvailability('approximate-position-sent-to-renderer', { accuracy: frame.accuracy, navigationEligible: false });
+      navDiag?.update('position', 'MapApp.handleProviderFrame', { raw: physicalFrame, translated: translatedFrame,
+        filtered: display, accepted: true, navigationEligible: false, reason: 'approximate-display-only' });
+      recordPhonePosition(physicalFrame, display, null, 'approximate-display-only', !!this.venueGpsReference);
+      return;
+    }
+    if (!this.providerPositionFilter || this.providerFilterIdentity !== filterIdentity) {
+      this.providerPositionFilter = createStationaryPositionFilter({ minMoveMeters: 1.5, accuracyFraction: 0.35, confirmationSamples: 2 });
+      this.providerFilterIdentity = filterIdentity;
+    }
+    let positionHeld = false;
+    if (frame.source === 'gps') {
+      const stabilized = this.providerPositionFilter.process(frame);
+      positionHeld = stabilized.held;
+      if (stabilized.reason === 'non-increasing-timestamp') {
+        navDiag?.record('gps-fix-rejected', 'MapApp.handleProviderFrame', { reason: stabilized.reason, timestamp: frame.timestamp, movementEvidence: false });
+        this.handleHeadingOnlyFrame(frame.heading); return;
+      }
+      frame = { ...frame, latitude: stabilized.fix.latitude, longitude: stabilized.fix.longitude };
+      navDiag?.update('provider-filter', 'MapApp.handleProviderFrame', { incoming: translatedFrame, filtered: frame, ...stabilized });
+    }
+
+    // Diagnostic-only freeze is applied before projection; physical GPS remains untouched.
+    if (navDiag?.frozen) frame = navDiag.accept(frame);
     const projected = this.projectFrameOntoRoute(frame);
+    navDiag?.update('position', 'MapApp.handleProviderFrame', { raw: physicalFrame, translated: translatedFrame,
+      filtered: frame, snapped: projected, accepted: !this.store.get().route || isUsableRouteSnap(projected),
+      reason: this.store.get().route && !isUsableRouteSnap(projected) ? 'missing-or-over-30m-route-snap' : 'accepted',
+      source: frame.source, frozen: navDiag?.frozen, simulation: this.venueGpsReference?.diagnosticSnapshot() ?? null });
+    recordPhonePosition(physicalFrame, frame, projected,
+      this.store.get().route && !isUsableRouteSnap(projected) ? 'rejected-route-snap' : 'accepted',
+      !!this.venueGpsReference);
     if (this.store.get().route && !isUsableRouteSnap(projected)) {
-      this.handleLivePositionStatus('inactive');
+      this.reportBlueDotAvailability('route-snap-rejected', { offRouteMeters: projected.offRouteMeters });
+      this.handleLivePositionStatus('inactive', 'route-snap-rejected');
       return;
     }
+    if (!navDiag?.frozen) navDiag?.accept(frame);
     this.store.patch({ blueDotStatus: 'active' });
     if (isHeadingOnlyPositionFix(this.lastProviderFix, frame) &&
         frame.timestamp === this.lastProviderFix?.timestamp) {
-      this.blueDotService?.applyHeadingOnly(frame.heading);
-      if (
-        isArFrameVisible() ||
-        isArSessionActive(this.store.get().arPresentation)
-      ) {
-        const now = performance.now();
-        if (now - this.lastArProviderStreamAt >= 90) {
-          this.lastArProviderStreamAt = now;
-          // Never push a raw GPS lat/lng on heading-only ticks: indoors that
-          // can be kilometers off the Mappedin path and poisons AR off-route.
-          if (this.liveRouteTracking || this.store.get().routeSimulating) {
-            syncNavigationToAr(this.getNavigationProgressSnapshot());
-          }
-        }
-      }
+      this.handleHeadingOnlyFrame(frame.heading);
       return;
     }
     this.lastProviderFix = {
@@ -8082,10 +8469,10 @@ export class MapApp {
       timestamp: frame.timestamp,
     };
 
-    this.publishUserLocation({
-      latitude: frame.latitude,
-      longitude: frame.longitude,
-      accuracy: frame.accuracy ?? null,
+    if (!navDiag?.frozen) this.publishUserLocation({
+      latitude: physicalFrame.latitude,
+      longitude: physicalFrame.longitude,
+      accuracy: physicalFrame.accuracy ?? null,
     });
 
     if (typeof projected.alongPathMeters === "number") {
@@ -8097,6 +8484,10 @@ export class MapApp {
       const traveled = this.syncLiveRouteProgress(projected.alongPathMeters, {
         offRouteMeters: projected.offRouteMeters,
         accuracyMeters: projected.accuracy,
+        diagnosticSnapped: navDiag ? projected : undefined,
+        positionHeld,
+        destinationDistanceM: this.store.get().route?.pathCoordinates.at(-1)
+          ? haversineMeters(frame, this.store.get().route!.pathCoordinates.at(-1)!) : null,
       });
       if (traveled != null) {
         const rawAlong = projected.alongPathMeters;
@@ -8110,9 +8501,16 @@ export class MapApp {
       }
     }
 
+    navDiag?.update('display-position', 'MapApp.handleProviderFrame', { filtered: display, projected, progress: this.getNavigationProgressSnapshot() });
+    const route = this.store.get().route;
+    if (route) this.lastNavigationPosition = { route, frame: display };
+    navDiag?.update('navigation-quality-position', 'MapApp.handleProviderFrame', { frame: display, physical: physicalFrame, reason: 'fresh-navigation-quality-and-valid-route-snap' });
     this.ingestPositionFrame(display);
 
     this.blueDotService?.applySimulatorFrame(display);
+    navDiag?.update('renderer-submission', 'MapApp.handleProviderFrame', { rawMapCoordinate: translatedFrame, submitted: display,
+      rawToRenderedM: navDiag.distance(translatedFrame, this.blueDotService?.coordinate ?? display), renderer: this.blueDotService?.getLocationDiagnosticSnapshot?.(), navigationEligible: true });
+    this.reportBlueDotAvailability(this.blueDotService ? 'accepted-position-sent-to-renderer' : 'map-renderer-unavailable');
     const tracking =
       this.liveRouteTracking ||
       this.store.get().routeSimulating ||
@@ -8142,6 +8540,7 @@ export class MapApp {
   }
 
   private handleBlueDotStatus(status: BlueDotStatus): void {
+    this.reportBlueDotAvailability(`renderer-${status}`);
     if (this.positionProvider?.isRunning) return;
     this.store.patch({
       blueDotStatus: status,
@@ -8149,23 +8548,61 @@ export class MapApp {
     });
   }
 
-  private async maybeAutoStartBlueDot(): Promise<void> {
-    if (
-      !this.blueDotService ||
-      !navigator.permissions?.query ||
-      this.store.get().locationPermission !== "granted"
-    ) {
-      return;
+  private reportBlueDotAvailability(reason: string, detail: Record<string, unknown> = {}): void {
+    const state = this.store.get();
+    const data = { reason, mapStatus: state.mapStatus, permission: state.locationPermission,
+      simulation: !!this.venueGpsReference, providerRunning: this.positionProvider?.isRunning ?? false,
+      providerSignalStatus: this.positionProvider?.signalStatus ?? null, positioningStatus: state.blueDotStatus,
+      floorId: state.currentFloorId, marker: this.blueDotService?.getLocationDiagnosticSnapshot?.() ?? null,
+      providerRunningMeaning: 'subscription exists; signal/fix quality is reported separately', ...detail };
+    recordLocationDiagnostic('blue-dot-availability', data);
+    navDiag?.update('blue-dot-availability', 'MapApp', data);
+    if (this.lastBlueDotAvailabilityReason !== reason) {
+      this.lastBlueDotAvailabilityReason = reason;
+      appLog('BlueDot', reason, data);
     }
+  }
 
+  private async maybeAutoStartBlueDot(): Promise<void> {
+    const service = this.blueDotService;
+    if (!service || !this.mapView) { this.reportBlueDotAvailability('map-not-ready'); return; }
+    if (this.store.get().locationPermission !== 'granted') {
+      this.reportBlueDotAvailability('location-permission-not-granted'); return;
+    }
+    if (this.positionProvider?.isRunning) return;
+    const generation = this.mapLoadGeneration;
+    // A successful location request is sufficient on Safari versions without a
+    // Permissions API. An explicit denied/prompt result still requires user action.
     try {
-      const status = await navigator.permissions.query({ name: "geolocation" });
-      if (status.state !== "granted") return;
-      if (this.positionProvider?.isRunning) return;
-      await this.blueDotService.startTracking();
-      appLog("BlueDot", "Auto-started (permission already granted)");
+      if (navigator.permissions?.query) {
+        const status = await navigator.permissions.query({ name: 'geolocation' });
+        if (service !== this.blueDotService || generation !== this.mapLoadGeneration) return;
+        if (status.state !== 'granted') {
+          this.reportBlueDotAvailability(`browser-geolocation-${status.state}`); return;
+        }
+      }
+    } catch {
+      this.reportBlueDotAvailability('permission-query-unavailable-using-existing-grant');
+    }
+    // A cached/local venue can replace the map or start navigation while the
+    // asynchronous permission query is pending. Never start the old authority.
+    if (service !== this.blueDotService || generation !== this.mapLoadGeneration ||
+        this.store.get().locationPermission !== 'granted' || this.positionProvider?.isRunning) return;
+    try {
+      if (this.venueGpsReference) {
+        // Keep actual GPS flowing even before the explicit map anchor exists.
+        // handleProviderFrame withholds display until translation is possible.
+        this.startPositionProvider(this.store.get().route?.pathCoordinates ?? []);
+        this.reportBlueDotAvailability('waiting-for-translated-gps-fix');
+      } else {
+        await service.startTracking();
+        if (service !== this.blueDotService || generation !== this.mapLoadGeneration || this.positionProvider?.isRunning) return;
+        this.reportBlueDotAvailability('waiting-for-device-position');
+      }
     } catch (error) {
-      appWarn("BlueDot", "Could not query geolocation permission", error);
+      if (service !== this.blueDotService) return;
+      this.reportBlueDotAvailability('positioning-start-failed');
+      appWarn('BlueDot', 'Could not start positioning', error);
     }
   }
 

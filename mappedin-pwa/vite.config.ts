@@ -60,6 +60,24 @@ function serveArNav(): Plugin {
   };
 }
 
+/** An old production worker must be able to update when this origin runs Vite. */
+function retireProductionWorkerInDevelopment(): Plugin {
+  return {
+    name: 'fplaces-retire-production-worker-in-development',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url?.split('?')[0] !== '/sw.js') { next(); return; }
+        res.setHeader('Content-Type', 'application/javascript');
+        res.setHeader('Cache-Control', 'no-store');
+        // No fetch handler or cache deletion; relinquish only this registration.
+        // No forced navigation that could interrupt a user's active route.
+        res.end(`self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', event => event.waitUntil(self.registration.unregister()));`);
+      });
+    },
+  };
+}
+
 const BACKEND_ORIGIN = FPLACES_BACKEND_HTTP_ORIGIN;
 const BACKEND_WS_PROXY = {
   target: BACKEND_ORIGIN.replace(/^http/i, 'ws'),
@@ -81,6 +99,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       ...(devHttp ? [] : [basicSsl()]),
       serveArNav(),
+      retireProductionWorkerInDevelopment(),
       VitePWA({
       registerType: 'autoUpdate',
       injectRegister: false,

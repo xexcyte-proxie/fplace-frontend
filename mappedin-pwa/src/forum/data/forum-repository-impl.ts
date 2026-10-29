@@ -28,14 +28,15 @@ import type { ForumRepository } from '../domain/repositories/forum-repository';
 import { forumRemoteDatasource } from './datasources/forum-remote-datasource';
 import { forumLocationWsDatasource } from './datasources/forum-location-ws-datasource';
 import { forumWsDatasource } from './datasources/forum-ws-datasource';
+import { venuesLocalDatasource } from './datasources/venues-local-datasource';
 
 export class ForumRepositoryImpl implements ForumRepository {
   listVenues(page?: number): Promise<PaginatedList<ForumVenue>> {
-    return forumRemoteDatasource.listVenues(page);
+    return venuesLocalDatasource.listVenues(page);
   }
 
   getVenue(venueId: number): Promise<ForumVenue> {
-    return forumRemoteDatasource.getVenue(venueId);
+    return venuesLocalDatasource.getVenue(venueId);
   }
 
   listSections(

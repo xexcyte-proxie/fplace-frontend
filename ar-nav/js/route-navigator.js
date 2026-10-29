@@ -8,7 +8,7 @@
   const PARENT_SIM_WALK_MPS = 1.3;
   const PARENT_SIM_EXTRAP_CAP_S = 0.12;
   /** Enter "You've arrived" at this remaining distance. */
-  const ARRIVE_ENTER_M = 5;
+  const ARRIVE_ENTER_M = 0.75;
 
   function haversineMeters(a, b) {
     return geo().haversineMeters(a, b);
@@ -191,7 +191,26 @@
      * must not flip the HUD between turn-by-turn ("End point") and
      * "You've arrived". Only forceClear / a new route resets the latch.
      */
-    applyArrivalLatch(remainingMeters, options) {
+    applyArrivalLatch(remainingMeters, options, diagnosticCaller = 'external') {
+      const parentProgress = window.__fplacesNavigationProgress;
+      const fix = this.lastPosition;
+      const destination = this.route?.pathCoordinates?.at(-1);
+      const reliableLiveArrival = !parentProgress && fix && destination &&
+        Number.isFinite(fix.accuracy) && fix.accuracy >= 0 && fix.accuracy <= 10 &&
+        Number.isFinite(fix.timestamp) && Date.now() - fix.timestamp >= 0 && Date.now() - fix.timestamp <= 15000 &&
+        haversineMeters(fix, destination) <= 4 && this._authoritativeAlongPathM > 0;
+      const eligible = !options?.forceClear && !this.arrived &&
+        (options?.forceComplete || (reliableLiveArrival && Number.isFinite(remainingMeters) && remainingMeters <= ARRIVE_ENTER_M));
+      window.FplacesNavigationDiagnostics?.update('arrival', `RouteNavigator.${diagnosticCaller}`, {
+        thresholdM: ARRIVE_ENTER_M, remainingMeters, destinationDistanceM: this.lastPosition && this.route?.pathCoordinates?.length
+          ? haversineMeters(this.lastPosition, this.route.pathCoordinates[this.route.pathCoordinates.length - 1]) : null,
+        snapped: this.snappedOnPath, accuracy: this.lastPosition?.accuracy ?? null,
+        source: this.positionSource, alongPathMeters: this._authoritativeAlongPathM,
+        displayAlongPathMeters: this._displayAlongPathM, maneuverIndex: this.maneuverIndex,
+        eligible: !!eligible, triggered: !!eligible, latchBefore: this.arrived,
+        forceComplete: !!options?.forceComplete, forceClear: !!options?.forceClear,
+        reason: options?.forceClear ? 'reset' : this.arrived ? 'already-latched' : options?.forceComplete ? 'forced-completion' : eligible ? 'remaining-within-AR-threshold' : 'remaining-invalid-or-outside-threshold',
+        basis: 'AR-remaining-or-parent-completion', parentProgress: window.__fplacesNavigationProgress ?? null });
       if (options?.forceClear) {
         this.arrived = false;
         this._arrivalNotifiedToParent = false;
@@ -203,11 +222,12 @@
       }
       if (this.arrived) return;
       if (remainingMeters == null || !Number.isFinite(remainingMeters)) return;
-      if (remainingMeters <= ARRIVE_ENTER_M) this.lockArrived();
+      if (eligible) this.lockArrived();
     }
 
     lockArrived() {
       if (this.arrived) return;
+      window.FplacesNavigationDiagnostics?.record('arrival-latch', 'RouteNavigator.lockArrived', { latchBefore: false, latchAfter: true });
       this.arrived = true;
       this.notifyParentArrived();
     }
@@ -441,7 +461,7 @@
             { alongMeters: along },
           );
         }
-        this.applyArrivalLatch(0, { forceComplete: true });
+        this.applyArrivalLatch(0, { forceComplete: true }, 'syncSimulatorProgressFromAuthority');
         const total = window.FplacesRouteGeometry.totalPathLengthMeters(path);
         this._authoritativeAlongPathM = total;
         this._simDisplayAlongPathM = total;
@@ -451,7 +471,7 @@
       }
 
       const total = window.FplacesRouteGeometry.totalPathLengthMeters(path);
-      this.applyArrivalLatch(Math.max(0, total - along));
+      this.applyArrivalLatch(Math.max(0, total - along), undefined, 'syncSimulatorProgressFromAuthority');
     }
 
     /**
@@ -459,7 +479,15 @@
      * @param {{ alongPathMeters: number, routeSimulating?: boolean, routeSimulationComplete?: boolean, latitude?: number, longitude?: number, heading?: number, floorId?: string, source?: string }} progress
      */
     applyNavigationSync(progress) {
+      const d = window.FplacesNavigationDiagnostics, previousCause = d?.cause;
+      if (d) d.cause = progress?.diagnosticCause ?? previousCause;
+      try { return this.applyNavigationSyncRecorded(progress); }
+      finally { if (d) d.cause = previousCause; }
+    }
+
+    applyNavigationSyncRecorded(progress) {
       if (!progress || typeof progress.alongPathMeters !== "number") return;
+      window.FplacesNavigationDiagnostics?.update('ar-sync-received', 'RouteNavigator.applyNavigationSync', progress);
 
       const path = this.route?.pathCoordinates || [];
       if (!path.length) {
@@ -533,20 +561,17 @@
           ? parentRemaining
           : remainingAlong;
       const genuinelyComplete =
-        (progress.routeSimulationComplete &&
-          remainingAlong <= arrivalThresholdM) ||
-        (parentRemaining != null &&
-          parentRemaining <= arrivalThresholdM &&
-          along > 1);
+        progress.routeSimulationComplete === true &&
+          remainingAlong <= arrivalThresholdM;
 
       if (genuinelyComplete) {
-        this.applyArrivalLatch(remaining, { forceComplete: true });
+        this.applyArrivalLatch(remaining, { forceComplete: true }, 'applyNavigationSync');
         this.syncManeuverIndexFromAlong(along);
         this.notify();
         return;
       }
 
-      this.applyArrivalLatch(remaining);
+      this.applyArrivalLatch(remaining, undefined, 'applyNavigationSync');
 
       if (useSimulator) {
         this.applySimulatorPosition(
@@ -852,11 +877,11 @@
             },
           );
         }
-        this.applyArrivalLatch(remaining, { forceComplete: true });
+        this.applyArrivalLatch(remaining, { forceComplete: true }, 'syncSimulatorProgress');
         this._displayAlongPathM = total;
         this._smoothDistRemaining = 0;
       } else {
-        this.applyArrivalLatch(remaining);
+        this.applyArrivalLatch(remaining, undefined, 'syncSimulatorProgress');
       }
     }
 
@@ -1072,9 +1097,8 @@
         this._displayAlongPathM +=
           (gpsAlong - this._displayAlongPathM) * Math.min(1, dt * blend);
       }
-      if (speed > 0.03 && dt > 0 && !this.isVenueSnapTrustworthy()) {
-        this._displayAlongPathM += speed * dt;
-      }
+      // Camera motion and elapsed time are not physical positioning evidence.
+      // Only accepted sensor snaps may move live route progress.
 
       return Math.max(0, Math.min(total, this._displayAlongPathM));
     }
@@ -1721,7 +1745,7 @@
       const remainingAlong = Math.max(0, total - along);
       const onFinalManeuver = this.maneuverIndex >= this.maneuvers.length - 1;
       if (onFinalManeuver) {
-        this.applyArrivalLatch(remainingAlong);
+        this.applyArrivalLatch(remainingAlong, undefined, 'advanceAlongPath');
         if (this.arrived && remainingAlong <= ARRIVE_ENTER_M) {
           this._smoothDistRemaining = Math.max(0, remainingAlong);
         }

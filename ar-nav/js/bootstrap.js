@@ -131,6 +131,7 @@
     const wasParked = !!window.__fplacesLiveViewParked;
     window.__fplacesLiveViewRequested = true;
     window.__fplacesLiveViewParked = false;
+    window.FplacesArCalibrationUi?.inject?.();
     if (started) {
       if (wasParked) resumeAfterPark();
       return true;
@@ -250,17 +251,13 @@
     document.head.appendChild(xr);
   }
 
-  function hideCalibrationButton() {
-    const btn = document.getElementById('fplaces-calibrate-btn');
-    if (btn) btn.style.display = 'none';
-  }
-
   function recoverSlamSession(reason) {
     if (window.__fplacesLiveViewParked) return;
     if (!window.__fplacesLiveViewRequested && !window.FplacesCameraStart?.isStarted?.()) {
       return;
     }
     window.FplacesSpatialAlignment?.invalidate?.('Camera recovering.');
+    window.FplacesArCalibrationUi?.inject?.();
     window.__fplacesFallbackTriggered = false;
     window.__fplacesExpectSlam = true;
     activeMode = 'xr';
@@ -443,6 +440,7 @@
       navigatorInstance.route?.pathCoordinates?.length;
     if (!routeReady) return false;
     if (typeof window.executeDemoCalibrationFlow !== 'function') return false;
+    if (!window.FplacesSpatialAlignment?.canCalibrate(false)) return false;
 
     const alreadyCalibrated = window.FplacesAnchorEngine?.isCalibrated;
     const worldAttached = window.FplacesWorldRoute?.isAttached?.();
@@ -456,18 +454,18 @@
 
     if (alreadyCalibrated && worldAttached) {
       window.FplacesWorldRoute?.ensureRibbon?.();
-      if (window.FplacesPathGeometry?.hasRibbon?.(window.__fplacesXrScene)) {
-        return true;
-      }
+      return !!window.FplacesPathGeometry?.hasRibbon?.(window.__fplacesXrScene);
     }
 
-    window.executeDemoCalibrationFlow();
+    if (alreadyCalibrated) return true;
+
+    const calibrated = window.executeDemoCalibrationFlow();
     DBG()?.log('Bootstrap', 'autoCalibrate executed', {
       label,
       worldAttached,
       alreadyCalibrated,
     });
-    return true;
+    return calibrated === true;
   }
 
   window.__fplacesTryAutoCalibrate = tryAutoCalibrate;

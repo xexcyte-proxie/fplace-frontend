@@ -456,7 +456,7 @@ describe('myLocationFabPresentation', () => {
     });
   });
 
-  it('disables the control when the user is away from the venue', () => {
+  it('keeps the control clickable when the last fix is away from the venue', () => {
     expect(
       myLocationFabPresentation({
         ...away,
@@ -466,12 +466,12 @@ describe('myLocationFabPresentation', () => {
     ).toEqual({
       trackingActive: false,
       following: false,
-      enabled: false,
-      label: "You're not at this venue",
+      enabled: true,
+      label: "My location — tap to check your current position",
     });
   });
 
-  it('disables the control using the map anchor when venue coordinates are missing', () => {
+  it('keeps the control clickable when the map anchor places the last fix away', () => {
     expect(
       myLocationFabPresentation(
         {
@@ -493,8 +493,14 @@ describe('myLocationFabPresentation', () => {
     ).toEqual({
       trackingActive: false,
       following: false,
-      enabled: false,
-      label: "You're not at this venue",
+      enabled: true,
+      label: "My location — tap to check your current position",
+    });
+  });
+
+  it('allows navigation in an active venue simulation without the remote AR bypass', () => {
+    expect(routeNavigationPresencePresentation(away, true)).toEqual({
+      enabled: true, label: 'Start navigation',
     });
   });
 

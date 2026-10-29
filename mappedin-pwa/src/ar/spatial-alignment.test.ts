@@ -174,7 +174,8 @@ describe('visual progress and retained instances', () => {
 describe('XR8 pipeline wiring', () => {
   function pipeline() {
     const env = setup(); const { c, nav } = env;
-    c.document = { getElementById: () => ({}) };
+    const alignButton = { addEventListener: vi.fn(), style: {} };
+    c.document = { getElementById: () => alignButton };
     c.addEventListener = vi.fn();
     const module = (name: string) => ({ pipelineModule: () => ({ name }) });
     c.XR8 = { GlTextureRenderer: module('GlTextureRenderer'), Threejs: module('Threejs'),
@@ -185,6 +186,13 @@ describe('XR8 pipeline wiring', () => {
     const modules = c.XR8.addCameraPipelineModules.mock.calls[0][0];
     return { ...env, modules, module: modules.at(-1) };
   }
+  it('accepts the engine tracking event with status on the event itself', () => {
+    const { c, module } = pipeline();
+    const tracking = module.listeners.find((l: any) => l.event === 'reality.trackingstatus');
+    tracking.process({ status: 'NORMAL', reason: 'UNDEFINED' });
+    expect(c.FplacesSpatialAlignment.status).toBe('NORMAL');
+    expect(c.FplacesSpatialAlignment.canCalibrate(false)).toBe(true);
+  });
   it('preserves pipeline order and consumes reality tracking status', () => {
     const { c, modules, module, build, trail } = pipeline(); build();
     expect(modules.map((m: any) => m.name)).toEqual(['GlTextureRenderer', 'Threejs', 'rendererPatch', 'XrController', 'FullWindowCanvas', 'fplaces-runtime-error', 'fplaces-navigation']);
@@ -207,6 +215,13 @@ describe('XR8 pipeline wiring', () => {
 });
 
 describe('calibration and route acceptance regression', () => {
+  it('does not flash the status overlay for repeated automatic attempts before tracking is ready', () => {
+    const { c } = setup();
+    for (let i = 0; i < 20; i++) expect(c.executeDemoCalibrationFlow()).toBe(false);
+    expect(c.FplacesLiveViewHud.setStatus).not.toHaveBeenCalled();
+    expect(c.executeDemoCalibrationFlow({ manual: true })).toBe(false);
+    expect(c.FplacesLiveViewHud.setStatus).toHaveBeenCalledOnce();
+  });
   it('rejects missing heading and invalid camera pose, then succeeds on retry', () => {
     const { c, camera } = setup(); c.FplacesSpatialAlignment.observe('NORMAL');
     const manual = { manual: true };
@@ -263,17 +278,38 @@ describe('one-tap alignment recovery', () => {
 });
 
 describe('conditional alignment control', () => {
-  it('stays hidden during normal navigation, including looking away and returning', () => {
-    const { c, build, camera, tick } = setup();
+  it('restores a hidden existing button after abrupt tracking loss and binds it only once', () => {
+    const { c, build, trail } = setup();
+    const handlers: Array<() => void> = [];
+    const button = { hidden: true, style: { display: 'none', visibility: 'hidden', opacity: '0' },
+      addEventListener: (_event: string, fn: () => void) => handlers.push(fn) };
+    c.document = { getElementById: () => button, body: { appendChild: vi.fn() } };
+    c.FplacesArCalibrationUi.inject(); c.FplacesArCalibrationUi.inject();
+    expect(handlers).toHaveLength(1);
+    c.FplacesSpatialAlignment.observe('NORMAL'); build();
+    button.style.display = 'none'; button.hidden = true;
+    c.FplacesSpatialAlignment.observe('LIMITED');
+    expect(trail()).toBeUndefined();
+    expect(button.hidden).toBe(false); expect(button.style.display).toBe('');
+    c.FplacesSpatialAlignment.observe('NORMAL'); handlers[0]();
+    expect(trail()).toBeTruthy(); expect(button.hidden).toBe(true);
+  });
+  it('hides at launch, shows after sustained arrow disappearance, and hides when arrows return', () => {
+    const { c, build } = setup();
     const button = { hidden: false }; c.document = { getElementById: () => button };
     c.FplacesSpatialAlignment.syncButton(); expect(button.hidden).toBe(true);
     c.FplacesSpatialAlignment.observe('NORMAL'); build();
-    camera.worldToLocal = (p: any) => { p.z = -p.z; return p; }; tick();
+    const revision = c.FplacesAnchorEngine.instance.revision;
+    c.FplacesSpatialAlignment.observeArrowVisibility(false, 1000);
+    c.FplacesSpatialAlignment.observeArrowVisibility(false, 1500);
     expect(button.hidden).toBe(true);
-    camera.worldToLocal = (p: any) => p; tick();
+    c.FplacesSpatialAlignment.observeArrowVisibility(false, 1800);
+    expect(button.hidden).toBe(false);
+    c.FplacesSpatialAlignment.observeArrowVisibility(true, 2000);
     expect(button.hidden).toBe(true);
+    expect(c.FplacesAnchorEngine.instance.revision).toBe(revision);
   });
-  it('appears for actual tracking invalidation, stays through failed recovery, and hides on successful one-tap alignment', () => {
+  it('remains available after tracking invalidation until successful one-tap alignment', () => {
     const { c, build, trail } = setup();
     const button = { hidden: true }; c.document = { getElementById: () => button };
     c.FplacesSpatialAlignment.observe('NORMAL'); build();

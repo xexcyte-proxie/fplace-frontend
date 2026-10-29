@@ -5,7 +5,7 @@ export const appConfig = {
   mappedin: {
     /**
      * Fallback map id when a venue has no `mappedin_map_id`.
-     * Catalog venues use each venue's backend map id.
+     * Catalog venues use each venue's bundled map id.
      */
     mapId: import.meta.env.VITE_MAPPEDIN_MAP_ID ?? DEFAULT_MAPPEDIN_MAP_ID,
     venueName: 'Demo Mall',
@@ -29,9 +29,11 @@ export const appConfig = {
   googleClientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '').trim(),
   arUrl: import.meta.env.VITE_AR_URL ?? '/ar/',
   /** Must match ar-nav/config.js buildId - busts iframe cache after AR deploys. */
-  arBuildId: import.meta.env.VITE_AR_BUILD_ID ?? '20260921-camera-unblocked-v3',
+  arBuildId: import.meta.env.VITE_AR_BUILD_ID ?? '20261027-conditional-align-v5',
   mapInitTimeoutMs: 45_000,
   positioning: {
+    enableVenueGeolocationSimulation:
+      import.meta.env.DEV && import.meta.env.VITE_ENABLE_VENUE_GEOLOCATION_SIMULATION === '1',
     bleRssiThresholdDbm: -70,
     bleScanIntervalMs: Number(import.meta.env.VITE_BLE_SCAN_INTERVAL_MS) || 500,
     indoorAtlasFloorCertaintyMin: 0.5,

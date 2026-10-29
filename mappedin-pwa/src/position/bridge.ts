@@ -1,3 +1,4 @@
+import { navigationDiagnostics as navDiag } from './debug/navigation-diagnostics';
 import {
   preloadSrcNeedsRefresh,
   shouldReuseWarmedArIframe,
@@ -280,6 +281,7 @@ export function syncNavigationToAr(
   progress: NavigationProgressSnapshot,
 ): void {
   const payload = withParentSimulatorAuthority(progress);
+  const diagnosticCause = navDiag?.update('ar-sync', 'syncNavigationToAr', { ...payload, parentCause: navDiag.cause });
   const shell = document.querySelector("#ar-pip-shell") as HTMLElement | null;
   const frameEl = document.querySelector(
     "#ar-frame",
@@ -302,7 +304,7 @@ export function syncNavigationToAr(
   }
 
   frameEl.contentWindow.postMessage(
-    { type: "fplaces_navigation_sync", progress: payload },
+    { type: "fplaces_navigation_sync", progress: navDiag ? { ...payload, diagnosticCause } : payload },
     targetOrigin,
   );
 }
@@ -1145,6 +1147,7 @@ export function installArMessageBridge(host: ArMessageBridgeHost): void {
         host.closeAr();
         break;
       case "fplaces_ar_arrived":
+        navDiag?.record('arrival-message', 'installArMessageBridge', { eventSourceIsArFrame: event.source === document.querySelector<HTMLIFrameElement>('#ar-frame')?.contentWindow });
         appLog("PWA Bridge", "fplaces_ar_arrived received");
         host.lockNavigationArrival();
         break;

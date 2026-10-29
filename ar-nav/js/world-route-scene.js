@@ -21,11 +21,13 @@
     attach({ THREE, scene, camera }) {
       if (!THREE || !scene || !camera || sceneRef) return false;
       sceneRef = scene; cameraRef = camera;
+      window.FplacesStationaryMarker?.attach(scene, camera);
       window.FplacesPathArrows?.setWebGlActive?.(true);
       window.FplacesOrientationCompass?.setWebGlActive?.(true);
       return true;
     },
     detach() {
+      window.FplacesStationaryMarker?.detach();
       invalidate("detach"); sceneRef = null; cameraRef = null;
       routeRef = null; snapshot = null; lastFloorId = null;
       window.FplacesPathArrows?.setWebGlActive?.(false);
@@ -58,6 +60,7 @@
       return true;
     },
     update({ navigator }) {
+      window.FplacesStationaryMarker?.update();
       if (!sceneRef || !navigator) return;
       if (navigator.getState?.().arrived) { if (activeSection) invalidate("navigation-arrived"); return; }
       if (this.ensureRibbon(undefined, navigator)) {

@@ -6,7 +6,7 @@
 
   window.FPLACES_AR_CONFIG = {
     /** Bumped when AR camera/SLAM boot changes - check console on load. */
-    buildId: "20261027-align-conditional-v5",
+    buildId: "20261027-conditional-align-v5",
     eighthWallAppKey: "",
     xrMode: "auto",
     arrowDistanceM: 2.5,

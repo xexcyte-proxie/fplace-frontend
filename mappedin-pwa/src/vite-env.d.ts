@@ -2,6 +2,7 @@
 /// <reference types="vite-plugin-pwa/client" />
 
 interface ImportMetaEnv {
+  readonly VITE_ENABLE_VENUE_GEOLOCATION_SIMULATION?: string;
   readonly VITE_MAPPEDIN_MAP_ID: string;
   readonly VITE_AR_URL: string;
   readonly VITE_API_URL?: string;

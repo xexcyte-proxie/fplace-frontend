@@ -266,9 +266,10 @@ export function myLocationFabPresentation(
   return {
     trackingActive,
     following,
-    enabled: atVenue,
+    // A stale venue-distance result must not prevent acquiring a fresh fix.
+    enabled: true,
     label: !atVenue
-      ? "You're not at this venue"
+      ? "My location — tap to check your current position"
       : state.blueDotStatus === 'error' || state.blueDotStatus === 'inactive'
         ? 'Location unavailable — tap to retry'
         : following
@@ -287,6 +288,7 @@ export function routeNavigationPresencePresentation(
     | 'selectedVenueId'
     | 'forumVenues'
   >,
+  venueSimulationActive = false,
 ): {
   enabled: boolean;
   label: string;
@@ -300,7 +302,7 @@ export function routeNavigationPresencePresentation(
       state.userLocation,
       venue,
     ) !== 'away';
-  const enabled = atVenue || remoteArEnabled();
+  const enabled = atVenue || venueSimulationActive || remoteArEnabled();
   return {
     enabled,
     label: enabled
@@ -338,7 +340,7 @@ function setTextContent(el: Element | null, value: string): void {
 export function liveTrackingMessage(state: Pick<AppState, 'blueDotStatus' | 'route'>): string {
   if (!state.route) return '';
   if (state.blueDotStatus === 'error') return 'Location unavailable. Check location permission and try again.';
-  if (state.blueDotStatus === 'inactive') return 'Location signal is weak or lost. Waiting for an accurate location.';
+  if (state.blueDotStatus === 'inactive') return 'Location signal is weak or lost. Waiting for an accurate location. The last known position may remain shown; progress is paused.';
   if (state.blueDotStatus === 'starting') return 'Finding your location…';
   return '';
 }

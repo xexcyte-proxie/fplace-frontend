@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isUsableLiveFix, isUsableRouteSnap } from './live-fix-quality';
+import { isUsableDisplayFix, isUsableLiveFix, isUsableRouteSnap } from './live-fix-quality';
 import type { FplacesPositionFrame } from '../types';
 import { coordinateTransformationService } from '../../routing/coordinate-transformation-service';
 
@@ -27,5 +27,18 @@ describe('live navigation fix quality', () => {
   });
   it.each([undefined, NaN, Infinity, -1, 31, 9009000])('rejects unsafe snap distance %s', (offRouteMeters) => {
     expect(isUsableRouteSnap({ ...fix, offRouteMeters })).toBe(false);
+  });
+});
+
+
+describe('approximate display quality', () => {
+  it('accepts fresh 35m and 50m readings for display only', () => {
+    for (const accuracy of [35, 50]) {
+      expect(isUsableDisplayFix({ ...fix, accuracy }, now)).toBe(true);
+      expect(isUsableLiveFix({ ...fix, accuracy }, now)).toBe(false);
+    }
+  });
+  it.each([{ accuracy: 51 }, { accuracy: NaN }, { timestamp: now - 15_001 }, { timestamp: undefined }, { timestamp: now + 1_001 }, { latitude: 91 }])('rejects %j even for approximate display', patch => {
+    expect(isUsableDisplayFix({ ...fix, ...patch }, now)).toBe(false);
   });
 });

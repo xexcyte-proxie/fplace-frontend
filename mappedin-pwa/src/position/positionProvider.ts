@@ -1,3 +1,4 @@
+import { navigationDiagnostics as navDiag } from './debug/navigation-diagnostics';
 import type { FplacesPositionFrame } from './types';
 import type { RouteCoordinate } from '../types';
 
@@ -24,9 +25,15 @@ export abstract class PositionProvider {
 
   protected reportStatus(status: PositionProviderStatus): void {
     if (!this.running || this.status === status) return;
+    const previous = this.status;
     this.status = status;
+    navDiag?.update('provider-state', this.constructor.name, { subscriptionRunning: this.running, signal: status, generation: this.generation,
+      reason: 'provider-signal-transition', previousState: { signal: previous }, newState: { signal: status } });
     this.onStatus?.(status);
   }
+
+  /** Subscription health is separate from application display/navigation quality. */
+  get signalStatus(): PositionProviderStatus | null { return this.status; }
 
   get isRunning(): boolean {
     return this.running;
@@ -55,6 +62,7 @@ export abstract class PositionProvider {
   }
 
   stop(): void {
+    navDiag?.record('subscription', this.constructor.name, { reason: 'provider-stop', previousState: { running: this.running, signal: this.status }, newState: { running: false } });
     this.running = false;
     this.generation += 1;
     if (this.healthTimer != null) clearInterval(this.healthTimer);
@@ -67,7 +75,7 @@ export abstract class PositionProvider {
   protected emit(frame: Omit<FplacesPositionFrame, 'source'> & { source?: FplacesPositionFrame['source'] }): void {
     if (!this.running || !this.callback) return;
     const timestamp = frame.timestamp ?? Date.now();
-    if (timestamp >= this.lastFixAt && Date.now() - timestamp <= 15_000) {
+    if (!frame.headingOnly && timestamp >= this.lastFixAt && Date.now() - timestamp <= 15_000) {
       this.lastFixAt = Math.min(Date.now(), timestamp);
       this.reportStatus('active');
     }

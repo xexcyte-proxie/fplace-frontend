@@ -306,22 +306,6 @@
         }
       }
 
-      const floorBanner = document.getElementById('floor-banner');
-      const floorBannerText = document.getElementById('floor-banner-text');
-      if (floorBanner && floorBannerText) {
-        if (state.floorChangeMessage) {
-          floorBannerText.textContent = state.floorChangeMessage;
-          floorBanner.classList.remove('hidden');
-          floorBanner.classList.remove('lv-floor--muted');
-        } else if (state.venuePositionActive && state.floorLabel) {
-          floorBannerText.textContent = state.floorLabel;
-          floorBanner.classList.remove('hidden');
-          floorBanner.classList.add('lv-floor--muted');
-        } else {
-          floorBanner.classList.add('hidden');
-          floorBanner.classList.remove('lv-floor--muted');
-        }
-      }
     },
 
     setStatus(message, isError) {

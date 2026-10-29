@@ -115,3 +115,42 @@ describe('createStationaryPositionFilter', () => {
     expect(next.fix.latitude).toBeCloseTo(offsetMeters(8).latitude, 10);
   });
 });
+
+
+describe('timed borderline displacement confirmation', () => {
+  const sample = (m: number, timestamp: number, accuracy = 5) => ({ ...offsetMeters(m), accuracy, timestamp });
+  const create = () => createStationaryPositionFilter({ minMoveMeters: 1.5, accuracyFraction: .35, confirmationSamples: 2 });
+  it('holds alternating small GPS excursions even just outside the former deadband', () => {
+    const filter = create(); filter.process(sample(0, 1000));
+    for (let index = 1; index <= 20; index++) {
+      const result = filter.process(sample(index % 2 ? 2 : -2, 1000 + index * 1000));
+      expect(result.held).toBe(true); expect(result.fix.latitude).toBe(BASE.latitude);
+      expect(result.physicalMovementProven).toBe(false);
+    }
+  });
+  it('does not shift position for sub-minimum accuracy refinements', () => {
+    const filter = create(); filter.process(sample(0, 1000, 30));
+    expect(filter.process(sample(.4, 2000, 5))).toMatchObject({ held: true, reason: 'accuracy-improved-without-significant-displacement' });
+  });
+  it('accumulates genuine slow walking from the fixed anchor and confirms it without a permanent deadband', () => {
+    const filter = create(); filter.process(sample(0, 1000)); let result;
+    for (let second = 1; second <= 12; second++) result = filter.process(sample(second * .25, 1000 + second * 1000));
+    expect(result!.fix.latitude).toBeGreaterThan(offsetMeters(1.7).latitude);
+    expect(result!.fix.latitude).toBeLessThanOrEqual(offsetMeters(3).latitude);
+  });
+  it('does not count duplicate timestamps or a long signal gap as movement confirmations', () => {
+    const filter = create(); filter.process(sample(0, 1000));
+    filter.process(sample(2, 2000));
+    expect(filter.process(sample(2.1, 2000))).toMatchObject({ held: true, reason: 'non-increasing-timestamp' });
+    expect(filter.process(sample(2.2, 12000)).held).toBe(true);
+    expect(filter.process(sample(2.3, 13000))).toMatchObject({ held: false, reason: 'consistent-timed-displacement' });
+  });
+  it('keeps low-quality jitter held and confirms recovered accurate displacement with its actual timestamp', () => {
+    const filter = create(); filter.process(sample(0, 1000, 40));
+    expect(filter.process(sample(6, 2000, 40)).held).toBe(true);
+    expect(filter.process(sample(12, 20000, 5)).held).toBe(true);
+    const recovered = filter.process(sample(12.2, 21000, 5));
+    expect(recovered.held).toBe(false); expect(recovered.fix.timestamp).toBe(21000);
+    expect(recovered.fix.accuracy).toBe(5);
+  });
+});

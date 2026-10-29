@@ -4,7 +4,6 @@
 (function () {
   const SLOG = () => window.FplacesSlamDiagnostics;
   function injectCalibrationUi() {
-    if (document.getElementById('fplaces-calibrate-btn')) return;
     if (
       new URLSearchParams(window.location.search).get('preload') === '1' &&
       !window.__fplacesLiveViewRequested
@@ -12,16 +11,20 @@
       return;
     }
 
-    const btn = document.createElement('button');
+    const existing = document.getElementById('fplaces-calibrate-btn');
+    const btn = existing || document.createElement('button');
     btn.id = 'fplaces-calibrate-btn';
     btn.type = 'button';
     btn.className = 'calibrate-ar-btn';
     btn.textContent = 'Align route';
-    btn.hidden = !window.FplacesSpatialAlignment?.needsManual;
-    btn.addEventListener('click', () => {
-      window.executeDemoCalibrationFlow?.({ manual: true });
-    });
-    document.body.appendChild(btn);
+    btn.hidden = !window.FplacesSpatialAlignment?.needsControl;
+    if (!btn.__fplacesAlignBound) {
+      btn.addEventListener('click', () => {
+        window.executeDemoCalibrationFlow?.({ manual: true });
+      });
+      btn.__fplacesAlignBound = true;
+    }
+    if (!existing) document.body.appendChild(btn);
     window.FplacesSpatialAlignment?.syncButton?.();
   }
 
@@ -363,7 +366,7 @@
 
   window.executeDemoCalibrationFlow = function executeDemoCalibrationFlow(options = {}) {
     if (!window.FplacesSpatialAlignment?.canCalibrate(options.manual)) {
-      window.FplacesLiveViewHud?.setStatus?.('Wait for tracking, then tap Align route.', true);
+      if (options.manual) window.FplacesLiveViewHud?.setStatus?.('Wait for tracking, then tap Align route.', true);
       return false;
     }
     if (!window.FplacesCameraStart?.isStarted?.()) {
@@ -463,6 +466,7 @@
   };
 
   window.FplacesArCalibrationUi = { inject: injectCalibrationUi };
+  if (window.document?.body) injectCalibrationUi();
 
   function slamTrackingLabel() {
     if (!window.FplacesCameraStart?.isStarted?.()) return 'Tap Start for camera';
@@ -565,6 +569,8 @@
 
       let lastHudAt = 0;
       let lastAuxAt = 0;
+      let lastDiagnosticPoseAt = -Infinity;
+  let lastTrackingReportAt = -Infinity;
       let xrCamera = null;
       let xrScene = null;
       let xrInitialized = false;
@@ -709,19 +715,46 @@
         },
 
         listeners: [
-          { event: 'reality.trackingstatus', process: ({ detail }) => window.FplacesSpatialAlignment?.observe(detail?.status) },
+          { event: 'reality.trackingstatus', process: (event) => { window.FplacesNavigationDiagnostics?.update('tracking', 'XR8.reality.trackingstatus', { status: event?.status ?? event?.detail?.status ?? null, reason: event?.detail?.reason ?? null }); window.FplacesSpatialAlignment?.observe(event?.status ?? event?.detail?.status); } },
           { event: 'reality.cameraconfigured', process: ({ detail }) => {
             if (detail?.recenter) window.FplacesSpatialAlignment?.invalidate('World frame changed.');
           } },
         ],
-        onDetach() { window.FplacesSpatialAlignment?.invalidate('Camera detached.'); },
-        onPaused() { window.FplacesSpatialAlignment?.invalidate('Camera paused.'); },
-        onResume() { window.FplacesSpatialAlignment?.invalidate('Camera resumed.'); },
+        onDetach() { window.FplacesNavigationDiagnostics?.record('tracking', 'XR8.onDetach', { event: 'onDetach' }); window.FplacesSpatialAlignment?.invalidate('Camera detached.'); },
+        onPaused() { window.FplacesNavigationDiagnostics?.record('tracking', 'XR8.onPaused', { event: 'onPaused' }); window.FplacesSpatialAlignment?.invalidate('Camera paused.'); },
+        onResume() { window.FplacesNavigationDiagnostics?.record('tracking', 'XR8.onResume', { event: 'onResume' }); window.FplacesSpatialAlignment?.invalidate('Camera resumed.'); },
         onUpdate({ processCpuResult } = {}) {
           window.FplacesSpatialAlignment?.observe(processCpuResult?.reality?.trackingStatus);
+          if (performance.now() - lastTrackingReportAt >= 1000) {
+            lastTrackingReportAt = performance.now();
+            const reality = processCpuResult?.reality;
+            window.FplacesPhoneDiagnostics?.record('log', 'xr-tracking-frame', JSON.stringify({
+              status: reality?.trackingStatus ?? null, reason: reality?.trackingReason ?? null,
+              hasPosition: !!reality?.position, hasRotation: !!reality?.rotation,
+              alignment: window.FplacesSpatialAlignment?.diagnosticSnapshot?.(),
+            }));
+          }
           if (!xrInitialized) {
             setupXrScene();
           }
+          const diagnostic = window.FplacesNavigationDiagnostics;
+          if (diagnostic?.recording && performance.now()-lastDiagnosticPoseAt >= 200) {
+            lastDiagnosticPoseAt = performance.now();
+            const reality = processCpuResult?.reality;
+            diagnostic.update('pose', 'XR8.onUpdate', {
+              trackingStatus: reality?.trackingStatus ?? null, trackingReason: reality?.trackingReason ?? null,
+              cameraPosition: xrCamera ? { x: xrCamera.position.x, y: xrCamera.position.y, z: xrCamera.position.z } : null,
+              cameraQuaternion: xrCamera?.quaternion ? { x: xrCamera.quaternion.x, y: xrCamera.quaternion.y, z: xrCamera.quaternion.z, w: xrCamera.quaternion.w } : null,
+              anchorRevision: window.FplacesAnchorEngine?.instance?.revision ?? null,
+              ground: window.FplacesAnchorEngine?.instance?.ground ?? null,
+              routeWorld: window.FplacesWorldRoute?.getDiagnosticIdentity?.() ?? null,
+              alignment: window.FplacesSpatialAlignment?.diagnosticSnapshot?.() ?? null,
+              parentAlongM: navigator?._authoritativeAlongPathM ?? null,
+              displayAlongM: navigator?._displayAlongPathM ?? null,
+              fusedAlongM: window.FplacesSlamPose?.getDiagnosticAlongPathMeters?.() ?? null,
+            });
+          }
+          window.FplacesStationaryMarker?.update();
           const xr = readXrThreeScene();
           if (xr?.scene && xr?.camera) {
             ensureCameraFeedVisible(xr.scene, xr.camera, THREE, xr.renderer);
@@ -751,6 +784,9 @@
           const now = performance.now();
           if (now - lastAuxAt >= 120) {
             lastAuxAt = now;
+            if (!window.FplacesAnchorEngine?.isCalibrated && window.FplacesSpatialAlignment?.canCalibrate(false)) {
+              window.__fplacesTryAutoCalibrate?.('tracking-ready');
+            }
             if (
               xrScene &&
               window.FplacesAnchorEngine?.isCalibrated &&
@@ -845,4 +881,3 @@
     },
   };
 })();
-

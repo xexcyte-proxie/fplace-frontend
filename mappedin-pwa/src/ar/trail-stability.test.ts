@@ -47,6 +47,24 @@ describe('deterministic visibility sequences', () => {
     expect(group.children).not.toContain(initial[0]); expect(group.children[0]).toBe(initial[1]);
     expect(events('remove')).toMatchObject([{ slot: 'seg:6', reason: 'slot-window-change' }]);
   });
+  it('replenishes the bounded grid through an entire route using stable geometry identity', () => {
+    const { c, scene, advance } = setup();
+    const identity = {};
+    const seen = new Set<number>();
+    for (let along = 0; along < 39; along += .5) {
+      const refresh = () => c.FplacesIncrementalPath.extend(THREE, scene, straight.map(p => ({ ...p })), {
+        geometryIdentity: identity, alongPathM: along, cameraX: 0, cameraZ: -along,
+      });
+      refresh(); advance(240); const group = refresh();
+      expect(group.children.length).toBeLessThanOrEqual(8);
+      for (const child of group.children) {
+        const mark = child.userData.alongM;
+        expect(mark % 2).toBe(0); expect(mark).toBeLessThan(40);
+        seen.add(mark);
+      }
+    }
+    expect([...seen].sort((a,b) => a-b)).toEqual(Array.from({ length: 19 }, (_,i) => (i+1)*2));
+  });
   it('permits deliberate backward travel without permanently increasing progress', () => {
     const { advance, extend, events } = setup(); const group = extend(7); const retained = group.children[0];
     advance(); extend(5); advance(240); extend(5);
@@ -148,7 +166,7 @@ describe('orientation is not walking evidence', () => {
       expect(nav.getDisplayAlongPathMeters(5)).toBe(5);
     }
     nav._moveSpeedMps = 1; advance(1000);
-    expect(nav.getDisplayAlongPathMeters(5)).toBe(6);
+    expect(nav.getDisplayAlongPathMeters(5)).toBe(5);
   });
   it('preserves the separate parent simulator clock', () => {
     const { c, load, advance } = setup(); load('route-navigator');

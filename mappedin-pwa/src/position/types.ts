@@ -14,6 +14,8 @@ export interface FplacesPositionFrame {
   source: PositionSourceType;
   floorId?: string;
   timestamp?: number;
+  /** A compass event carrying cached GPS for context, never a new physical fix. */
+  headingOnly?: boolean;
   /** Meters along the active route polyline (matches 2D map progress). */
   alongPathMeters?: number;
   /** Geometric distance from the raw fix to the snapped route point (live ETA). */

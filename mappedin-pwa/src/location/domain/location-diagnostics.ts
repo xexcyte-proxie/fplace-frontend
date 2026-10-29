@@ -5,6 +5,12 @@ const events: DiagnosticEvent[] = [];
 export function recordLocationDiagnostic(event: string, detail: Record<string, unknown> = {}): void {
   events.push({ time: new Date().toISOString(), event, detail });
   if (events.length > 40) events.shift();
+  if (import.meta.env.DEV && typeof window !== 'undefined') {
+    try { window.FplacesNavigationDiagnostics?.record('location-lifecycle', 'LocationDiagnostics', {
+      ...detail, name: event, severity: /failed|error/.test(event) ? 'error' : 'info',
+      reason: detail.reason ?? event,
+    }); } catch { /* Recorder failures never affect location handling. */ }
+  }
 }
 
 export function locationErrorDetail(error: unknown): Record<string, unknown> {
@@ -16,6 +22,9 @@ export function locationErrorDetail(error: unknown): Record<string, unknown> {
     message: typeof value?.message === 'string' ? value.message : 'Unknown location error',
   };
 }
+
+/** Diagnostic history only; never changes permissions, sensors or accepted positions. */
+export function clearLocationDiagnosticEvents(): void { events.length = 0; }
 
 export function getLocationDiagnosticReport(): string {
   const policy = typeof document === 'undefined' ? undefined :

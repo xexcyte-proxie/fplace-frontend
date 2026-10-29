@@ -23,6 +23,7 @@
     }
 
     reset() {
+      window.FplacesNavigationDiagnostics?.record('anchor-reset', 'AnchorEngine.reset', { revisionBefore: this.revision, revisionAfter: (this.revision || 0)+1, wasCalibrated: this.isCalibrated });
       this.revision = (this.revision || 0) + 1;
       this.ground = null;
       this.origin = null;
@@ -65,6 +66,7 @@
       });
       this.revision += 1;
       this.isCalibrated = true;
+      window.FplacesNavigationDiagnostics?.update('calibration', 'AnchorEngine.calibrate', { revision: this.revision, origin: this.origin, yawOffsetDeg: this.yawOffsetDeg, slamOriginX: this.slamOriginX, slamOriginZ: this.slamOriginZ, ground: this.ground, alignmentSource: 'explicit-calibrate-call' });
       return true;
     }
 
@@ -94,6 +96,7 @@
     instance: shared,
     AnchorEngine,
     reset() {
+      window.FplacesNavigationDiagnostics?.record('anchor-reset', 'AnchorEngine.reset', { revisionBefore: this.revision, revisionAfter: (this.revision || 0)+1, wasCalibrated: this.isCalibrated });
       return shared.reset();
     },
     calibrate(baseCoordinates, alignment) {

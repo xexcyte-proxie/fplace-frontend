@@ -209,6 +209,14 @@
   /**
    * Commit stable desired membership, then add missing slots and remove obsolete ones.
    */
+  function recordRetainedTransform(mesh, place) {
+    if (!window.FplacesTrailDiagnostics?.enabled) return;
+    const moved = Math.hypot(mesh.position.x-place.x, mesh.position.y-place.y, mesh.position.z-place.z) > 0.001 || Math.abs(mesh.rotation.y-(place.rotationY ?? 0)) > 0.001;
+    if (moved) window.FplacesTrailDiagnostics.record('transform', { id: mesh.userData.trailInstanceId,
+      action: 'moved', from: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
+      to: { x: place.x, y: place.y, z: place.z }, yaw: place.rotationY ?? 0 });
+  }
+
   function reconcileTrail(THREE, group, desired, density) {
     const desiredKeys = new Set(desired.map((place) => segmentKey(place)));
     const configured = cfg().trailMembershipStableMs;
@@ -218,7 +226,7 @@
       // Keep existing membership while still refreshing unchanged transforms.
       desired.forEach(place => {
         const retained = group.children.find(child => child.userData.segmentKey === segmentKey(place));
-        if (retained) { retained.position.set(place.x, place.y, place.z); retained.rotation.y = place.rotationY ?? 0; }
+        if (retained) { recordRetainedTransform(retained, place); retained.position.set(place.x, place.y, place.z); retained.rotation.y = place.rotationY ?? 0; }
       });
       return;
     }
@@ -241,7 +249,7 @@
       const key = segmentKey(place);
       if (have.has(key)) {
         const retained = group.children.find(child => child.userData?.segmentKey === key);
-        retained.position.set(place.x, place.y, place.z);
+        recordRetainedTransform(retained, place); retained.position.set(place.x, place.y, place.z);
         retained.rotation.y = place.rotationY ?? 0;
         return;
       }
@@ -351,6 +359,7 @@
     if (now - lastVisualsAt < 2) return;
     lastVisualsAt = now;
     trailGroup.children.forEach((child) => applyFadeIn(child, now));
+    window.FplacesSpatialAlignment?.sampleArrowVisibility?.(cameraRef, trailGroup, now);
 
     if (window.FplacesTrailDiagnostics?.enabled) window.FplacesTrailDiagnostics.sample(cameraRef, trailGroup, now);
     if (!destinationGroup) return;
@@ -429,6 +438,8 @@
 
     const { totalLen } = buildSegmentTable(points);
     const density = resolveTrailDensity(findAlong, totalLen);
+    window.FplacesTrailDiagnostics?.progress({ spacingM: density.spacing, maxVisible: density.maxVisible,
+      visualHorizonM: density.revealAheadM, remaining: density.remaining, spawnFrom: density.spawnFrom, spawnTo: density.spawnTo });
     const remaining = Math.max(0, totalLen - findAlong);
     const destRevealM = cfg().destinationRevealRemainingM ?? 8;
     const group = ensureTrailGroup(THREE, scene);

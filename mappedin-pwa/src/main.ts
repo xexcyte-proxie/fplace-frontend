@@ -1,3 +1,5 @@
+import { install2DNavigationDebugger } from './position/debug/navigation-diagnostics';
+import { installLocationDiagnostics } from './position/debug/location-button-trace';
 import { registerSW } from 'virtual:pwa-register';
 import { AppStore } from './state/app-store';
 import { MapApp } from './services/map-app';
@@ -30,6 +32,9 @@ import './styles/returning-home-screen.css';
 import './styles/first-visit-venue-screen.css';
 import './styles/navigate-hub-screen.css';
 import './styles/product-tour.css';
+
+// Register before map/app initialization; DEV-only, no permission or GPS side effects.
+installLocationDiagnostics();
 
 // Capture /reset-password?uid=&token= before boot/routing can drop the query.
 capturePasswordResetLinkFromLocation();
@@ -81,6 +86,8 @@ if (import.meta.env.DEV) {
 
 const store = new AppStore();
 const app = new MapApp(store);
+installLocationDiagnostics(() => app.getLocationDiagnosticsSnapshot());
+install2DNavigationDebugger(() => app.getLocationDiagnosticsSnapshot(), () => app.enableCompassForDiagnostics());
 installArMessageBridge(app);
 installArPipShell({
   maximizeAr: () => app.maximizeAr(),

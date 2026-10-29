@@ -100,6 +100,7 @@
   }
 
   function emit(level, phase, message, detail) {
+    window.FplacesPhoneDiagnostics?.record(level, phase, message);
     const line = formatLine(level, phase, message, detail);
     if (level === 'error') {
       console.error(`[fplaces AR] ${line}`);

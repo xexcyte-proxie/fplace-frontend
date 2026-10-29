@@ -193,3 +193,34 @@ describe('GPS errors and late callbacks', () => {
     vi.unstubAllGlobals();
   });
 });
+
+
+describe('retained GPS and compass independence', () => {
+  it('keeps compass updates after a watch timeout without making the old GPS fix fresh or active', async () => {
+    vi.useFakeTimers();
+    let success!: PositionCallback; let fail!: PositionErrorCallback;
+    const listeners = new Map<string, (event: any) => void>();
+    vi.stubGlobal('navigator', { geolocation: { watchPosition: vi.fn((s: PositionCallback, e: PositionErrorCallback) => { success = s; fail = e; return 1; }), clearWatch: vi.fn() } });
+    vi.stubGlobal('DeviceOrientationEvent', class {});
+    vi.stubGlobal('window', { screen: { orientation: { angle: 0 } }, addEventListener: (event: string, callback: (event: any) => void) => listeners.set(event, callback), removeEventListener: vi.fn() });
+    const provider = new GpsPositionProvider(); const onStatus = vi.fn(); const onFrame = vi.fn();
+    try {
+      provider.start(onFrame, { onStatus });
+      await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+      const timestamp = Date.now();
+      success({ coords: { latitude: 6, longitude: 3, accuracy: 35, heading: null }, timestamp } as GeolocationPosition);
+      fail({ code: 3, message: 'Timeout' } as GeolocationPositionError);
+      vi.advanceTimersByTime(16_000);
+      const beforeTurn = onStatus.mock.calls.length;
+      const turn = listeners.get('deviceorientation')!;
+      turn({ webkitCompassHeading: 90, webkitCompassAccuracy: 5 });
+      turn({ webkitCompassHeading: 90, webkitCompassAccuracy: 5 });
+      expect(onFrame).toHaveBeenLastCalledWith(expect.objectContaining({ headingOnly: true, heading: 90, latitude: 6, longitude: 3, timestamp }));
+      expect(onStatus.mock.calls.length).toBe(beforeTurn);
+      expect(onStatus).toHaveBeenLastCalledWith('inactive');
+      success({ coords: { latitude: 6.0001, longitude: 3, accuracy: 5, heading: null }, timestamp: Date.now() } as GeolocationPosition);
+      expect(onFrame.mock.calls.at(-1)?.[0].headingOnly).toBeUndefined();
+      expect(onStatus).toHaveBeenLastCalledWith('active');
+    } finally { provider.stop(); vi.useRealTimers(); vi.unstubAllGlobals(); }
+  });
+});
