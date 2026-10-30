@@ -1,3 +1,7 @@
+import { mountPositionOverlay } from "../position/physical-walk/position-overlay";
+import { physicalWalkEnabled } from "../position/physical-walk/session";
+import { PhysicalWalkNavigation } from "../position/physical-walk/navigation";
+import { mountPhysicalWalkControls } from "../position/physical-walk/controls";
 import { recordLocationDiagnostic } from '../location/domain/location-diagnostics';
 import { show3dMap } from "@mappedin/mappedin-js";
 import type { MapData, MapView } from "@mappedin/mappedin-js";
@@ -328,6 +332,9 @@ type EnterVenueOptions = {
 export class MapApp {
   private mapView: MapView | null = null;
   private mapData: MapData | null = null;
+  private physicalWalk: PhysicalWalkNavigation | null = null;
+  private removePositionOverlay: (() => void) | null = null;
+  private removePhysicalWalkControls: (() => void) | null = null;
   private routePlanner: RoutePlanner | null = null;
   private blueDotService: BlueDotService | null = null;
   private positionProvider: PositionProvider | null = null;
@@ -757,6 +764,7 @@ export class MapApp {
       this.mapLoadInFlight = null;
       this.mapLoadInFlightKey = null;
     }
+    this.disposePhysicalWalk();
     this.stopPositionProvider();
     this.mapGestureGuard?.dispose();
     this.mapGestureGuard = null;
@@ -865,6 +873,7 @@ export class MapApp {
       });
       this.blueDotService.prepare({ simulatorBoot: false });
 
+      this.installPhysicalWalk();
       this.wireMapEvents();
       this.publishFloors();
       this.publishMapLanguages();
@@ -2663,6 +2672,14 @@ export class MapApp {
   private async blockNavigationOutsideVenue(
     action: "route" | "ar" = "route",
   ): Promise<boolean> {
+    // Explicit demo builds permit remote route planning, without changing real presence.
+    if (physicalWalkEnabled() && action === "route") {
+      const state = this.store.get();
+      if (!state.authUser && state.guestAccessAllowed === false) {
+        this.showToast(guestDenialUserMessage(state.guestAccessReason)); return true;
+      }
+      return false;
+    }
     if (remoteArEnabled()) return false;
     if (!(await this.ensureUserLocationForVenuePresence())) return true;
     const state = this.store.get();
@@ -4334,7 +4351,7 @@ export class MapApp {
     termsAccepted: boolean,
   ): Promise<void> {
     const fieldErrors: Record<string, string> = {};
-    const trimmedEmail = email.trim();
+    const trimmedEmail = email.trim().toLowerCase();
 
     if (!trimmedEmail) {
       fieldErrors.email = "Email is required.";
@@ -4543,7 +4560,7 @@ export class MapApp {
 
   async submitLogin(email: string, password: string): Promise<void> {
     const fieldErrors: Record<string, string> = {};
-    const trimmedEmail = email.trim();
+    const trimmedEmail = email.trim().toLowerCase();
 
     if (!trimmedEmail) {
       fieldErrors.email = "Email is required.";
@@ -5249,6 +5266,7 @@ export class MapApp {
   private async setOriginFromLocationCard(
     selection: LocationCardSelection,
   ): Promise<void> {
+    if (physicalWalkEnabled()) void requestDeviceOrientationPermission();
     if (!this.routePlanner) return;
     if (await this.blockNavigationOutsideVenue()) return;
 
@@ -5301,6 +5319,7 @@ export class MapApp {
   private async setDestinationFromLocationCard(
     selection: LocationCardSelection,
   ): Promise<void> {
+    if (physicalWalkEnabled()) void requestDeviceOrientationPermission();
     if (!this.routePlanner) return;
     if (await this.blockNavigationOutsideVenue()) return;
 
@@ -6421,6 +6440,7 @@ export class MapApp {
     name: string,
     floorName?: string,
   ): Promise<void> {
+    if (physicalWalkEnabled()) void requestDeviceOrientationPermission();
     if (!this.mapData || !this.routePlanner) return;
     if (await this.blockNavigationOutsideVenue()) return;
 
@@ -6542,6 +6562,7 @@ export class MapApp {
   }
 
   async selectFloor(floorId: string): Promise<void> {
+    if (this.physicalWalk?.running) { this.showToast("End the physical demo before changing floors."); return; }
     if (!this.mapView) return;
     this.floorOrchestrator.forceFloor(floorId);
     positionTelemetry.setOrchestratorState(this.floorOrchestrator.getState());
@@ -6661,10 +6682,12 @@ export class MapApp {
   }
 
   getActivePositionSource(): PositionSourceType {
+    if (this.physicalWalk?.running) return "physical-gps-transformed";
     return this.activePositionSource;
   }
 
   async goToMyLocation(): Promise<void> {
+    if (this.physicalWalk?.running) { this.blueDotService?.focusOnUser(); return; }
     if (!this.mapView || !this.blueDotService) {
       this.showToast("Map is still loading. Try again in a moment.");
       return;
@@ -6690,6 +6713,7 @@ export class MapApp {
       });
       this.persistLocationChoice("granted");
       this.publishUserLocation(coords);
+      if (this.physicalWalk?.running) return;
 
       if (this.isAwayFromSelectedVenue()) {
         const state = this.store.get();
@@ -6722,6 +6746,7 @@ export class MapApp {
           follow: true,
           watchDevicePosition: true,
         });
+        if (this.reclaimPhysicalWalkAfterSensorStart()) return;
         await this.blueDotService.enableHeading().catch(() => undefined);
       } else {
         this.blueDotService.follow();
@@ -6795,6 +6820,7 @@ export class MapApp {
   }
 
   async clearRoute(): Promise<void> {
+    this.physicalWalk?.end();
     if (!this.routePlanner) return;
     this.routePlanner.clearRoute();
     this.routePlanner.endGuidedNavigation();
@@ -6835,6 +6861,7 @@ export class MapApp {
   }
 
   async openAr(): Promise<void> {
+    if (this.physicalWalk?.running) { this.showToast("End Physical Walk Demo before opening AR."); return; }
     if (await this.blockNavigationOutsideVenue("ar")) return;
     const state = this.store.get();
     if (!state.route) {
@@ -6918,6 +6945,7 @@ export class MapApp {
   }
 
   private async enterArFullscreen(): Promise<void> {
+    if (this.physicalWalk?.running) return;
     if (await this.blockNavigationOutsideVenue("ar")) return;
     const state = this.store.get();
     if (!state.route) {
@@ -7062,6 +7090,7 @@ export class MapApp {
    * jitter cannot reopen turn-by-turn / "End point" chrome.
    */
   lockNavigationArrival(): void {
+    if (this.physicalWalk?.running && !this.physicalWalk.metrics?.arrived) return;
     const state = this.store.get();
     if (state.arrivalDialogHandled) return;
     this.liveRouteTracking = false;
@@ -7102,6 +7131,108 @@ export class MapApp {
     return (
       isArSessionActive(this.store.get().arPresentation) || isArFrameVisible()
     );
+  }
+
+  /** An idle sensor enable begun before Start may resolve after demo acquisition. */
+  private reclaimPhysicalWalkAfterSensorStart(): boolean {
+    if (!this.physicalWalk?.running) return false;
+    this.blueDotService?.stopTracking();
+    void this.blueDotService?.enableHeading({ forceDuringSimulator: true });
+    this.blueDotService?.follow();
+    return true;
+  }
+
+  private disposePhysicalWalk(): void {
+    const controller = this.physicalWalk;
+    this.physicalWalk = null; // Prevent restoration while a scene is being destroyed.
+    controller?.end();
+    if (controller?.positionAudit) this.blueDotService?.setPositionDiagnostics(null);
+    this.removePositionOverlay?.(); this.removePositionOverlay = null;
+    controller?.positionAudit?.dispose();
+    this.removePhysicalWalkControls?.(); this.removePhysicalWalkControls = null;
+  }
+
+  private installPhysicalWalk(): void {
+    if (!physicalWalkEnabled()) return;
+    this.disposePhysicalWalk();
+    let lastHeading: number | undefined;
+    const controller = new PhysicalWalkNavigation({
+      acquire: () => {
+        if (controller.positionAudit) this.blueDotService?.setPositionDiagnostics((type, data) => controller.positionAudit?.marker(type, {
+          ...data, provider: this.getActivePositionSource(), state: controller.sessionState,
+          routeState: this.store.get().routeSimulationComplete ? "arrived" : controller.running ? "navigating" : "route-planned",
+        }));
+        this.blueDotService?.setHeadingDiagnostics((type, data) => controller.recorder.record(type, {
+          ...data, provider: "physical-gps-transformed", state: controller.sessionState,
+          routeState: this.store.get().routeSimulationComplete ? "arrived" : controller.running ? "navigating" : "route-planned",
+          routeId: this.store.get().route?.routeId,
+        }, Date.now()));
+        this.stopPositionProvider();
+        this.liveRouteTracking = false;
+        this.blueDotService?.setSimulatorParallelMode(true, { compassGlow: true });
+        this.blueDotService?.follow();
+        this.store.patch({ routeTraveledMeters: 0, routeRemainingMeters: this.store.get().route?.distanceMeters ?? null,
+          routeSimulating: false, routeSimulationComplete: false, arrivalDialogOpen: false, arrivalDialogHandled: false });
+        controller.recorder.record("provider.acquire", { provider: "physical-walk" }, Date.now());
+      },
+      release: () => {
+        this.blueDotService?.setSimulatorParallelMode(false);
+        this.blueDotService?.setHeadingDiagnostics(null);
+        if (controller.positionAudit) this.blueDotService?.setPositionDiagnostics(null);
+        if (this.physicalWalk === controller) {
+          const path = this.store.get().route?.pathCoordinates;
+          if (path?.length) this.startPositionProvider(path);
+          else void this.maybeAutoStartBlueDot();
+        }
+      },
+      render: position => {
+        if (!controller.running) return;
+        this.blueDotService?.applyProviderFrame(position);
+        this.store.patch({ blueDotStatus: "active" });
+      },
+      progress: (metrics, projected) => {
+        if (!controller.running) return;
+        this.store.patch({ routeTraveledMeters: metrics.alongMeters, routeRemainingMeters: metrics.remainingMeters,
+          blueDotStatus: controller.status.includes("degraded") ? "inactive" : "active" });
+        const heading = this.blueDotService?.getLastPosition()?.heading;
+        if (heading !== lastHeading) {
+          lastHeading = heading;
+          controller.recorder.record("heading.update", { heading }, Date.now());
+        }
+        if (projected) this.routePlanner?.updateTravelledPath(projected);
+        if (metrics.arrived) this.lockNavigationArrival();
+      },
+    });
+    this.physicalWalk = controller;
+    if (controller.positionAudit && this.mapView) {
+      this.removePositionOverlay = mountPositionOverlay(controller.positionAudit, this.mapView, point => {
+        const floor = point.floorId ? this.mapData?.getById("floor", point.floorId) : this.mapView?.currentFloor;
+        return this.mapView?.createCoordinate(point.latitude, point.longitude, floor ?? undefined);
+      });
+    }
+    this.removePhysicalWalkControls = mountPhysicalWalkControls(controller,
+      () => this.startPhysicalWalkDemo(),
+      () => this.store.get().navigateView === "map" || controller.running);
+  }
+
+  private startPhysicalWalkDemo(): boolean {
+    const controller = this.physicalWalk;
+    if (!physicalWalkEnabled() || !controller) return false;
+    const state = this.store.get();
+    if (!state.authUser && state.guestAccessAllowed === false) { this.showToast(guestDenialUserMessage(state.guestAccessReason)); return false; }
+    const route = state.route;
+    if (!route?.pathCoordinates.length || !this.loadedVenueMapId) { this.showToast("Select start and destination and calculate a route first."); return false; }
+    if (this.isArOpen()) { this.showToast("Close AR before starting the 2D physical demo."); return false; }
+    const anchor = route.origin ?? route.pathCoordinates[0];
+    const floorId = anchor.floorId;
+    if (!floorId || floorId === "unknown") { this.showToast("Select a start on a known floor."); return false; }
+    if (route.pathCoordinates.some(point => point.floorId !== floorId)) { this.showToast("Choose a single-floor route for Physical Walk Demo."); return false; }
+    this.mapView?.setFloor(floorId);
+    this.store.patch({ currentFloorId: floorId });
+    this.routePlanner?.clearTravelledPathTracking();
+    controller.start({ sessionId: crypto.randomUUID(), mapId: this.loadedVenueMapId, floorId, anchor }, route);
+    controller.positionAudit?.greenMarker(this.routePlanner?.markersState?.origin);
+    return controller.running;
   }
 
   private resolveNavigationSource(): PositionSourceType {
@@ -7327,6 +7458,7 @@ export class MapApp {
     alongPathMeters?: number;
     resetProgress?: boolean;
   }): Promise<void> {
+    if (this.physicalWalk?.running) return;
     if (await this.blockNavigationOutsideVenue()) return;
     const state = this.store.get();
     if (!state.route?.pathCoordinates?.length) {
@@ -7375,6 +7507,7 @@ export class MapApp {
   }
 
   resetRouteSimulation(): void {
+    if (this.physicalWalk?.running) return;
     const state = this.store.get();
     if (!state.route?.pathCoordinates?.length) return;
 
@@ -7525,6 +7658,7 @@ export class MapApp {
     if (!this.mapView) return;
 
     this.mapView.on("click", async (event) => {
+      if (physicalWalkEnabled()) void requestDeviceOrientationPermission();
       const pointer = this.mapGestureGuard?.getLastPointerClient();
       const rawEvent = event as Record<string, unknown>;
       const summarize = (value: unknown): unknown => {
@@ -7719,6 +7853,7 @@ export class MapApp {
   }
 
   private applyRoute(route: RoutePayload): void {
+    this.physicalWalk?.end();
     if (!this.routePlanner) return;
     this.routePlanner.setRoutePlanningPaused(true);
     const instructions = legInstructions(route.legs[0]);
@@ -7747,8 +7882,12 @@ export class MapApp {
       arRouteSetupActive: false,
     });
 
-    this.startPositionProvider(route.pathCoordinates);
     this.routePlanner.beginGuidedNavigation(route.distanceMeters ?? null);
+    if (physicalWalkEnabled()) {
+      this.startPhysicalWalkDemo();
+      return;
+    }
+    this.startPositionProvider(route.pathCoordinates);
     warmArIframe();
 
     if (wasArOpen) {
@@ -7794,6 +7933,7 @@ export class MapApp {
     },
     animated = false,
   ): void {
+    if (this.physicalWalk?.running) return;
     if (!isArSessionActive(this.store.get().arPresentation)) return;
 
     if (this.positionProvider?.isRunning) return;
@@ -7819,6 +7959,10 @@ export class MapApp {
     heading?: number;
     floorId?: string;
   }): void {
+    if (this.physicalWalk?.running) {
+      this.physicalWalk.recorder.record("heading.update", { heading: position.heading }, Date.now());
+      return;
+    }
     this.ingestPositionFrame({
       latitude: position.coordinate.latitude,
       longitude: position.coordinate.longitude,
@@ -7840,6 +7984,10 @@ export class MapApp {
     heading?: number;
     floorId?: string;
   }): void {
+    if (this.physicalWalk?.running) {
+      this.physicalWalk.recorder.record("heading.update", { heading: position.heading }, Date.now());
+      return;
+    }
     const coordinate = position.mapCoordinate;
     if (coordinate && this.store.get().route) {
       this.mapView?.Navigation?.trackCoordinate?.(coordinate, {
@@ -7865,6 +8013,7 @@ export class MapApp {
   }
 
   private startPositionProvider(path: RoutePayload["pathCoordinates"]): void {
+    if (this.physicalWalk?.running) return;
     this.stopPositionProvider({ preserveProgress: true });
     this.activePositionSource = this.resolveNavigationSource();
     positionTelemetry.setActiveSource(this.activePositionSource);
@@ -7912,7 +8061,8 @@ export class MapApp {
   private stopPositionProvider(options?: { preserveProgress?: boolean }): void {
     this.positionProvider?.stop();
     this.positionProvider = null;
-    this.blueDotService?.setSimulatorParallelMode(false);
+    // Stopping a competing GPS provider must not release the active demo renderer/compass.
+    if (!this.physicalWalk?.running) this.blueDotService?.setSimulatorParallelMode(false);
     this.lastArStreamAt = 0;
     this.lastArProviderStreamAt = 0;
     this.lastProviderFix = null;
@@ -8028,6 +8178,7 @@ export class MapApp {
   }
 
   private handleLivePositionStatus(status: PositionProviderStatus): void {
+    if (this.physicalWalk?.running) return;
     if (status === 'active') return; // Only accepted fixes restore live UI status.
     const previous = this.store.get().blueDotStatus;
     this.store.patch({ blueDotStatus: status });
@@ -8047,6 +8198,7 @@ export class MapApp {
   }
 
   private handleProviderFrame(frame: FplacesPositionFrame): void {
+    if (this.physicalWalk?.running) return;
     if (!isUsableLiveFix(frame)) {
       this.handleLivePositionStatus('inactive');
       return;
@@ -8142,6 +8294,7 @@ export class MapApp {
   }
 
   private handleBlueDotStatus(status: BlueDotStatus): void {
+    if (this.physicalWalk?.running) return;
     if (this.positionProvider?.isRunning) return;
     this.store.patch({
       blueDotStatus: status,
@@ -8150,6 +8303,7 @@ export class MapApp {
   }
 
   private async maybeAutoStartBlueDot(): Promise<void> {
+    if (this.physicalWalk?.running) return;
     if (
       !this.blueDotService ||
       !navigator.permissions?.query ||
@@ -8160,9 +8314,10 @@ export class MapApp {
 
     try {
       const status = await navigator.permissions.query({ name: "geolocation" });
-      if (status.state !== "granted") return;
+      if (status.state !== "granted" || this.physicalWalk?.running) return;
       if (this.positionProvider?.isRunning) return;
       await this.blueDotService.startTracking();
+      if (this.reclaimPhysicalWalkAfterSensorStart()) return;
       appLog("BlueDot", "Auto-started (permission already granted)");
     } catch (error) {
       appWarn("BlueDot", "Could not query geolocation permission", error);

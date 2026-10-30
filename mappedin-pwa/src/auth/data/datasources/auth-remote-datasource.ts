@@ -38,7 +38,7 @@ export class AuthRemoteDatasource {
   async register(credentials: RegisterCredentials): Promise<AuthUser> {
     const raw = await apiRequest<unknown>('/api/users/register/', {
       method: 'POST',
-      body: credentials,
+      body: { ...credentials, email: credentials.email.trim().toLowerCase() },
       fallbackError: 'Could not create your account. Please try again.',
     });
     return requireAuthUser(
@@ -114,7 +114,7 @@ export class AuthRemoteDatasource {
   async login(credentials: LoginCredentials): Promise<AuthSession> {
     const body = await apiRequest<unknown>('/api/users/login/', {
       method: 'POST',
-      body: credentials,
+      body: { ...credentials, email: credentials.email.trim().toLowerCase() },
       fallbackError: 'Could not log in. Check your email and password.',
     });
     return normalizeSession(body);

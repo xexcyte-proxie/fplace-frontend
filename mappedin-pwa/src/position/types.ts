@@ -1,4 +1,5 @@
 export type PositionSourceType =
+  | 'physical-gps-transformed'
   | 'simulator'
   | 'gps'
   | 'apple_indoor'
