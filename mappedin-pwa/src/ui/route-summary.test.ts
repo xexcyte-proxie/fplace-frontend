@@ -71,3 +71,11 @@ describe('buildRouteSheetSummary', () => {
     expect(buildRouteSheetSummary(state).beginLabel).toBe('Begin');
   });
 });
+
+it('uses the explicit guided-demo ETA only while that demo supplies it', () => {
+  const state = initialAppState();
+  state.routeRemainingMeters = 12; state.routeGuidedDemoRemainingSeconds = 10;
+  expect(buildRouteSheetSummary(state).walkTime).toBe('10s');
+  state.routeGuidedDemoRemainingSeconds = null;
+  expect(buildRouteSheetSummary(state).walkTime).not.toBe('10s');
+});

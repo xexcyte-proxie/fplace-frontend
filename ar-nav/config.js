@@ -6,7 +6,7 @@
 
   window.FPLACES_AR_CONFIG = {
     /** Bumped when AR camera/SLAM boot changes - check console on load. */
-    buildId: "20261027-align-conditional-v5",
+    buildId: "20261031-arrival-parity-v1",
     eighthWallAppKey: "",
     xrMode: "auto",
     arrowDistanceM: 2.5,
@@ -50,11 +50,11 @@
     /** Refuse a second chevron closer than this in world XZ (meters). */
     incrementalPathMinSeparationM: 1,
     incrementalPathSpacingM: 2,
-    incrementalPathMaxVisible: 8,
+    incrementalPathMaxVisible: 6,
     /** Legacy density caps also constrain the incremental trail. */
     nearFieldStartM: 6,
     nearFieldSpacingM: 2,
-    nearFieldMaxArrows: 8,
+    nearFieldMaxArrows: 6,
     /** Legacy scale fallback when trailArrowScale is absent. */
     nearFieldArrowScale: 1,
     nearFieldLeadGapM: 2,

@@ -18,7 +18,7 @@ function ready() {
   return session;
 }
 afterEach(() => vi.unstubAllEnvs());
-describe('diagnostic reproductions — current behavior, not proposed fixes', () => {
+describe('diagnostic reproductions and corrected rendering regressions', () => {
   it('accepts coherent GPS drift with stationary ground truth', () => {
     const s = ready();
     // Ground truth stays at (0,0); the receiver reports a smooth drifting estimate.
@@ -58,7 +58,7 @@ describe('diagnostic reproductions — current behavior, not proposed fixes', ()
     expect(animation.sample(acceptedAt + 800)).toEqual(animation.sample(acceptedAt + 9000));
   });
   it('rendering stops after 800ms even when observations are several seconds apart', () => {
-    const a = new PositionInterpolation(); a.setTarget(anchor, 0);
+    const a = new PositionInterpolation(); a.setTarget(anchor, 0); a.markRendered(a.sample(0)!);
     a.setTarget({ ...offset(anchor, { east: 10, north: 0 }), floorId: 'g' }, 10000);
     expect(a.durationMs).toBe(800); expect(a.sample(10800)).toEqual(a.sample(19999));
   });
@@ -69,14 +69,14 @@ describe('diagnostic reproductions — current behavior, not proposed fixes', ()
     for (let i = 9; i >= 0; i--) s.ingest(fix(i, 0, 14000 + (9 - i) * 1000), 14000 + (9 - i) * 1000);
     expect(s.position!.east).toBeLessThan(forward); expect(s.position!.east).toBeCloseTo(0, 5);
   });
-  it('retargeting after missing frames advances beyond the last actually drawn point', () => {
+  it('retargeting after missing frames preserves the last actually drawn point', () => {
     const a = new PositionInterpolation();
-    a.setTarget(anchor, 0); a.setTarget({ ...offset(anchor, { east: 10, north: 0 }), floorId: 'g' }, 1000);
-    const lastDrawn = a.sample(1200)!;
+    a.setTarget(anchor, 0); a.markRendered(a.sample(0)!); a.setTarget({ ...offset(anchor, { east: 10, north: 0 }), floorId: 'g' }, 1000);
+    const lastDrawn = a.sample(1200)!; a.markRendered(lastDrawn);
     expect(displacement(anchor, lastDrawn).east).toBeCloseTo(2.5, 5);
     // No frame draws between 1200 and 3000. A new GPS target arrives first.
     a.setTarget({ ...offset(anchor, { east: 20, north: 0 }), floorId: 'g' }, 3000);
-    expect(displacement(lastDrawn, a.sample(3000)!).east).toBeCloseTo(7.5, 5);
+    expect(displacement(lastDrawn, a.sample(3000)!).east).toBeCloseTo(0, 5);
   });
 });
 describe('opt-in position audit', () => {

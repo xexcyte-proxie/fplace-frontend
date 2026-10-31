@@ -557,8 +557,7 @@ body,
   opacity: 0.65;
 }
 
-.location-dialog-backdrop,
-.arrival-dialog-backdrop {
+.location-dialog-backdrop {
   position: absolute;
   inset: 0;
   z-index: 20;
@@ -570,76 +569,6 @@ body,
   background: rgba(21, 21, 31, 0.45);
   /* Keep taps on the dialog only - underlying Continue / forms stay frozen. */
   pointer-events: auto;
-}
-
-.arrival-dialog-backdrop {
-  z-index: 40;
-  background: rgba(21, 21, 31, 0.58);
-}
-
-.arrival-dialog {
-  width: min(100%, 400px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 36px 28px 28px;
-  border-radius: 28px;
-  background: #ffffff;
-  color: #15151f;
-  box-shadow: 0 24px 56px rgba(21, 21, 31, 0.28);
-}
-
-.arrival-dialog-icon {
-  width: 72px;
-  height: 72px;
-  margin-bottom: 16px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(46, 180, 110, 0.14);
-  color: #1f9d5a;
-  font-size: 36px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.arrival-dialog-title {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: -0.4px;
-}
-
-.arrival-dialog-body {
-  margin: 12px 0 0;
-  font-size: 16px;
-  line-height: 1.45;
-  color: #5c5c6a;
-}
-
-.arrival-dialog-ok {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  min-height: 60px;
-  margin-top: 28px;
-  padding: 16px 24px;
-  border: 0;
-  border-radius: 18px;
-  background: var(--brand-orange);
-  color: #ffffff;
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 1.2;
-  cursor: pointer;
-}
-
-.arrival-dialog-ok:active {
-  filter: brightness(0.96);
 }
 
 .location-dialog {
@@ -3195,3 +3124,24 @@ button.is-loading:disabled,
   padding-left: 12px;
   border-left: 2px solid var(--brand-orange);
 }
+
+/* Keep the away-from-venue notice in the map header flow, below the filters. */
+.venue-navigation-notice {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e8c88d;
+  border-radius: 12px;
+  background: #fff5df;
+  color: #66451a;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 6%);
+}
+
+/* Confirmed arrival in minimized AR: a single check, centered in the entire viewport. */
+.ar-pip-arrival { display: none; position: absolute; inset: 0; z-index: 4; place-items: center; background: #f0f8f2; color: #238153; pointer-events: none; }
+#ar-pip-shell.ar-pip-shell--minimized.ar-pip-shell--arrived .ar-pip-arrival:not([hidden]) { display: grid; }
+.ar-pip-arrival svg { width: clamp(64px, 48%, 96px); height: auto; aspect-ratio: 1; animation: arrival-reveal 240ms ease-out both; }
+#ar-pip-shell.ar-pip-shell--minimized.ar-pip-shell--arrived .ar-pip-bar { display: none; }
+#ar-pip-shell.ar-pip-shell--minimized.ar-pip-shell--arrived #ar-boot-overlay { display: none; }
+@media (prefers-reduced-motion: reduce) { .ar-pip-arrival svg { animation: none; } }

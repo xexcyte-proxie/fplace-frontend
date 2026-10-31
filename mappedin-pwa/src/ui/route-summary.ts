@@ -147,7 +147,7 @@ export function buildRouteSheetSummary(state: AppState): RouteSheetSummary {
       )
     : totalDistance;
 
-  const remainingSeconds = estimateLiveWalkSeconds({
+  const remainingSeconds = state.routeGuidedDemoRemainingSeconds ?? estimateLiveWalkSeconds({
     remainingMeters: remainingDistance,
     totalPathMeters: totalDistance,
     routeDurationSeconds: route?.durationSeconds ?? null,

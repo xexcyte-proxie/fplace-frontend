@@ -33,6 +33,7 @@ describe('Physical Walk MapApp wiring', () => {
     vi.stubGlobal('navigator', { geolocation: { watchPosition: watch, clearWatch: clear } });
     const { app, state, normalStart, stop } = harness(); const real = state.userLocation;
     app.installPhysicalWalk();
+    expect(app.physicalWalk.mode).toBe('route-guided');
     try {
       controls.start!();
       expect(stop).toHaveBeenCalled(); expect(watch).toHaveBeenCalledOnce();
@@ -53,9 +54,10 @@ describe('Physical Walk MapApp wiring', () => {
     state.guestAccessAllowed = false; state.guestAccessReason = 'expired';
     expect(await app.blockNavigationOutsideVenue('route')).toBe(true);
   });
-  it('keeps AR separate while a demo is active', async () => {
+  it('allows AR access with a selected route while the demo is active', async () => {
     const { app } = harness(); app.physicalWalk = { running: true };
-    await app.openAr(); expect(app.showToast).toHaveBeenCalledWith(expect.stringContaining('End Physical Walk Demo'));
+    expect(await app.blockNavigationOutsideVenue('ar')).toBe(false);
+    expect(app.showToast).not.toHaveBeenCalled();
   });
   it('reclaims ownership if an earlier idle sensor enable resolves during the demo', async () => {
     const { app, state } = harness(); state.locationPermission = 'granted';
@@ -141,4 +143,23 @@ describe('Physical Walk MapApp wiring', () => {
     } finally { app.disposePhysicalWalk(); }
   });
 
+});
+
+it('wires guided route rendering and stops publishing when the selected route is replaced', () => {
+  vi.stubEnv('VITE_PHYSICAL_WALK_DEMO', '1');
+  vi.stubGlobal('navigator', { geolocation: { watchPosition: vi.fn(() => 1), clearWatch: vi.fn() } });
+  const { app, state } = harness(); app.blueDotService.setPhysicalWalkRoute = vi.fn();
+  app.installPhysicalWalk(); app.physicalWalk.mode = 'route-guided';
+  try {
+    controls.start!();
+    expect(app.blueDotService.setPhysicalWalkRoute).toHaveBeenCalledWith(state.route!.pathCoordinates);
+    expect(state.routeGuidedDemoRemainingSeconds).toBeGreaterThan(0);
+    state.route = { ...state.route!, pathCoordinates: [...state.route!.pathCoordinates] };
+    const count = app.blueDotService.applyProviderFrame.mock.calls.length;
+    app.physicalWalk.update();
+    expect(app.physicalWalk.running).toBe(false);
+    expect(app.blueDotService.applyProviderFrame).toHaveBeenCalledTimes(count);
+    expect(app.blueDotService.setPhysicalWalkRoute).toHaveBeenLastCalledWith(null);
+    expect(state.routeGuidedDemoRemainingSeconds).toBeNull();
+  } finally { app.disposePhysicalWalk(); }
 });

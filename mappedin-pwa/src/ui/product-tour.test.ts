@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   initialProductTourSteps,
+  PRODUCT_TOUR_STEPS,
+  contextualProductTourStep,
   stepsForHomeExperience,
 } from '../tour/domain/entities';
 import { buildProductTourCardView } from '../tour/presentation/product-tour-view';
@@ -102,4 +104,20 @@ describe('product tour overlay', () => {
     expect(html).not.toContain('<img src=x>');
     expect(html).not.toContain('<b>hi</b>');
   });
+});
+
+it('includes the saved opt-out control on every tour card, including AR', () => {
+  for (const step of PRODUCT_TOUR_STEPS) {
+    const html = renderProductTour({ step, index: 0, total: 1, dontShowAgain: true });
+    expect(html).toContain("Don't show this again");
+    expect(html).toMatch(/id="product-tour-dont-show"[^>]*\schecked/);
+  }
+});
+it('explains the top AR map icon and marks the live AR tour surface', () => {
+  const step = contextualProductTourStep('ar-map-view')!;
+  const html = renderProductTour({ step, index: 0, total: 1 });
+  expect(html).toContain('data-tour-surface="ar"');
+  expect(html).toContain('map icon at the top');
+  expect(html).toContain('AR and the 2D map at the same time');
+  expect(stepsForHomeExperience('first-visit').some(s => s.id === step.id)).toBe(false);
 });

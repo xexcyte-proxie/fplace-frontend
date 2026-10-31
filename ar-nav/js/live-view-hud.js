@@ -156,8 +156,38 @@
     badge.classList.remove('hidden');
   }
 
+  let arrivalConfirmed = false;
+  function toggleClass(element, name, on) {
+    if (element && element.classList.contains(name) !== on) element.classList.toggle(name, on);
+  }
+  function showArrivalCard(show) {
+    const card = document.getElementById('arrival-card');
+    if (!card) return;
+    const wasVisible = !card.classList.contains('hidden');
+    toggleClass(card, 'hidden', !show);
+    const ariaHidden = show ? 'false' : 'true';
+    if (card.getAttribute('aria-hidden') !== ariaHidden) card.setAttribute('aria-hidden', ariaHidden);
+    if (show && !wasVisible) document.getElementById('arrival-ok-btn')?.focus?.({ preventScroll: true });
+  }
+  function syncArrivalPresentation() {
+    showArrivalCard(arrivalConfirmed && !document.body.classList.contains('lv-minimized'));
+  }
+  function updateArrival(state, route) {
+    arrivalConfirmed = !!(state?.arrived && route);
+    toggleClass(document.body, 'lv-arrived', arrivalConfirmed);
+    if (arrivalConfirmed) {
+      const name = String(state.destinationName || route.destinationName || '').trim();
+      const text = name && name !== 'End point' && name !== 'Destination' ? name : 'Your destination';
+      const destination = document.getElementById('arrival-dest');
+      if (destination && destination.textContent !== text) destination.textContent = text;
+    }
+    syncArrivalPresentation();
+    return arrivalConfirmed;
+  }
+
   window.FplacesLiveViewHud = {
     setTrackingMode,
+    syncPresentation: syncArrivalPresentation,
 
     update(state, navigator) {
       const liveNav = document.getElementById('live-nav');
@@ -165,10 +195,14 @@
       const tripFooter = document.getElementById('trip-footer');
       const offPathEl = document.getElementById('offPath');
       const arrivalCard = document.getElementById('arrival-card');
-      const arrivalDest = document.getElementById('arrival-dest');
       if (!liveNav) return;
 
       const route = navigator?.route;
+      if (updateArrival(state, route)) {
+        for (const id of ['live-nav', 'trip-footer', 'status', 'offPath', 'scan-overlay']) toggleClass(document.getElementById(id), 'hidden', true);
+        toggleClass(document.body, 'lv-active', false);
+        return;
+      }
       if (!state || !route) {
         liveNav.classList.add('hidden');
         tripFooter?.classList.add('hidden');
@@ -214,23 +248,6 @@
         state.distanceRemainingMeters ??
         navigator?.distanceRemainingToDestinationMeters?.() ??
         route.distanceMeters;
-
-      if (state.arrived) {
-        liveNav.classList.add('hidden');
-        tripFooter?.classList.add('hidden');
-        statusEl?.classList.add('hidden');
-        arrivalCard?.classList.remove('hidden');
-        arrivalCard?.setAttribute('aria-hidden', 'false');
-        if (arrivalDest) {
-          arrivalDest.textContent =
-            destName && destName !== 'End point' && destName !== 'Destination'
-              ? `You've gotten there: ${destName}.`
-              : "You've gotten there.";
-        }
-        if (offPathEl) offPathEl.classList.add('hidden');
-        setNavigating(false);
-        return;
-      }
 
       setNavigating(true);
       arrivalCard?.classList.add('hidden');
@@ -325,6 +342,7 @@
     },
 
     setStatus(message, isError) {
+      if (arrivalConfirmed) return; // Camera/status chatter cannot dismiss confirmed arrival.
       const statusEl = document.getElementById('status');
       if (!statusEl) return;
 

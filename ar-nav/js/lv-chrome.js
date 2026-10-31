@@ -25,6 +25,7 @@
     const minimized = mode === 'minimized';
     document.body.classList.toggle('lv-minimized', minimized);
     setChromeVisible(mode === 'fullscreen');
+    window.FplacesLiveViewHud?.syncPresentation?.();
   }
 
   function tripFooter() {

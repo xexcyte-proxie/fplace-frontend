@@ -1,17 +1,19 @@
+import { PHYSICAL_WALK_TUNING } from './tuning';
 export interface DiagnosticEvent {
   sequence: number; at: number; type: string; data: Record<string, unknown>;
 }
 /** Only explicitly permitted fields enter storage. Physical latitude/longitude never do. */
-const FIELDS = new Set(['sessionId', 'mapId', 'floorId', 'reason', 'state', 'source',
+const FIELDS = new Set(['navigationAuthority', 'simulationSequence', 'mode', 'buildFingerprint', 'candidateMeters', 'committedMeters', 'routeLength', 'segmentIndex', 'sessionId', 'mapId', 'floorId', 'reason', 'state', 'source',
   'observationTimestamp', 'observationAgeMs', 'acceptedFixTimestamp', 'acceptedAgeMs', 'fixTimestamp', 'accuracy', 'fixAgeMs', 'east', 'north', 'classification',
   'observationFresh', 'positionFresh', 'sensorHealth', 'movementEvidence', 'heading',
   'alpha', 'absolute', 'permission', 'headingAgeMs', 'headingFresh', 'headingActive', 'positionOwner', 'visible', 'modelPresent', 'routeState', 'routeId',
   'sdkFloorId', 'modelFloorId', 'currentFloorId', 'routeVersion', 'qualified', 'writer', 'foreignWriter', 'sdkStatus', 'sdkGpsEnabled', 'sdkOrientationEnabled', 'parallel', 'modelObservable', 'pixelPositionObservable', 'gpsDeliveryGapMs', 'acceptedFixGapMs', 'acceptedDeliveryGapMs', 'frameGapMs', 'acceptedTransformErrorM', 'acceptedToSdkM', 'acceptedToProjectionM', 'interpolatedToSdkM', 'sdkToModelM', 'anchorToRouteStartM', 'decision',
   'originFixTimestamp', 'captureOffsetEast', 'captureOffsetNorth', 'cameraBearing', 'cameraPitch', 'cameraZoom',
-  'trajectoryConfirmed', 'candidateEast', 'candidateNorth', 'distanceFromAccepted', 'threshold', 'incrementalThreshold', 'bearing',
+  'movementIntervalMs', 'firstMovementDelayMs', 'continuationConfirmed', 'continuationThreshold', 'sampleCount', 'consistentEvidence', 'trajectoryConfirmed', 'candidateEast', 'candidateNorth', 'distanceFromAccepted', 'threshold', 'incrementalThreshold', 'bearing',
   'netMeters', 'residualMeters', 'efficiency', 'evidenceThreshold', 'windowSeconds', 'fittedSpeedMps', 'displayLatitude', 'displayLongitude', 'durationMs', 'renderLatitude', 'renderLongitude',
   'percent', 'alongMeters', 'remainingMeters', 'offRouteMeters', 'physicalMeters', 'speedMps',
   'remainingSeconds', 'elapsedSeconds', 'eta', 'arrived', 'provider', 'venueLatitude', 'venueLongitude', 'decision', 'count']);
+for (const key of [...Object.keys(PHYSICAL_WALK_TUNING.movement), ...Object.keys(PHYSICAL_WALK_TUNING.interpolation)]) FIELDS.add(key);
 for (const role of ['raw', 'accepted', 'interpolated', 'sdk', 'model', 'candidate', 'projected', 'anchor', 'routeStart', 'green', 'lastDrawn', 'animationStart', 'callback']) {
   FIELDS.add(`${role}Latitude`); FIELDS.add(`${role}Longitude`);
 }

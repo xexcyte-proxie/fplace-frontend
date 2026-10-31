@@ -21,6 +21,7 @@ export function renderProductTour(options: {
       aria-modal="true"
       aria-labelledby="product-tour-title"
       aria-describedby="product-tour-body"
+      data-tour-surface="${escapeHtml(options.step.surface)}"
       data-tour-target="${escapeHtml(view.targetSelector)}"
       data-tour-placement="${escapeHtml(view.placement)}"
     >
@@ -35,18 +36,7 @@ export function renderProductTour(options: {
         </div>
         <h2 id="product-tour-title" class="product-tour-title">${escapeHtml(view.title)}</h2>
         <p id="product-tour-body" class="product-tour-body">${escapeHtml(view.body)}</p>
-        <label class="product-tour-dont-show">
-          <span class="product-tour-dont-show-box">
-            <input
-              id="product-tour-dont-show"
-              type="checkbox"
-              class="product-tour-dont-show-input"
-              ${view.dontShowAgain ? 'checked' : ''}
-            />
-            <span class="product-tour-dont-show-check" aria-hidden="true"></span>
-          </span>
-          <span class="product-tour-dont-show-copy">Don't show this again</span>
-        </label>
+        ${renderProductTourOptOut(view.dontShowAgain)}
         <div class="product-tour-dots" aria-hidden="true">${dots}</div>
         <div class="product-tour-actions">
           ${
@@ -175,4 +165,22 @@ export function layoutProductTourOverlay(root: HTMLElement): void {
   card.style.left = `${Math.round(left)}px`;
   card.style.transform = transform;
   overlay.dataset.tourAligned = aligned;
+}
+
+/** Shared opt-out for standard cards and standalone educational prompts. */
+export function renderProductTourOptOut(dontShowAgain = false): string {
+  return `
+        <label class="product-tour-dont-show">
+          <span class="product-tour-dont-show-box">
+            <input
+              id="product-tour-dont-show"
+              type="checkbox"
+              class="product-tour-dont-show-input"
+              ${dontShowAgain ? 'checked' : ''}
+            />
+            <span class="product-tour-dont-show-check" aria-hidden="true"></span>
+          </span>
+          <span class="product-tour-dont-show-copy">Don't show this again</span>
+        </label>
+`;
 }

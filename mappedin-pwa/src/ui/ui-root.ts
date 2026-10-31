@@ -1,3 +1,4 @@
+import { userVenuePresence } from "../location/domain/venue-presence";
 import {
   isLocationGateAuthStep,
 } from "../location/domain/location-gate";
@@ -348,7 +349,7 @@ export class UiRoot {
       ? productTourStepsByIds(state.productTourStepIds)
       : initialProductTourSteps();
     const tourStep =
-      showOverlays && state.productTourStepIndex != null
+      (showOverlays || (startupShell === "app" && arFullscreen && tourSteps[state.productTourStepIndex ?? -1]?.surface === "ar")) && state.productTourStepIndex != null
         ? (tourSteps[state.productTourStepIndex] ?? null)
         : null;
     const onNotificationDetail =
@@ -602,7 +603,7 @@ export class UiRoot {
       ${onFirstVisitHome ? renderFirstVisitVenueScreen(state) : ""}
       ${onReturningHome ? renderReturningHomeScreen(state) : ""}
       ${onNavigateHome ? renderNavigateHubScreen(state) : ""}
-      ${onNavigateMap ? this.homeHeader(state) : ""}
+      ${onNavigateMap ? this.homeHeader(state, app) : ""}
       ${onNavigateMap && !showMapBootOverlay && state.searchQuery.trim() ? this.searchResults(state) : ""}
       ${onNavigateMap ? this.fabs(state, app) : ""}
       ${onNavigateMap && state.locationActionPrompt ? renderLocationActionSheet(state.locationActionPrompt, Boolean(state.markers.origin)) : ""}
@@ -645,7 +646,7 @@ export class UiRoot {
           : ""
       }
       ${
-        onNavigateMap && state.arrivalDialogOpen
+        onNavigateMap && state.arrivalDialogOpen && state.arPresentation !== "fullscreen"
           ? renderArrivalDialog(
               state.route?.destinationName ?? state.markers.destinationLabel,
             )
@@ -863,11 +864,18 @@ export class UiRoot {
     `;
   }
 
-  private homeHeader(state: AppState): string {
+  private homeHeader(state: AppState, app: MapApp): string {
+    const presence = userVenuePresence(state.locationPermission, state.userLocation, app.selectedVenuePresenceAnchor());
+    const notice = presence === "away"
+      ? "Your navigation may be inaccurate because you’re not currently at this venue."
+      : presence === "unknown"
+        ? "Your navigation may be inaccurate because we couldn’t verify that you’re at this venue."
+        : "";
     return `
       <div class="home-header">
         ${this.searchBar(state)}
         ${this.categoryFilters(state)}
+        ${notice ? `<div class="venue-navigation-notice" role="status">${notice}</div>` : ""}
       </div>
     `;
   }
@@ -1071,8 +1079,7 @@ export class UiRoot {
     const arDisabled =
       summary.isCalculating ||
       summary.needsReset ||
-      !state.route ||
-      !navigationPresence.enabled;
+      !state.route;
 
     return `
       <div class="route-sheet ${summary.isCalculating ? "route-sheet--calculating" : ""} ${summary.needsReset ? "route-sheet--needs-reset" : ""}">
@@ -1113,7 +1120,7 @@ export class UiRoot {
             class="route-sheet-reset-btn ${resetDisabled ? "is-disabled" : ""}"
             ${resetDisabled ? "disabled" : ""}
           >Reset</button>
-          <button type="button" id="open-ar-btn" class="route-sheet-ar-btn" title="${escapeHtml(navigationPresence.label)}" ${arDisabled ? "disabled" : ""}>
+          <button type="button" id="open-ar-btn" class="route-sheet-ar-btn" title="Open AR for this route" ${arDisabled ? "disabled" : ""}>
             <svg class="ar-nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 3.5 20 8v8l-8 4.5L4 16V8l8-4.5Z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
               <path d="M12 12.5 20 8M12 12.5v8.5M12 12.5 4 8" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>

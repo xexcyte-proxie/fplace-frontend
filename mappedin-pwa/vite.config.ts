@@ -78,6 +78,7 @@ export default defineConfig(({ mode }) => {
   const devHttp = env.VITE_DEV_HTTP === '1';
 
   return {
+    define: { __WALK_BUILD_FINGERPRINT__: JSON.stringify(`route-guided-v1-${new Date().toISOString()}`) },
     plugins: [
       ...(devHttp ? [] : [basicSsl()]),
       serveArNav(),

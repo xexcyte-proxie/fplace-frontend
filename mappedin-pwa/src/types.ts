@@ -486,6 +486,8 @@ export interface AppState {
   routeNotFound: boolean;
   routeTraveledMeters: number;
   routeRemainingMeters: number | null;
+  /** Present only while the explicit route-guided physical demo owns navigation. */
+  routeGuidedDemoRemainingSeconds?: number | null;
   floors: FloorInfo[];
   currentFloorId?: string;
   searchQuery: string;

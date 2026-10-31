@@ -32,7 +32,7 @@ describe('physical walk stabilization', () => {
     const held = JSON.parse(s.recorder.report()).events.filter((e: any) => e.type === 'fix.held');
     expect(held).toHaveLength(120);
     expect(held[0].data).toMatchObject({ reason: 'below-accuracy-deadband', accuracy: 4,
-      threshold: 10, fixTimestamp: 4000, candidateEast: expect.any(Number), bearing: expect.any(Number), distanceFromAccepted: expect.any(Number) });
+      threshold: 6, fixTimestamp: 4000, candidateEast: expect.any(Number), bearing: expect.any(Number), distanceFromAccepted: expect.any(Number) });
   });
   it('unlocks sustained walking instead of permanently applying poor origin accuracy', () => {
     const s = ready(20); let accepted = 0;
@@ -71,8 +71,10 @@ describe('physical walk stabilization', () => {
   it('interrupts rendering at the current interpolated location and never extrapolates', () => {
     const render = new PositionInterpolation();
     render.setTarget({ latitude: 0, longitude: 0, floorId: 'g' }, 0);
+    render.markRendered(render.sample(0)!);
     render.setTarget({ latitude: 0, longitude: 10, floorId: 'g' }, 1000);
     expect(render.sample(1400)!.longitude).toBeCloseTo(5, 8);
+    render.markRendered(render.sample(1400)!);
     render.setTarget({ latitude: 10, longitude: 5, floorId: 'g' }, 1400);
     expect(render.sample(1400)).toMatchObject({ latitude: 0, longitude: 5 });
     expect(render.sample(3000)).toMatchObject({ latitude: 10, longitude: 5 });

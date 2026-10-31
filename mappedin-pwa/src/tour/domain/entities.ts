@@ -1,7 +1,7 @@
 import type { HomeExperience } from '../../home/domain/entities';
 
 /** Screen the tour must show before highlighting a control. */
-export type ProductTourSurface = 'home' | 'navigate' | 'map' | 'social' | 'profile';
+export type ProductTourSurface = 'home' | 'navigate' | 'map' | 'social' | 'profile' | 'ar';
 
 export type ProductTourPlacement = 'top' | 'bottom' | 'left' | 'center';
 
@@ -19,6 +19,15 @@ export interface ProductTourStep {
 }
 
 export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
+  {
+    id: 'ar-map-view',
+    title: 'See AR and the map together',
+    body: 'Tap the map icon at the top of AR to minimize the camera view. You can then view AR and the 2D map at the same time. Tap the small AR view to expand it again.',
+    targetSelector: '',
+    placement: 'center',
+    surface: 'ar',
+    audience: 'any',
+  },
   {
     id: 'welcome',
     title: 'Quick tour',
@@ -124,13 +133,14 @@ export function stepsForHomeExperience(
   experience: HomeExperience,
 ): ProductTourStep[] {
   return PRODUCT_TOUR_STEPS.filter(
-    (step) => step.audience === 'any' || step.audience === experience,
+    (step) => step.surface !== 'ar' && (step.audience === 'any' || step.audience === experience),
   );
 }
 
 const INITIAL_PRODUCT_TOUR_STEP_IDS = ['navigate-tab', 'social-tab'] as const;
 
 const CONTEXTUAL_PRODUCT_TOUR_STEP_IDS = [
+  'ar-map-view',
   'try-ar',
   'map-search',
   'social-composer',

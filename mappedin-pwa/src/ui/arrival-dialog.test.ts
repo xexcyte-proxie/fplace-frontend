@@ -6,16 +6,18 @@ describe('arrival dialog', () => {
   it('names the destination when one is known', () => {
     expect(arrivalDialogCopy('Apple Store')).toEqual({
       title: "You've arrived",
-      body: "You've gotten there: Apple Store.",
+      body: "You've reached your destination.",
+      destination: "Apple Store",
     });
   });
 
-  it('renders okay and dismiss hooks', () => {
+  it('renders the Done action and existing dismiss hooks', () => {
     const html = renderArrivalDialog('Gate A');
     expect(html).toContain("You've arrived");
-    expect(html).toContain("You've gotten there: Gate A.");
+    expect(html).toContain("You've reached your destination.");
+    expect(html).toContain("Gate A");
     expect(html).toContain('id="arrival-dialog-done-btn"');
-    expect(html).toContain('Okay');
+    expect(html).toContain('Done');
     expect(html).toContain('id="arrival-dialog-dismiss"');
     expect(html).toContain('arrival-dialog-backdrop');
     expect(html).toContain('arrival-dialog-ok');
@@ -24,14 +26,16 @@ describe('arrival dialog', () => {
   it('falls back when the destination name is missing', () => {
     expect(arrivalDialogCopy('  ')).toEqual({
       title: "You've arrived",
-      body: "You've gotten there.",
+      body: "You've reached your destination.",
+      destination: "Your destination",
     });
   });
 
   it('hides generic End point labels from the body copy', () => {
     expect(arrivalDialogCopy('End point')).toEqual({
       title: "You've arrived",
-      body: "You've gotten there.",
+      body: "You've reached your destination.",
+      destination: "Your destination",
     });
   });
 

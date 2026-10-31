@@ -1,3 +1,4 @@
+import { renderProductTourOptOut } from './product-tour';
 import { sortVenuesByNameDescending } from '../home/domain/home-venues';
 import {
   buildFirstVisitVenueHomeViewModel,
@@ -30,7 +31,7 @@ export function renderFirstVisitArPrompt(
     | 'arNotAtVenuePromptOpen'
     | 'forumVenues'
     | 'selectedVenueId'
-  >,
+  > & Partial<Pick<AppState, 'productTourEnabled'>>,
 ): string {
   const venue = state.forumVenues.find(
     (item) => String(item.id) === state.selectedVenueId,
@@ -75,6 +76,7 @@ export function renderFirstVisitArPrompt(
           Pick a start and end on the map (search or tap), then open AR to
           navigate with your camera.
         </p>
+        ${renderProductTourOptOut(state.productTourEnabled === false)}
         <button
           type="button"
           id="first-visit-ar-open-map-btn"

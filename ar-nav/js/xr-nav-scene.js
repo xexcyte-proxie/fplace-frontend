@@ -4,7 +4,6 @@
 (function () {
   const SLOG = () => window.FplacesSlamDiagnostics;
   function injectCalibrationUi() {
-    if (document.getElementById('fplaces-calibrate-btn')) return;
     if (
       new URLSearchParams(window.location.search).get('preload') === '1' &&
       !window.__fplacesLiveViewRequested
@@ -12,16 +11,18 @@
       return;
     }
 
-    const btn = document.createElement('button');
+    const existing = document.getElementById('fplaces-calibrate-btn');
+    const btn = existing || document.createElement('button');
     btn.id = 'fplaces-calibrate-btn';
     btn.type = 'button';
     btn.className = 'calibrate-ar-btn';
     btn.textContent = 'Align route';
-    btn.hidden = !window.FplacesSpatialAlignment?.needsManual;
-    btn.addEventListener('click', () => {
-      window.executeDemoCalibrationFlow?.({ manual: true });
-    });
-    document.body.appendChild(btn);
+    btn.hidden = true;
+    if (!btn.__fplacesAlignBound) {
+      btn.addEventListener('click', () => { window.executeDemoCalibrationFlow?.({ manual: true }); });
+      btn.__fplacesAlignBound = true;
+    }
+    if (!existing) document.body.appendChild(btn);
     window.FplacesSpatialAlignment?.syncButton?.();
   }
 
@@ -363,7 +364,7 @@
 
   window.executeDemoCalibrationFlow = function executeDemoCalibrationFlow(options = {}) {
     if (!window.FplacesSpatialAlignment?.canCalibrate(options.manual)) {
-      window.FplacesLiveViewHud?.setStatus?.('Wait for tracking, then tap Align route.', true);
+      if (options.manual) window.FplacesLiveViewHud?.setStatus?.('Face the route and wait for fresh heading and tracking, then tap Align route.', true);
       return false;
     }
     if (!window.FplacesCameraStart?.isStarted?.()) {
@@ -463,6 +464,7 @@
   };
 
   window.FplacesArCalibrationUi = { inject: injectCalibrationUi };
+  if (window.document?.body) injectCalibrationUi();
 
   function slamTrackingLabel() {
     if (!window.FplacesCameraStart?.isStarted?.()) return 'Tap Start for camera';
@@ -709,7 +711,7 @@
         },
 
         listeners: [
-          { event: 'reality.trackingstatus', process: ({ detail }) => window.FplacesSpatialAlignment?.observe(detail?.status) },
+          { event: 'reality.trackingstatus', process: event => window.FplacesSpatialAlignment?.observe(event?.status ?? event?.detail?.status) },
           { event: 'reality.cameraconfigured', process: ({ detail }) => {
             if (detail?.recenter) window.FplacesSpatialAlignment?.invalidate('World frame changed.');
           } },
@@ -751,6 +753,9 @@
           const now = performance.now();
           if (now - lastAuxAt >= 120) {
             lastAuxAt = now;
+            if (!window.FplacesAnchorEngine?.isCalibrated && window.FplacesSpatialAlignment?.canCalibrate(false)) {
+              window.__fplacesTryAutoCalibrate?.('tracking-ready');
+            }
             if (
               xrScene &&
               window.FplacesAnchorEngine?.isCalibrated &&

@@ -33,16 +33,16 @@ const forward = (yaw: number) => ({ x: -Math.sin(yaw), z: -Math.cos(yaw) });
     }
   });
 
-  it('retains unchanged slots, removes passed arrows, and disposes owned resources', () => {
-    const { c, tick } = runtime();
+  it.each([6, 8])('retains slots and disposes resources with a %i-arrow cap', count => {
+    const { c, tick } = runtime({ incrementalPathMaxVisible: count, nearFieldMaxArrows: count });
     const scene = new THREE.Group();
     const route = JSON.stringify(straight);
     const nav = { _displayAlongPathM: 123 };
     c.__fplacesNavigator = nav;
     const extend = (z: number) => c.FplacesIncrementalPath.extend(THREE, scene, straight, { cameraX: 0, cameraZ: z, alongPathM: -z });
     const trail = extend(0);
-    expect(trail.children).toHaveLength(8);
-    expect(trail.children.map((m: any) => m.scale.x)).toEqual(Array(8).fill(1.3));
+    expect(trail.children).toHaveLength(count);
+    expect(trail.children.map((m: any) => m.scale.x)).toEqual(Array(count).fill(1.3));
     const first = trail.children[0];
     const retained = trail.children[1];
     let disposed = false;
@@ -64,7 +64,7 @@ const forward = (yaw: number) => ({ x: -Math.sin(yaw), z: -Math.cos(yaw) });
     let cleanup = 0;
     trail.children.forEach((m: any) => { m.children[0].material.dispose = () => cleanup++; });
     c.FplacesIncrementalPath.dispose(scene);
-    expect(cleanup).toBe(8);
+    expect(cleanup).toBe(count);
     expect(scene.children).toHaveLength(0);
   });
 

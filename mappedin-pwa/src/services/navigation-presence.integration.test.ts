@@ -29,6 +29,7 @@ function harness(atVenue = false) {
 describe('venue navigation access', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_ALLOW_REMOTE_AR', '');
+    vi.stubEnv('VITE_PHYSICAL_WALK_DEMO', '0');
   });
 
   afterEach(() => {

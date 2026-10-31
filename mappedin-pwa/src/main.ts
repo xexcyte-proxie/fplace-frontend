@@ -18,6 +18,8 @@ import '@fontsource/plus-jakarta-sans/500.css';
 import '@fontsource/plus-jakarta-sans/600.css';
 import '@fontsource/plus-jakarta-sans/700.css';
 import './styles.css';
+import '../../ar-nav/css/arrival-fonts.css';
+import '../../ar-nav/css/arrival-dialog.css';
 import './styles/social-map-markers.css';
 import './styles/profile-screen.css';
 import './styles/settings-screen.css';

@@ -4,6 +4,15 @@
 
 [build.environment]
   VITE_WS_URL = "wss://api.fplaces.com"
+  # Match the current local navigation setup without publishing local .env files.
+  VITE_MAPPEDIN_MAP_ID = "6a870d6ee709ea000bec67d6"
+  VITE_PHYSICAL_WALK_DEMO = "1"
+  VITE_HIDE_PHYSICAL_WALK_CONTROLS = "1"
+  VITE_ALLOW_REMOTE_AR = "1"
+  VITE_ALLOW_REMOTE_POSTING = "1"
+  VITE_ENABLE_VENUE_GEOLOCATION_SIMULATION = "1"
+  VITE_AR_URL = "/ar/"
+  VITE_API_URL = ""
 
 # Fresh shell after every deploy (SPA routes + index.html + SW).
 # Hashed /assets/* override below so bundles stay immutable.

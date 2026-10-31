@@ -14,6 +14,7 @@ function setup() {
   c.FplacesArDebug = { log: vi.fn(), warn: vi.fn() };
   c.FplacesLiveViewHud = { setStatus: vi.fn() };
   c.FplacesSlamHeading = { getRawYawDegrees: () => 0, calibrate: vi.fn() };
+  c.FplacesOrientationCompass = { getRawCompassHeading: vi.fn(() => 0) };
   c.FplacesSlamPose = { deactivate: vi.fn(), calibrate: vi.fn() };
   const scene = new THREE.Group();
   const camera = { position: new THREE.Vector3(0, 1.5, 0), worldToLocal: (point: any) => point };
@@ -174,7 +175,7 @@ describe('visual progress and retained instances', () => {
 describe('XR8 pipeline wiring', () => {
   function pipeline() {
     const env = setup(); const { c, nav } = env;
-    c.document = { getElementById: () => ({}) };
+    c.document = { getElementById: () => ({ addEventListener: vi.fn() }) };
     c.addEventListener = vi.fn();
     const module = (name: string) => ({ pipelineModule: () => ({ name }) });
     c.XR8 = { GlTextureRenderer: module('GlTextureRenderer'), Threejs: module('Threejs'),
@@ -273,23 +274,142 @@ describe('conditional alignment control', () => {
     camera.worldToLocal = (p: any) => p; tick();
     expect(button.hidden).toBe(true);
   });
-  it('appears for actual tracking invalidation, stays through failed recovery, and hides on successful one-tap alignment', () => {
-    const { c, build, trail } = setup();
+  it('waits for valid tracking and facing before showing recovery, then hides after alignment', () => {
+    const { c, build, trail, tick } = setup();
     const button = { hidden: true }; c.document = { getElementById: () => button };
     c.FplacesSpatialAlignment.observe('NORMAL'); build();
     c.FplacesSpatialAlignment.observe('LIMITED');
-    expect(button.hidden).toBe(false); expect(trail()).toBeUndefined();
+    expect(button.hidden).toBe(true); expect(trail()).toBeUndefined();
     expect(c.executeDemoCalibrationFlow({ manual: true })).toBe(false);
-    expect(button.hidden).toBe(false);
-    c.FplacesSpatialAlignment.observe('NORMAL'); expect(button.hidden).toBe(false);
+    expect(button.hidden).toBe(true);
+    tick(); c.FplacesSpatialAlignment.observe('NORMAL'); expect(button.hidden).toBe(false);
     expect(c.executeDemoCalibrationFlow({ manual: true })).toBe(true);
     expect(trail()).toBeTruthy(); expect(button.hidden).toBe(true);
   });
   it('shows a late-created control when recalibration was already required', () => {
-    const { c } = setup(); c.FplacesSpatialAlignment.invalidate('World frame changed.');
+    const { c, tick } = setup(); c.FplacesSpatialAlignment.observe('NORMAL'); tick(); c.FplacesSpatialAlignment.invalidate('World frame changed.');
     let button: any = null;
     c.document = { getElementById: () => button,
       createElement: () => ({ addEventListener: vi.fn() }), body: { appendChild: (node: any) => { button = node; } } };
     c.FplacesArCalibrationUi.inject(); expect(button.hidden).toBe(false);
+  });
+});
+
+describe('Align Route acceptance: direction, visibility and stable recovery', () => {
+  it('requires 800ms missing arrows; short disappearances never show recovery or change the anchor', () => {
+    const { c, tick, build, trail } = setup(); build(); trail().visible = false;
+    const button = { hidden: false }; c.document = { getElementById: () => button };
+    const revision = c.FplacesAnchorEngine.instance.revision;
+    c.FplacesSpatialAlignment.observe('NORMAL');
+    c.FplacesSpatialAlignment.observeArrowVisibility(false, 1000);
+    tick(); c.FplacesSpatialAlignment.observeArrowVisibility(false, 1500); expect(button.hidden).toBe(true);
+    tick(); c.FplacesSpatialAlignment.observeArrowVisibility(false, 2000); expect(button.hidden).toBe(false);
+    c.FplacesSpatialAlignment.observeArrowVisibility(true, 2000); expect(button.hidden).toBe(true);
+    expect(c.FplacesAnchorEngine.instance.revision).toBe(revision);
+  });
+  it('never offers recovery when facing away; requires facing the route steadily on return', () => {
+    const { c, tick } = setup(); const button = { hidden: true }; c.document = { getElementById: () => button };
+    let heading = 180; c.FplacesOrientationCompass.getRawCompassHeading = () => heading;
+    c.FplacesSpatialAlignment.observe('NORMAL'); c.FplacesSpatialAlignment.invalidate('World frame changed.');
+    for (let i = 0; i < 3; i++) { tick(); c.FplacesSpatialAlignment.observe('NORMAL'); }
+    expect(button.hidden).toBe(true); expect(c.executeDemoCalibrationFlow({ manual: true })).toBe(false);
+    heading = 0; c.FplacesSpatialAlignment.syncButton(); expect(button.hidden).toBe(true);
+    tick(); c.FplacesSpatialAlignment.observe('NORMAL'); expect(button.hidden).toBe(false);
+    heading = 90; c.FplacesSpatialAlignment.observe('NORMAL'); expect(button.hidden).toBe(true);
+  });
+  it.each([null, undefined, NaN, 31, -31, 180])('rejects missing or incorrect heading %s even if a stale button click is delivered', heading => {
+    const { c, tick, build } = setup(); build(); c.FplacesSpatialAlignment.observe('NORMAL');
+    tick(); c.FplacesSpatialAlignment.invalidate('World frame changed.');
+    c.FplacesOrientationCompass.getRawCompassHeading = () => heading;
+    const revision = c.FplacesAnchorEngine.instance.revision;
+    expect(c.executeDemoCalibrationFlow({ manual: true })).toBe(false);
+    expect(c.FplacesAnchorEngine.instance.revision).toBe(revision);
+  });
+  it('uses the current route direction after a turn and handles the north bearing wraparound', () => {
+    const { c, nav } = setup(); c.FplacesSpatialAlignment.observe('NORMAL');
+    nav.getTargetBearingDegrees = () => 350;
+    c.FplacesOrientationCompass.getRawCompassHeading = () => 10;
+    expect(c.FplacesSpatialAlignment.canCalibrate(true)).toBe(true);
+    nav.getTargetBearingDegrees = () => 90;
+    expect(c.FplacesSpatialAlignment.canCalibrate(true)).toBe(false);
+    c.FplacesOrientationCompass.getRawCompassHeading = () => 90;
+    expect(c.FplacesSpatialAlignment.canCalibrate(true)).toBe(true);
+  });
+  it('requests heading no older than 1500ms and hides when that evidence becomes stale', () => {
+    const { c, tick } = setup(); const button = { hidden: true }; c.document = { getElementById: () => button };
+    c.FplacesSpatialAlignment.observe('NORMAL'); tick(); c.FplacesSpatialAlignment.invalidate('World frame changed.');
+    expect(button.hidden).toBe(false);
+    const raw = vi.fn((maxAge: number) => maxAge <= 1500 ? null : 0); c.FplacesOrientationCompass.getRawCompassHeading = raw;
+    c.FplacesSpatialAlignment.syncButton(); expect(raw).toHaveBeenCalledWith(1500); expect(button.hidden).toBe(true);
+  });
+  it('binds a reused hidden button once and removes legacy inline hiding only when recovery is eligible', () => {
+    const { c, tick, build, trail } = setup(); build();
+    const handlers: Array<() => void> = [];
+    const button = { hidden: true, style: { display: 'none', visibility: 'hidden', opacity: '0' },
+      addEventListener: (_: string, fn: () => void) => handlers.push(fn) };
+    c.document = { getElementById: () => button };
+    c.FplacesArCalibrationUi.inject(); c.FplacesArCalibrationUi.inject(); expect(handlers).toHaveLength(1);
+    c.FplacesSpatialAlignment.observe('NORMAL'); tick(); c.FplacesSpatialAlignment.invalidate('World frame changed.');
+    expect(button.hidden).toBe(false); expect(button.style.display).toBe('');
+    handlers[0](); expect(trail()).toBeTruthy(); expect(button.hidden).toBe(true);
+  });
+  it('does not offer recovery after arrival, at intentional trail clearing, or while AR is parked', () => {
+    const { c, nav, tick } = setup(); const button = { hidden: true }; c.document = { getElementById: () => button };
+    c.FplacesSpatialAlignment.observe('NORMAL'); tick(); c.FplacesSpatialAlignment.invalidate('World frame changed.');
+    nav.arrived = true; c.FplacesSpatialAlignment.syncButton(); expect(button.hidden).toBe(true);
+    nav.arrived = false; c.__fplacesLiveViewParked = true; c.FplacesSpatialAlignment.syncButton(); expect(button.hidden).toBe(true);
+    c.__fplacesLiveViewParked = false; c.FplacesAnchorEngine.calibrate(geo(0, 0)); c.FplacesSpatialAlignment.calibrated();
+    nav.distanceRemainingToDestinationMeters = () => 1;
+    c.FplacesSpatialAlignment.observeArrowVisibility(false, 1000); tick(); tick(); c.FplacesSpatialAlignment.observeArrowVisibility(false, 2000);
+    expect(button.hidden).toBe(true);
+  });
+  it('does not rebuild geometry, reset the anchor, or re-anchor during routine stable refreshes', () => {
+    const { c, build, tick, trail, camera } = setup(); c.FplacesSpatialAlignment.observe('NORMAL'); build();
+    const group = trail(), arrows = [...group.children], revision = c.FplacesAnchorEngine.instance.revision;
+    const positions = arrows.map(a => ({ x: a.position.x, y: a.position.y, z: a.position.z, yaw: a.rotation.y }));
+    const create = vi.spyOn(c.FplacesFloorArrows, 'createTrailSegment');
+    for (let i = 0; i < 12; i++) {
+      camera.position.x = Math.sin(i) * .05;
+      tick(); c.FplacesSpatialAlignment.observe('NORMAL'); c.FplacesWorldRoute.update({ navigator: c.__fplacesNavigator });
+    }
+    expect(trail()).toBe(group); expect(group.children).toEqual(arrows); expect(create).not.toHaveBeenCalled();
+    expect(arrows.map(a => ({ x: a.position.x, y: a.position.y, z: a.position.z, yaw: a.rotation.y }))).toEqual(positions);
+    expect(c.FplacesAnchorEngine.instance.revision).toBe(revision);
+  });
+  it('invalidates a lost world once and never treats repeated loss notifications as new anchor frames', () => {
+    const { c } = setup(); c.FplacesSpatialAlignment.invalidate('Camera paused.');
+    const revision = c.FplacesAnchorEngine.instance.revision;
+    c.FplacesSpatialAlignment.invalidate('Camera paused.'); c.FplacesSpatialAlignment.invalidate('Camera resumed.');
+    expect(c.FplacesAnchorEngine.instance.revision).toBe(revision);
+  });
+});
+
+describe('source-branch automatic calibration safeguards', () => {
+  function bootstrap() {
+    const h = setup(), { c, nav } = h;
+    c.FplacesRouteNavigator = function () { return nav; };
+    c.FPLACES_AR_CONFIG.xrMode = 'fallback'; c.FPLACES_AR_CONFIG.autoCalibrate = true;
+    c.FplacesRouteBridge = { onRoute: vi.fn() };
+    c.setTimeout = vi.fn(); c.setInterval = vi.fn(); c.addEventListener = vi.fn();
+    c.document = { addEventListener: vi.fn(), getElementById: () => null };
+    vm.runInContext(readFileSync(new URL('../../../ar-nav/js/bootstrap.js', import.meta.url), 'utf8'), c);
+    c.FplacesSpatialAlignment.observe('NORMAL');
+    return h;
+  }
+  it('does not recalibrate a valid anchor when arrows are temporarily missing or offscreen', () => {
+    const { c, build } = bootstrap(); build(); const revision = c.FplacesAnchorEngine.instance.revision;
+    const calibrate = vi.spyOn(c, 'executeDemoCalibrationFlow');
+    c.FplacesPathGeometry.hasRibbon = () => false;
+    for (let i = 0; i < 20; i++) c.__fplacesTryAutoCalibrate('retry');
+    expect(calibrate).not.toHaveBeenCalled(); expect(c.FplacesAnchorEngine.instance.revision).toBe(revision);
+  });
+  it('reports a failed initial calibration and never auto-recovers a manually invalidated world', () => {
+    const { c } = bootstrap(); c.FplacesAnchorEngine.reset();
+    c.executeDemoCalibrationFlow = vi.fn(() => false);
+    expect(c.__fplacesTryAutoCalibrate('initial')).toBe(false);
+    expect(c.executeDemoCalibrationFlow).toHaveBeenCalledOnce();
+    c.FplacesSpatialAlignment.invalidate('World frame changed.'); c.FplacesSpatialAlignment.observe('NORMAL');
+    expect(c.__fplacesTryAutoCalibrate('after-reset')).toBe(false);
+    expect(c.executeDemoCalibrationFlow).toHaveBeenCalledOnce();
   });
 });

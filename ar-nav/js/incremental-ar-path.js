@@ -351,6 +351,7 @@
     if (now - lastVisualsAt < 2) return;
     lastVisualsAt = now;
     trailGroup.children.forEach((child) => applyFadeIn(child, now));
+    window.FplacesSpatialAlignment?.sampleArrowVisibility?.(cameraRef, trailGroup, now);
 
     if (window.FplacesTrailDiagnostics?.enabled) window.FplacesTrailDiagnostics.sample(cameraRef, trailGroup, now);
     if (!destinationGroup) return;

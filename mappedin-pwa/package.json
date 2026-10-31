@@ -8,8 +8,9 @@
     "dev:http": "VITE_DEV_HTTP=1 vite",
     "test": "vitest run",
     "slop": "node scripts/detect-slop.mjs",
-    "prebuild": "npm run copy:ar:public",
+    "prebuild": "npm run check:ar && npm run copy:ar:public",
     "build": "tsc && vite build",
+    "check:ar": "node scripts/check-ar-scripts.mjs",
     "copy:ar:public": "rm -rf public/ar && mkdir -p public/ar && rsync -a --exclude .netlify ../ar-nav/ public/ar/",
     "preview": "vite preview"
   },

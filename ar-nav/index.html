@@ -12,7 +12,9 @@
       content="camera=(self), geolocation=(self), gyroscope=(self), accelerometer=(self), magnetometer=(self), xr-spatial-tracking=(self)"
     />
     <title>Live View</title>
-    <link rel="stylesheet" href="./css/ar.css?v=20261027-align-conditional-v5" />
+    <link rel="stylesheet" href="./css/ar.css?v=20261031-arrival-parity-v1" />
+    <link rel="stylesheet" href="./css/arrival-fonts.css?v=20261031-arrival-parity-v1" />
+    <link rel="stylesheet" href="./css/arrival-dialog.css?v=20261031-arrival-parity-v1" />
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <link
       rel="preload"
@@ -176,22 +178,22 @@
 
     <div
       id="arrival-card"
-      class="lv-arrival hidden"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="arrival-dialog-title"
-      aria-describedby="arrival-dest"
+      class="arrival-dialog-backdrop arrival-dialog-backdrop--ar hidden"
+      role="presentation"
       aria-hidden="true"
     >
-      <div class="lv-arrival-card">
-        <span class="lv-icon lv-arrival-icon" data-lv-icon="check_circle" aria-hidden="true"></span>
-        <h2 id="arrival-dialog-title" class="lv-arrival-title">
-          You've arrived
-        </h2>
-        <p id="arrival-dest" class="lv-arrival-dest"></p>
-        <button type="button" id="arrival-ok-btn" class="lv-arrival-ok">
-          Okay
-        </button>
+      <div class="arrival-dialog" role="dialog" aria-modal="true" aria-labelledby="arrival-dialog-title" aria-describedby="arrival-copy arrival-dest">
+        <div class="arrival-dialog-icon" aria-hidden="true">
+          <svg viewBox="0 0 64 64" fill="none"><path d="m14 32 13 13 23-26" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <p class="arrival-dialog-eyebrow">Journey complete</p>
+        <h2 id="arrival-dialog-title" class="arrival-dialog-title">You've arrived</h2>
+        <p id="arrival-copy" class="arrival-dialog-body">You've reached your destination.</p>
+        <p class="arrival-dialog-destination">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M19 10c0 5-7 10-7 10S5 15 5 10a7 7 0 1 1 14 0Z" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="10" r="2.2" stroke="currentColor" stroke-width="1.7"/></svg>
+          <span id="arrival-dest"></span>
+        </p>
+        <button type="button" id="arrival-ok-btn" class="arrival-dialog-ok">Done</button>
       </div>
     </div>
 
@@ -247,15 +249,15 @@
     </div>
 
     <script defer src="./js/ui-icons.js?v=20260923-inline-icons-v1"></script>
-    <script defer src="./config.js?v=20261027-align-conditional-v5"></script>
+    <script defer src="./config.js?v=20261031-arrival-parity-v1"></script>
     <script defer src="./js/slam-diagnostics.js?v=20260825-compass-lighting-v1"></script>
     <script defer src="./js/ar-debug.js"></script>
     <script defer src="./js/geo-math.js"></script>
     <script defer src="./js/ar-quaternion-alignment.js?v=20260709-heading-fix-v1"></script>
     <script defer src="./js/route-services.js"></script>
-    <script defer src="./js/route-bridge.js?v=20260922-arrival-lock-v1"></script>
+    <script defer src="./js/route-bridge.js?v=20261031-arrival-ui-v1"></script>
     <script defer src="./js/anchorEngine.js?v=20261027-align-tap-v4"></script>
-    <script defer src="./js/spatial-alignment.js?v=20261027-align-conditional-v5"></script>
+    <script defer src="./js/spatial-alignment.js?v=20261031-alignment-stability-v1"></script>
     <script defer src="./js/visual-route-state.js?v=20261026-spatial-v2"></script>
     <script defer src="./js/route-geometry.js"></script>
     <script defer src="./js/floor-transitions.js?v=20261026-spatial-v2"></script>
@@ -263,17 +265,17 @@
     <script defer src="./js/world-floor-arrows.js?v=20261027-align-conditional-v5"></script>
     <script defer src="./js/incremental-path-spawn.js?v=20261027-visibility-v3"></script>
     <script defer src="./js/trail-diagnostics.js?v=20261027-visibility-v3"></script>
-    <script defer src="./js/incremental-ar-path.js?v=20261027-visibility-v3"></script>
-    <script defer src="./js/pathGeometry.js?v=20261027-visibility-v3"></script>
+    <script defer src="./js/incremental-ar-path.js?v=20261031-alignment-stability-v1"></script>
+    <script defer src="./js/pathGeometry.js?v=20261031-alignment-stability-v1"></script>
     <script defer src="./js/world-route-scene.js?v=20261027-visibility-v3"></script>
     <script defer src="./js/demo-sim-walk.js"></script>
     <script defer src="./js/live-guidance.js?v=20260908-no-advance-turns-v1"></script>
-    <script defer src="./js/route-navigator.js?v=20261027-visibility-v3"></script>
+    <script defer src="./js/route-navigator.js?v=20261031-arrival-ui-v1"></script>
     <script defer src="./js/route-lane-heading.js?v=20260825-compass-lighting-v1"></script>
     <script defer src="./js/slam-heading.js"></script>
     <script defer src="./js/slam-pose-bridge.js?v=20261027-visibility-v3"></script>
-    <script defer src="./js/live-view-hud.js?v=20260922-arrival-lock-v1"></script>
-    <script defer src="./js/lv-chrome.js?v=20260922-arrival-lock-v1"></script>
+    <script defer src="./js/live-view-hud.js?v=20261031-arrival-ui-v1"></script>
+    <script defer src="./js/lv-chrome.js?v=20261031-arrival-ui-v1"></script>
     <script defer src="./js/camera-start.js?v=20260921-camera-unblocked-v3"></script>
     <script defer src="./js/live-view-arrows-3d.js?v=20260708-align-debug-v1"></script>
     <script defer src="./js/orientation-compass.js?v=20260825-compass-lighting-v1"></script>
@@ -285,7 +287,7 @@
     <script defer src="./js/fallback-nav.js?v=20260825-compass-lighting-v1"></script>
     <script defer src="./js/fplaces-xr-renderer-patch.js?v=20260707-camera-v18"></script>
     <script id="xr-bootstrap"></script>
-    <script defer src="./js/xr-nav-scene.js?v=20261027-align-conditional-v5"></script>
-    <script defer src="./js/bootstrap.js?v=20261027-align-conditional-v5"></script>
+    <script defer src="./js/xr-nav-scene.js?v=20261031-alignment-stability-v1"></script>
+    <script defer src="./js/bootstrap.js?v=20261031-alignment-stability-v1"></script>
   </body>
 </html>

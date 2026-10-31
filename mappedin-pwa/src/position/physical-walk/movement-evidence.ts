@@ -1,15 +1,18 @@
+import { PHYSICAL_WALK_TUNING, type MovementTuning } from './tuning';
 /** Decision evidence only: never changes coordinates or manufactures sensor precision. */
 export interface MotionSample { east: number; north: number; timestamp: number; accuracy: number }
 export interface MotionEvidence {
-  sustained: boolean; netMeters: number; residualMeters: number; efficiency: number;
+  consistent: boolean; sampleCount: number; sustained: boolean; netMeters: number; residualMeters: number; efficiency: number;
   evidenceThreshold: number; windowSeconds: number; fittedSpeedMps: number;
 }
 export class MovementEvidenceWindow {
   private samples: MotionSample[] = [];
+  constructor(private readonly config: MovementTuning = PHYSICAL_WALK_TUNING.movement) {}
   reset(seed?: MotionSample): void { this.samples = seed ? [{ ...seed }] : []; }
   push(sample: MotionSample): MotionEvidence {
+    const c = this.config;
     this.samples.push({ ...sample });
-    this.samples = this.samples.filter(p => sample.timestamp - p.timestamp <= 10000).slice(-16);
+    this.samples = this.samples.filter(p => sample.timestamp - p.timestamp <= c.evidenceWindowMs).slice(-c.evidenceMaxSamples);
     const points = this.samples;
     const first = points[0];
     const span = (sample.timestamp - first.timestamp) / 1000;
@@ -31,11 +34,13 @@ export class MovementEvidenceWindow {
       return sum + (p.east - meanE - velocityE * dt) ** 2 + (p.north - meanN - velocityN * dt) ** 2;
     }, 0) / points.length);
     const accuracies = points.map(p => p.accuracy).sort((a, b) => a - b);
-    const threshold = Math.max(2, accuracies[Math.floor(accuracies.length / 2)] * 0.2, residual * 3);
+    const threshold = Math.max(c.evidenceMinMeters, accuracies[Math.floor(accuracies.length / 2)] * c.evidenceAccuracyFactor, residual * c.evidenceResidualFactor);
     const efficiency = path > 0 ? net / path : 0;
     const speed = Math.hypot(velocityE, velocityN);
-    return { sustained: points.length >= 4 && span >= 3 && net >= threshold && efficiency >= 0.85 &&
-      residual <= Math.max(0.5, net * 0.15) && speed >= 0.2 && speed <= 4,
+    const consistent = points.length >= c.evidenceMinSamples && span >= c.evidenceMinSpanSeconds &&
+      efficiency >= c.evidenceMinEfficiency && residual <= Math.max(c.evidenceResidualFloorMeters, net * c.evidenceResidualNetFactor) &&
+      speed >= c.evidenceMinSpeedMps && speed <= c.evidenceMaxSpeedMps;
+    return { consistent, sampleCount: points.length, sustained: consistent && net >= threshold,
       netMeters: net, residualMeters: residual, efficiency, evidenceThreshold: threshold,
       windowSeconds: span, fittedSpeedMps: speed };
   }

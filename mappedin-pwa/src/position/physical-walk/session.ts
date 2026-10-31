@@ -1,3 +1,5 @@
+import type { WalkingDistanceIncrement, WalkingDistanceSource } from './route-guided';
+import { PHYSICAL_WALK_TUNING, type PhysicalWalkTuning } from './tuning';
 import { positionDiagnosticsEnabled } from './position-diagnostics';
 import { MovementEvidenceWindow } from './movement-evidence';
 import { displacement, offset, validatePoint, type GeoPoint } from './transform';
@@ -12,12 +14,12 @@ export interface PhysicalFix extends GeoPoint {
 export interface VenueFix extends GeoPoint {
   accuracy: number; timestamp: number; source: 'physical-gps-transformed';
   physicalSource: 'gps'; sessionId: string; floorId: string;
-  east: number; north: number;
+  east: number; north: number; distanceAlongRoute?: number;
 }
 export interface ObservationEvidence {
   timestamp: number; accuracy: number; source: 'gps'; venuePosition: GeoPoint;
 }
-export interface PositionEvidenceSnapshot {
+export interface PositionEvidenceSnapshot extends WalkingDistanceSource {
   observation: ObservationEvidence | null;
   acceptedPosition: VenueFix | null;
   displayedPosition: GeoPoint | null;
@@ -35,6 +37,9 @@ const MAX_AGE = 15000;
 const MAX_ACCURACY = 30;
 /** Foundation only: no map, routing, compass or AR imports/subscriptions. */
 export class PhysicalWalkSession {
+  private walkingIncrement: WalkingDistanceIncrement | null = null;
+  private distanceSequence = 0;
+  private distanceReference: { east: number; north: number } | null = null;
   private currentState: WalkState = 'idle';
   private options: SessionOptions | null = null;
   private origin: PhysicalFix | null = null;
@@ -45,21 +50,26 @@ export class PhysicalWalkSession {
   private pending: { east: number; north: number } | null = null;
   private lastOutput: VenueFix | null = null;
   private recoverySamples = 0;
-  private readonly motionWindow = new MovementEvidenceWindow();
+  private readonly motionWindow: MovementEvidenceWindow;
+  private originCapturedAt: number | null = null;
+  private lastPublishedAt: number | null = null;
   private recoveryMovementAnchor: { east: number; north: number } | null = null;
   private observation: ObservationEvidence | null = null;
   private lastMovementTimestamp: number | null = null;
   private movementEvidence: PositionEvidenceSnapshot['movementEvidence'] = 'none';
   private stopWatch: (() => void) | null = null;
   constructor(private readonly enabled: boolean = physicalWalkEnabled(),
-    readonly recorder = new PhysicalWalkRecorder()) {}
+    readonly recorder = new PhysicalWalkRecorder(), private readonly tuning: PhysicalWalkTuning = PHYSICAL_WALK_TUNING, private readonly maxAge = MAX_AGE) {
+    this.motionWindow = new MovementEvidenceWindow(tuning.movement);
+  }
   get state(): WalkState { return this.currentState; }
   get position(): VenueFix | null { return this.lastOutput ? { ...this.lastOutput } : null; }
   /** Fresh observations do not grant movement, speed or arrival evidence. */
   snapshot(now = Date.now()): PositionEvidenceSnapshot {
     const observation = this.observation;
-    const observationFresh = observation != null && now - observation.timestamp <= MAX_AGE && observation.timestamp <= now + 1000;
+    const observationFresh = observation != null && now - observation.timestamp <= this.maxAge && observation.timestamp <= now + 1000;
     return {
+      walkingIncrement: this.walkingIncrement ? { ...this.walkingIncrement } : null,
       observation: observation ? { ...observation, venuePosition: { ...observation.venuePosition } } : null,
       acceptedPosition: this.position,
       displayedPosition: this.lastOutput ? { latitude: this.lastOutput.latitude, longitude: this.lastOutput.longitude } : null,
@@ -74,6 +84,7 @@ export class PhysicalWalkSession {
     };
   }
   private interrupt(now: number): void {
+    this.distanceReference = null;
     this.motionWindow.reset();
     this.recoverySamples = 0; this.pending = null; this.candidates = [];
     this.movementEvidence = 'none'; this.transition('degraded', now);
@@ -89,6 +100,9 @@ export class PhysicalWalkSession {
     validatePoint(options.anchor);
     if (!options.sessionId || !options.mapId || !options.floorId) throw new Error('Session identities and floor are required');
     this.options = { ...options, anchor: { ...options.anchor } };
+    this.walkingIncrement = null; this.distanceSequence = 0; this.distanceReference = null;
+    this.originCapturedAt = null; this.lastPublishedAt = null;
+    this.recorder.record('session.config', { ...this.tuning.movement, ...this.tuning.interpolation, reason: 'physical-walk-responsive-v1' }, now);
     this.origin = null; this.candidates = []; this.lastRaw = null;
     this.baseline = { east: 0, north: 0 }; this.pending = null; this.lastOutput = null; this.recoverySamples = 0;
     this.observation = null; this.lastMovementTimestamp = null; this.movementEvidence = 'none';
@@ -125,7 +139,7 @@ export class PhysicalWalkSession {
   }
   /** Also called by a future UI heartbeat; never makes movement. */
   checkFreshness(now = Date.now()): void {
-    if (this.lastRaw && now - this.lastRaw.timestamp > MAX_AGE &&
+    if (this.lastRaw && now - this.lastRaw.timestamp > this.maxAge &&
         ['active', 'degraded', 'capturing-origin'].includes(this.state) &&
         (this.state !== 'degraded' || this.recoverySamples > 0)) this.interrupt(now);
   }
@@ -151,14 +165,14 @@ export class PhysicalWalkSession {
     try { validatePoint(fix); } catch { valid = false; }
     if (!valid || fix.source !== 'gps' || !Number.isFinite(fix.accuracy) || fix.accuracy <= 0 ||
         fix.accuracy > MAX_ACCURACY || !Number.isFinite(fix.timestamp) ||
-        fix.timestamp > now + 1000 || now - fix.timestamp > MAX_AGE ||
+        fix.timestamp > now + 1000 || now - fix.timestamp > this.maxAge ||
         (this.lastRaw && fix.timestamp <= this.lastRaw.timestamp)) {
       const reason = !valid || fix.source !== 'gps' ? 'invalid-coordinate-or-source' :
         !Number.isFinite(fix.accuracy) || fix.accuracy <= 0 || fix.accuracy > MAX_ACCURACY ? 'accuracy-gate' :
-        !Number.isFinite(fix.timestamp) || fix.timestamp > now + 1000 || now - fix.timestamp > MAX_AGE ? 'timestamp-age-gate' : 'duplicate-or-out-of-order';
+        !Number.isFinite(fix.timestamp) || fix.timestamp > now + 1000 || now - fix.timestamp > this.maxAge ? 'timestamp-age-gate' : 'duplicate-or-out-of-order';
       return this.reject(reason, now);
     }
-    if (this.lastRaw && fix.timestamp - this.lastRaw.timestamp <= MAX_AGE) {
+    if (this.lastRaw && fix.timestamp - this.lastRaw.timestamp <= this.maxAge) {
       let delta;
       try { delta = displacement(this.lastRaw, fix); } catch { return this.reject('jump-out-of-range', now); }
       const distance = Math.hypot(delta.east, delta.north);
@@ -177,6 +191,7 @@ export class PhysicalWalkSession {
     this.observation = { timestamp: fix.timestamp, accuracy: fix.accuracy, source: fix.source, venuePosition };
     this.recorder.record('observation.valid', { fixTimestamp: fix.timestamp, accuracy: fix.accuracy }, now);
     if (recovering) {
+      this.distanceReference = { ...delta };
       this.recoverySamples++;
       this.pending = null;
       if (this.recoverySamples >= 2) {
@@ -188,7 +203,7 @@ export class PhysicalWalkSession {
       this.recorder.record('fix.held', { reason: 'recovery-evidence-only', accuracy: fix.accuracy, fixTimestamp: fix.timestamp, ...delta,
         candidateEast: delta.east - this.baseline.east, candidateNorth: delta.north - this.baseline.north,
         distanceFromAccepted: Math.hypot(delta.east - this.baseline.east, delta.north - this.baseline.north),
-        threshold: Math.max(2, Math.max(fix.accuracy, this.lastOutput?.accuracy ?? fix.accuracy) * 0.5),
+        threshold: Math.max(this.tuning.movement.deadbandMinMeters, Math.max(fix.accuracy, this.lastOutput?.accuracy ?? fix.accuracy) * this.tuning.movement.deadbandAccuracyFactor),
         bearing: (Math.atan2(delta.east - this.baseline.east, delta.north - this.baseline.north) * 180 / Math.PI + 360) % 360, count: this.recoverySamples }, now);
       // Recovery restores readiness only, never movement through an unknown outage.
       return null;
@@ -210,6 +225,8 @@ export class PhysicalWalkSession {
           fixTimestamp: fix.timestamp, captureOffsetEast: delta.east, captureOffsetNorth: delta.north,
           reason: 'selected-origin-versus-capture-observation' }, now);
       }
+      this.distanceReference = displacement(this.origin, fix);
+      this.originCapturedAt = now;
       this.candidates = []; this.transition('active', now);
       this.motionWindow.reset({ east: 0, north: 0, timestamp: fix.timestamp, accuracy: fix.accuracy });
       this.recorder.record('origin.captured', { accuracy: this.origin.accuracy }, now);
@@ -219,29 +236,43 @@ export class PhysicalWalkSession {
     const reference = this.recoveryMovementAnchor ?? this.baseline;
     const move = { east: delta.east - reference.east, north: delta.north - reference.north };
     const distance = Math.hypot(move.east, move.north);
-    // Keep the original isolated-fix deadband. Sustained low-scatter walking is a
-    // separate evidence path, not a blanket lowering of GPS quality thresholds.
-    const threshold = Math.max(2, Math.max(fix.accuracy, this.lastOutput?.accuracy ?? this.origin.accuracy) * 0.5);
+    const c = this.tuning.movement;
+    const threshold = Math.max(c.deadbandMinMeters, Math.max(fix.accuracy, this.lastOutput?.accuracy ?? this.origin.accuracy) * c.deadbandAccuracyFactor);
     const trend = this.motionWindow.push({ ...delta, timestamp: fix.timestamp, accuracy: fix.accuracy });
-    const incrementalThreshold = Math.max(0.5, fix.accuracy * 0.05);
-    const sustained = trend.sustained && distance >= incrementalThreshold;
-    const heldReason = distance < threshold ? 'below-accuracy-deadband' : 'awaiting-coherent-confirmation';
+    const incrementalThreshold = Math.max(c.incrementalMinMeters, fix.accuracy * c.incrementalAccuracyFactor);
+    // A short window cannot contain 1.4m at 0.25m/s. Once walking has been
+    // independently accepted, allow smaller updates only while cadence/shape
+    // remain consistent. No pending distance or jitter is summed into movement.
+    const continuationThreshold = Math.max(trend.evidenceThreshold * c.continuationNetFactor, trend.residualMeters * c.evidenceResidualFactor);
+    const continuing = this.lastMovementTimestamp != null && fix.timestamp - this.lastMovementTimestamp <= c.continuationMaxGapMs &&
+      this.recoveryMovementAnchor == null && trend.consistent && trend.netMeters >= continuationThreshold;
+    const sustained = (trend.sustained || continuing) && distance >= incrementalThreshold;
+    const recentTooSlow = trend.sampleCount >= c.evidenceMinSamples && trend.windowSeconds >= c.evidenceMinSpanSeconds && trend.fittedSpeedMps < c.evidenceMinSpeedMps;
+    const heldReason = recentTooSlow ? 'insufficient-recent-speed' : (trend.sustained || continuing) && distance < incrementalThreshold ?
+      'below-incremental-deadband' : distance < threshold ? 'below-accuracy-deadband' : 'awaiting-coherent-confirmation';
     const distanceFromAccepted = Math.hypot(delta.east - this.baseline.east, delta.north - this.baseline.north);
-    const details = { trajectoryConfirmed: trend.sustained, accuracy: fix.accuracy, fixTimestamp: fix.timestamp, ...delta,
+    const details = { continuationConfirmed: continuing, continuationThreshold, sampleCount: trend.sampleCount, consistentEvidence: trend.consistent,
+      movementIntervalMs: this.lastMovementTimestamp == null ? null : fix.timestamp - this.lastMovementTimestamp,
+      firstMovementDelayMs: this.originCapturedAt == null || this.lastMovementTimestamp != null ? null : now - this.originCapturedAt, trajectoryConfirmed: trend.sustained, accuracy: fix.accuracy, fixTimestamp: fix.timestamp, ...delta,
       candidateEast: move.east, candidateNorth: move.north, distanceFromAccepted,
       threshold, incrementalThreshold, bearing: (Math.atan2(move.east, move.north) * 180 / Math.PI + 360) % 360,
       netMeters: trend.netMeters, residualMeters: trend.residualMeters, efficiency: trend.efficiency,
       evidenceThreshold: trend.evidenceThreshold, windowSeconds: trend.windowSeconds, fittedSpeedMps: trend.fittedSpeedMps };
+    this.recorder.record('walking-distance.candidate', { candidateMeters: this.distanceReference ? Math.hypot(delta.east - this.distanceReference.east, delta.north - this.distanceReference.north) : 0,
+      committedMeters: 0, fixTimestamp: fix.timestamp, accuracy: fix.accuracy, ...delta, reason: heldReason }, now);
     const coherent = this.pending && move.east * this.pending.east + move.north * this.pending.north > 0 &&
-      Math.hypot(move.east - this.pending.east, move.north - this.pending.north) <= Math.max(3, threshold);
-    if (!sustained && (distance < threshold || !coherent)) {
+      Math.hypot(move.east - this.pending.east, move.north - this.pending.north) <= Math.max(c.confirmationRadiusMeters, threshold);
+    if (recentTooSlow || (!sustained && (distance < threshold || !coherent))) {
       this.pending = distance >= threshold ? move : null;
       this.recorder.record('fix.held', { ...details, reason: heldReason,
         classification: distance < threshold ? 'stationary-or-uncertain' : 'uncertain' }, now);
       this.movementEvidence = 'held';
       return null; // Retain original accepted timestamp, never refresh a held position.
     }
-    this.recorder.record('movement.accepted', { ...details, reason: sustained ? 'sustained-low-scatter-trajectory' : 'accuracy-deadband-and-confirmation' }, now);
+    this.recorder.record('movement.accepted', { ...details, reason: sustained ? (trend.sustained ? 'sustained-low-scatter-trajectory' : 'continuing-consistent-walk') : 'accuracy-deadband-and-confirmation' }, now);
+    const candidateMeters = this.distanceReference ? Math.hypot(delta.east - this.distanceReference.east, delta.north - this.distanceReference.north) : 0;
+    this.walkingIncrement = { sequence: ++this.distanceSequence, meters: candidateMeters, timestamp: fix.timestamp };
+    this.distanceReference = { ...delta };
     this.pending = null; this.baseline = delta; this.transition('active', now);
     this.recoveryMovementAnchor = null;
     this.lastMovementTimestamp = fix.timestamp; this.movementEvidence = 'accepted';
@@ -253,10 +284,13 @@ export class PhysicalWalkSession {
   }
   private publish(delta: { east: number; north: number }, fix: PhysicalFix, now: number): VenueFix {
     const options = this.options!;
+    const acceptedFixGapMs = this.lastOutput == null ? null : fix.timestamp - this.lastOutput.timestamp;
+    const acceptedDeliveryGapMs = this.lastPublishedAt == null ? null : now - this.lastPublishedAt;
+    this.lastPublishedAt = now;
     this.lastOutput = { ...offset(options.anchor, delta), ...delta, accuracy: fix.accuracy,
       timestamp: fix.timestamp, source: 'physical-gps-transformed', physicalSource: fix.source,
       sessionId: options.sessionId, floorId: options.floorId };
-    this.recorder.record('position.accepted', { ...delta, accuracy: fix.accuracy,
+    this.recorder.record('position.accepted', { ...delta, acceptedFixGapMs, acceptedDeliveryGapMs, accuracy: fix.accuracy,
       fixTimestamp: fix.timestamp, venueLatitude: this.lastOutput.latitude,
       venueLongitude: this.lastOutput.longitude }, now);
     return { ...this.lastOutput };

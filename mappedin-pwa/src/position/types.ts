@@ -22,7 +22,7 @@ export interface FplacesPositionFrame {
 }
 
 /** Who owns the navigation clock for the AR child. */
-export type NavigationAuthority = 'parent-simulator' | 'local';
+export type NavigationAuthority = 'parent-simulator' | 'parent-physical-walk' | 'local';
 
 /**
  * Shared navigation progress for 2D ↔ AR handoff and live sync.
@@ -43,4 +43,9 @@ export interface NavigationProgressSnapshot {
   source?: FplacesPositionFrame['source'] | 'pwa';
   /** When `parent-simulator`, AR must not advance maneuvers autonomously. */
   navigationAuthority?: NavigationAuthority;
+  /** Identity of the committed physical-walk stream, independent of AR lifecycle. */
+  simulationSessionId?: string;
+  simulationSequence?: number;
+  routeId?: string;
+  routeVersion?: number;
 }

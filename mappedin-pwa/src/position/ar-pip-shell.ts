@@ -44,7 +44,28 @@ function clearPipPosition(): void {
 }
 
 function getShell(): HTMLElement | null {
-  return document.querySelector('#ar-pip-shell');
+  return typeof document === 'undefined' ? null : document.querySelector('#ar-pip-shell');
+}
+
+/** Presentation of the parent's already-confirmed arrival; never computes progress. */
+export function setArArrivalPresentation(arrived: boolean): void {
+  const shell = getShell();
+  if (!shell) return;
+  if (arrived) hideArBootOverlay();
+  if (shell.classList?.contains('ar-pip-shell--arrived') !== arrived) shell.classList?.toggle('ar-pip-shell--arrived', arrived);
+  const indicator = shell.querySelector?.<HTMLElement>('#ar-pip-arrival');
+  if (indicator && indicator.hidden === arrived) indicator.hidden = !arrived;
+  const drag = shell.querySelector?.<HTMLElement>('.ar-pip-drag-layer');
+  if (drag) {
+    const tabIndex = arrived ? 0 : -1;
+    if (drag.tabIndex !== tabIndex) drag.tabIndex = tabIndex;
+    const hidden = arrived ? 'false' : 'true';
+    if (drag.getAttribute('aria-hidden') !== hidden) drag.setAttribute('aria-hidden', hidden);
+    if (arrived) {
+      if (drag.getAttribute('role') !== 'button') drag.setAttribute('role', 'button');
+      if (drag.getAttribute('aria-label') !== 'Arrived. Expand Live View') drag.setAttribute('aria-label', 'Arrived. Expand Live View');
+    }
+  }
 }
 
 function getFrame(): HTMLIFrameElement | null {
@@ -184,6 +205,10 @@ export function installArPipShell(handlers: {
   const dragLayer = shell.querySelector('.ar-pip-drag-layer');
   if (!dragLayer) return;
   dragInstalled = true;
+  dragLayer.addEventListener('keydown', ((event: KeyboardEvent) => {
+    if (!shell.classList.contains('ar-pip-shell--minimized') || !shell.classList.contains('ar-pip-shell--arrived')) return;
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handlers.maximizeAr(); }
+  }) as EventListener);
 
   shell.querySelector('#ar-pip-expand')?.addEventListener('click', (event) => {
     event.stopPropagation();

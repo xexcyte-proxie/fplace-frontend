@@ -101,11 +101,16 @@ export class MapMarkerService {
     } catch { /* Diagnostics cannot interrupt a navigation writer. */ }
   }
 
+  setPhysicalWalkRoute(path: RouteCoordinate[] | null): void {
+    this.stopPhysicalRendering(); this.physicalInterpolation.setRoute(path);
+  }
   private readonly physicalInterpolation = new PositionInterpolation();
   private physicalRenderRaf = 0;
+  private physicalRenderGeneration = 0;
   private physicalRenderActive = false;
 
   private stopPhysicalRendering(): void {
+    this.physicalRenderGeneration++;
     this.positionEvent("position.audit.animation-cancel", { reason: "render-owner-stop" }, true);
     if (this.physicalRenderRaf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(this.physicalRenderRaf);
     this.physicalRenderRaf = 0; this.physicalRenderActive = false;
@@ -114,6 +119,7 @@ export class MapMarkerService {
 
   private renderPhysicalPosition(frame: FplacesPositionFrame): void {
     this.physicalRenderActive = true;
+    const generation = ++this.physicalRenderGeneration;
     const now = performance.now();
     this.physicalInterpolation.setTarget(frame, now);
     const start = this.physicalInterpolation.sample(now);
@@ -127,6 +133,7 @@ export class MapMarkerService {
       fixTimestamp: frame.timestamp, durationMs: this.physicalInterpolation.durationMs, reason: "accepted-unsnapped-authority" });
     if (this.physicalRenderRaf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(this.physicalRenderRaf);
     const draw = (at: number) => {
+      if (generation !== this.physicalRenderGeneration) return;
       this.physicalRenderRaf = 0;
       if (!this.physicalRenderActive || !this.simulatorDrivesAvatar) return;
       const point = this.physicalInterpolation.sample(at);
@@ -136,6 +143,7 @@ export class MapMarkerService {
       this.auditInterpolatedRequest = { ...point };
       this.blueDot.update({ latitude: point.latitude, longitude: point.longitude,
         floorOrFloorId: point.floorId, accuracy: frame.accuracy }, { animate: false });
+      this.physicalInterpolation.markRendered(point);
       this.positionEvent(this.physicalInterpolation.complete(at) ? "position.audit.animation-complete" : "position.audit.marker-frame", {
         interpolatedLatitude: point.latitude, interpolatedLongitude: point.longitude,
         frameGapMs: this.lastAuditDraw ? at - this.lastAuditDraw.at : undefined,
@@ -154,7 +162,7 @@ export class MapMarkerService {
       }
     };
     if (typeof requestAnimationFrame === "function") draw(now);
-    else draw(now + 800); // Non-browser/test fallback reaches the accepted endpoint.
+    else draw(now + this.physicalInterpolation.durationMs); // Non-browser/test fallback reaches the accepted endpoint.
   }
 
   private headingGeneration = 0;

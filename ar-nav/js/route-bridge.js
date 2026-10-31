@@ -203,10 +203,11 @@
 
   function applyNavigationSync(progress, source) {
     if (!progress || typeof progress.alongPathMeters !== "number") return;
-    window.__fplacesNavigationProgress = progress;
+    if (!window.__fplacesNavigator?.applyNavigationSync) window.__fplacesNavigationProgress = progress;
     if (
       isParentEmbeddedNav() &&
       (progress.navigationAuthority === "parent-simulator" ||
+        progress.navigationAuthority === "parent-physical-walk" ||
         progress.source === "simulator" ||
         progress.routeSimulating)
     ) {
@@ -446,6 +447,7 @@
     },
 
     applyPosition(payload, source) {
+      if (window.__fplacesNavigator?.isParentPhysicalWalkAuthority?.()) return false;
       const position = normalizePosition(payload);
       if (!position) return false;
 
@@ -642,6 +644,18 @@
         window.FplacesRouteBridge.applyRoute(data.route, 'postMessage-activate');
       }
       window.__fplacesActivateLiveView?.(data.launch || {});
+      return;
+    }
+    if (data.type === 'fplaces_navigation_reset') {
+      const nav = window.__fplacesNavigator;
+      if (data.routeId && nav?.route?.routeId && data.routeId !== nav.route.routeId) return;
+      if (data.routeVersion != null && nav?.route?.routeVersion != null && data.routeVersion !== nav.route.routeVersion) return;
+      window.fplacesActiveRoute = null;
+      window.__fplacesActiveRouteFp = null;
+      window.__fplacesPendingNavigationSync = null;
+      nav?.setRoute?.(null);
+      window.FplacesWorldRoute?.invalidate?.('navigation-reset');
+      window.FplacesSpatialAlignment?.syncButton?.();
       return;
     }
     if (data.type === 'fplaces_navigation_sync' && data.progress) {

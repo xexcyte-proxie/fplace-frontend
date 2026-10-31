@@ -1,3 +1,5 @@
+import type { NavigationProgressSnapshot } from '../types';
+import { RouteGuidedWalk, ROUTE_GUIDED_WALK_SPEED_MPS, type PhysicalWalkMode } from './route-guided';
 import { PositionPipelineAudit, positionDiagnosticsEnabled } from './position-diagnostics';
 import { PhysicalWalkSession, type VenueFix, type SessionOptions } from './session';
 import { PhysicalWalkRecorder } from './recorder';
@@ -13,17 +15,28 @@ export interface WalkMetrics {
   eta: number | null; offRouteMeters: number; arrived: boolean;
 }
 export interface WalkHost {
+  isCurrentRoute?(route: RoutePayload): boolean;
   acquire(): void;
   release(): void;
   render(position: VenueFix): void;
   progress(metrics: WalkMetrics, projected: RouteCoordinate | null): void;
 }
-/** 2D-only orchestration. Timers maintain freshness/time displays, never motion. */
+/** Physical-walk orchestration shared by 2D and AR. Timers maintain freshness/time displays, never motion. */
 export class PhysicalWalkNavigation {
   readonly recorder = new PhysicalWalkRecorder();
   readonly positionAudit: PositionPipelineAudit | null;
   private session = new PhysicalWalkSession(true, this.recorder);
   private route: RoutePayload | null = null;
+  mode: PhysicalWalkMode = 'raw';
+  private guided: RouteGuidedWalk | null = null;
+  private guidedSequence = 0;
+  private sessionId = '';
+  private routeSignature = '';
+  private visibilityHandler = () => {
+    if (this.mode === 'route-guided' && document.visibilityState === 'hidden') {
+      this.end(); this.status = 'Route-Guided Physical Walk Demo paused in background — restart to capture a new origin';
+    }
+  };
   private startedAt = 0;
   private captureAt = 0;
   private recoveryNoticeUntil = 0;
@@ -36,12 +49,33 @@ export class PhysicalWalkNavigation {
   status = 'Select start and destination — physical demo starts automatically';
   metrics: WalkMetrics | null = null;
   get sessionState(): string { return this.session.state; }
+  /** Committed authority, never a rendered/interpolated dot or a second GPS projection. */
+  get progressSnapshot(): NavigationProgressSnapshot | null {
+    if (!this.running || !this.guided || !this.route) return null;
+    const point = this.guided.at();
+    return { alongPathMeters: this.guided.progress, routeTraveledMeters: this.guided.progress,
+      routeRemainingMeters: this.guided.remaining, routeSimulating: false,
+      routeSimulationComplete: this.guided.arrived, latitude: point.latitude, longitude: point.longitude,
+      floorId: point.floorId, source: 'physical-gps-transformed', navigationAuthority: 'parent-physical-walk',
+      simulationSessionId: this.sessionId, simulationSequence: this.guidedSequence,
+      routeId: this.route.routeId, routeVersion: this.route.routeVersion };
+  }
   constructor(private readonly host: WalkHost, private readonly clock = () => Date.now()) {
     this.positionAudit = positionDiagnosticsEnabled() ? new PositionPipelineAudit(this.recorder, clock) : null;
   }
-  start(options: SessionOptions, route: RoutePayload, geo: Geolocation = navigator.geolocation): void {
+  start(options: SessionOptions, route: RoutePayload, geo: Geolocation = navigator.geolocation, mode: PhysicalWalkMode = this.mode): void {
     this.end();
-    this.session = new PhysicalWalkSession(true, this.recorder);
+    this.sessionId = options.sessionId;
+    this.mode = mode;
+    this.guided = mode === 'route-guided' ? new RouteGuidedWalk(route.pathCoordinates) : null;
+    if (this.guided && typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      this.status = 'Route-Guided Physical Walk Demo requires a visible page — restart when foregrounded'; return;
+    }
+    this.guidedSequence = 0;
+    this.routeSignature = JSON.stringify(route.pathCoordinates);
+    if (this.guided) options = { ...options, anchor: this.guided.path[0] };
+    this.session = new PhysicalWalkSession(true, this.recorder, undefined, this.guided ? 3000 : undefined);
+    this.recorder.record('demo.mode', { mode, buildFingerprint: import.meta.env.VITE_BUILD_FINGERPRINT ?? __WALK_BUILD_FINGERPRINT__, speedMps: this.guided ? ROUTE_GUIDED_WALK_SPEED_MPS : 0 }, this.clock());
     this.positionAudit?.begin(options, route);
     this.session.start(options, this.clock()); this.route = route;
     this.captureAt = this.clock(); this.startedAt = 0; this.recoveryNoticeUntil = 0;
@@ -54,9 +88,10 @@ export class PhysicalWalkNavigation {
       this.host.acquire();
       this.host.render({ ...options.anchor, east: 0, north: 0, floorId: options.floorId,
         source: 'physical-gps-transformed', physicalSource: 'gps', sessionId: options.sessionId,
-        timestamp: this.clock(), accuracy: 30 }); // Explicit preview placement, never movement evidence.
+        timestamp: this.clock(), accuracy: 30, ...(this.guided ? { distanceAlongRoute: 0 } : {}) }); // Explicit preview placement, never movement evidence.
       this.recorder.record('blue-dot.preview', { venueLatitude: options.anchor.latitude, venueLongitude: options.anchor.longitude, reason: 'selected-start-not-gps-evidence' }, this.clock());
       this.status = 'Capturing physical origin (up to 30 seconds)…';
+      if (this.guided && typeof document !== 'undefined') document.addEventListener('visibilitychange', this.visibilityHandler);
       this.session.watch(geo, () => this.update());
       this.timer = setInterval(() => this.update(), 250);
       this.update();
@@ -65,6 +100,7 @@ export class PhysicalWalkNavigation {
     }
   }
   end(): void {
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.visibilityHandler);
     const owned = this.running; this.running = false;
     if (this.timer) clearInterval(this.timer); this.timer = null;
     this.session.end(this.clock());
@@ -77,6 +113,9 @@ export class PhysicalWalkNavigation {
   }
   update(): void {
     if (!this.running || !this.route || !this.metrics) return;
+    if (this.guided && (this.host.isCurrentRoute?.(this.route) === false || JSON.stringify(this.route.pathCoordinates) !== this.routeSignature)) {
+      this.end(); this.status = 'Route geometry changed — restart Route-Guided Physical Walk Demo'; return;
+    }
     const now = this.clock(); this.session.checkFreshness(now);
     const snapshot = this.session.snapshot(now);
     if (!snapshot.acceptedPosition && now - this.captureAt >= 30000) {
@@ -98,6 +137,7 @@ export class PhysicalWalkNavigation {
         positionFresh: snapshot.positionFresh, sensorHealth: snapshot.sensorHealth,
         movementEvidence: snapshot.movementEvidence }, now);
     }
+    if (this.guided) { this.updateGuided(snapshot, now); return; }
     let projection: RouteCoordinate | null = null;
     const position = snapshot.acceptedPosition;
     if (position && position.timestamp !== this.movementAt && snapshot.positionFresh && !this.metrics.arrived) {
@@ -132,6 +172,42 @@ export class PhysicalWalkNavigation {
     this.metrics.eta = snapshot.positionFresh && this.metrics.offRouteMeters <= 30 && this.metrics.remainingSeconds != null ? now + this.metrics.remainingSeconds * 1000 : null;
     this.host.progress({ ...this.metrics }, projection);
     this.positionAudit?.sample(this.metrics);
+  }
+  private updateGuided(snapshot: ReturnType<PhysicalWalkSession['snapshot']>, now: number): void {
+    const engine = this.guided!; const metrics = this.metrics!;
+    const event = snapshot.walkingIncrement;
+    let committed = 0;
+    const newlyAccepted = event != null && event.sequence !== this.guidedSequence;
+    if (event && snapshot.positionFresh && snapshot.movementEvidence === 'accepted' && now - event.timestamp <= 3000) committed = engine.commit(event);
+    if (newlyAccepted) this.guidedSequence = event!.sequence;
+    const point = engine.at();
+    metrics.physicalMeters = engine.totalWalked; metrics.alongMeters = engine.progress;
+    metrics.remainingMeters = engine.remaining; metrics.percent = engine.progress / engine.length * 100;
+    metrics.offRouteMeters = 0; metrics.arrived = engine.arrived;
+    metrics.remainingSeconds = engine.remaining / ROUTE_GUIDED_WALK_SPEED_MPS;
+    metrics.speedMps = !engine.arrived && snapshot.positionFresh ? ROUTE_GUIDED_WALK_SPEED_MPS : 0;
+    metrics.eta = snapshot.positionFresh ? now + metrics.remainingSeconds * 1000 : null;
+    if (!this.startedAt && snapshot.acceptedPosition) this.startedAt = now;
+    metrics.elapsedSeconds = this.startedAt ? (now - this.startedAt) / 1000 : 0;
+    if (newlyAccepted) this.recorder.record('route-guided.distance', {
+      candidateMeters: event?.meters, committedMeters: committed, physicalMeters: engine.totalWalked,
+      alongMeters: engine.progress, routeLength: engine.length, remainingMeters: engine.remaining,
+      accuracy: snapshot.observation?.accuracy, observationFresh: snapshot.observationFresh,
+      fixTimestamp: event?.timestamp, fixAgeMs: event ? now - event.timestamp : null,
+      movementEvidence: snapshot.movementEvidence }, now);
+    if (committed > 0 && snapshot.acceptedPosition) {
+      this.host.render({ ...snapshot.acceptedPosition, ...point });
+      this.recorder.record('route-guided.commit', { candidateMeters: event?.meters, committedMeters: committed,
+        physicalMeters: engine.totalWalked, alongMeters: engine.progress, routeLength: engine.length,
+        remainingMeters: engine.remaining, segmentIndex: point.segmentIndex, venueLatitude: point.latitude,
+        venueLongitude: point.longitude, accuracy: snapshot.observation?.accuracy, observationFresh: snapshot.observationFresh,
+        movementEvidence: snapshot.movementEvidence, arrived: engine.arrived,
+        reason: engine.arrived ? 'credible-walking-distance-reached-route-end' : 'accepted-walking-distance' }, now);
+    }
+    if (engine.arrived) { this.session.end(now); if (this.timer) clearInterval(this.timer); this.timer = null; this.status = 'Route-Guided Physical Walk Demo arrived — held at route end'; }
+    else this.status = `Route-Guided Physical Walk Demo · simulated route-guided walk · ${this.status}`;
+    this.host.progress({ ...metrics }, point);
+    this.positionAudit?.sample(metrics);
   }
   private project(position: VenueFix): RouteCoordinate | null {
     const route = this.route!; const metrics = this.metrics!;

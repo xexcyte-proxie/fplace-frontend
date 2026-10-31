@@ -629,4 +629,31 @@ describe('MapMarkerService live navigation', () => {
     } finally { service.setPositionDiagnostics(null); service.setSimulatorParallelMode(false); vi.unstubAllGlobals(); }
   });
 
+  it('retargets from the last drawn frame and ignores cancelled animation callbacks', () => {
+    let now = 0; let id = 0;
+    const frames = new Map<number, FrameRequestCallback>();
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { frames.set(++id, cb); return id; });
+    vi.stubGlobal('cancelAnimationFrame', (key: number) => frames.delete(key));
+    const service = new MapMarkerService({} as never); const dot = blueDotMock.instances[0] as any;
+    const base = { latitude: 43, longitude: -80, accuracy: 4, floorId: 'g', source: 'physical-gps-transformed' as const, timestamp: 1000 };
+    try {
+      service.setSimulatorParallelMode(true, { compassGlow: true }); service.applyProviderFrame(base);
+      now = 1000; service.applyProviderFrame({ ...base, latitude: 43.0001, timestamp: 2000 });
+      now = 1200; const first = [...frames.values()]; frames.clear(); first.forEach(cb => cb(now));
+      const drawn = { ...dot.coordinate }; const cancelled = [...frames.values()];
+      now = 3000; service.applyProviderFrame({ ...base, latitude: 43.0002, timestamp: 4000 });
+      expect(dot.coordinate).toEqual(drawn);
+      expect(service.getLastPosition()!.coordinate.latitude).toBe(43.0002);
+      const writes = dot.update.mock.calls.length; const pending = frames.size;
+      cancelled.forEach(cb => cb(3200));
+      expect(dot.update).toHaveBeenCalledTimes(writes); expect(frames.size).toBe(pending);
+      const active = [...frames.values()]; frames.clear(); now = 3800; active.forEach(cb => cb(now));
+      expect(dot.coordinate.latitude).toBeCloseTo(43.0002, 9);
+      expect(frames.size).toBe(0);
+      service.setSimulatorParallelMode(false); const endedWrites = dot.update.mock.calls.length;
+      active.forEach(cb => cb(4000)); expect(dot.update).toHaveBeenCalledTimes(endedWrites);
+    } finally { service.setSimulatorParallelMode(false); vi.restoreAllMocks(); vi.unstubAllGlobals(); }
+  });
+
 });

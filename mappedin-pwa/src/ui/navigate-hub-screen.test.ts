@@ -18,6 +18,8 @@ describe('renderNavigateHubScreen', () => {
 
     expect(html).toContain('id="navigate-ar-btn"');
     expect(html).toContain('Set a route for AR');
+    expect(html).toContain('id="product-tour-dont-show"');
+    expect(html).toContain("Don't show this again");
     expect(html).toContain('id="first-visit-ar-open-map-btn"');
     expect(html).toContain('id="first-visit-ar-prompt-dismiss"');
   });

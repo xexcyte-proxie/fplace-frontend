@@ -212,3 +212,8 @@
     transition: none;
   }
 }
+
+/* The AR iframe is outside ui-root; lift only its active tour above it. */
+.ui-root:has(.product-tour[data-tour-surface="ar"]) {
+  z-index: 100;
+}

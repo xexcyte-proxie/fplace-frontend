@@ -304,7 +304,9 @@
   function resolveStartAlongM(points, camera) {
     const nav = resolveNavigatorAlongM(points);
     const cam = resolveCameraAlongM(points, camera);
-    visualAlong = window.FplacesVisualRouteState?.reconcile(visualAlong, nav, cam) ?? nav ?? cam ?? 0;
+    visualAlong = window.__fplacesNavigator?.isParentPhysicalWalkAuthority?.()
+      ? (nav ?? 0)
+      : window.FplacesVisualRouteState?.reconcile(visualAlong, nav, cam) ?? nav ?? cam ?? 0;
     if (window.FplacesTrailDiagnostics?.enabled) window.FplacesTrailDiagnostics.progress({
       cameraAlongM: cam, navigationLocalAlongM: nav, visualAlongM: visualAlong,
       source: nav != null ? 'navigation' : 'camera',
@@ -370,6 +372,7 @@
     lastArrowRefreshAt = now;
 
     window.FplacesIncrementalPath.extend(window.THREE, scene, points, {
+      geometryIdentity: cachedRouteInput,
       floorY: groundY(),
       isFinalSection: cachedRouteInput?.isFinalSection !== false,
       camera,
@@ -616,6 +619,7 @@
     if (incremental) {
       const alongPathM = resolveUserAlongM(points, camera) ?? 0;
       window.FplacesIncrementalPath?.extend?.(THREE, threeScene, points, {
+        geometryIdentity: cachedRouteInput,
         floorY: groundY(),
         isFinalSection: cachedRouteInput?.isFinalSection !== false,
         camera,

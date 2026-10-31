@@ -166,6 +166,9 @@
       this._lastAlongTickAt = null;
       this._gpsOffRouteMeters = Infinity;
       this._parentSimulatorAuthority = false;
+      this._physicalSessionId = null;
+      this._physicalSequence = -1;
+      this._retiredPhysicalSessions = this._retiredPhysicalSessions || new Set();
       this._authoritativeAlongPathM = null;
       this._authoritativeAlongAt = 0;
       this._authoritativeSimSpeedMps = PARENT_SIM_WALK_MPS;
@@ -197,6 +200,7 @@
         this._arrivalNotifiedToParent = false;
         return;
       }
+      if (this.isParentPhysicalWalkAuthority() && !window.__fplacesNavigationProgress?.routeSimulationComplete) return;
       if (options?.forceComplete) {
         this.lockArrived();
         return;
@@ -232,6 +236,8 @@
       window.FplacesRouteLaneHeading?.reset?.();
       this.stopGps();
       this.route = route;
+      window.__fplacesParentSimulatorAuthority = false;
+      window.__fplacesNavigationProgress = null;
       if (route?.pathCoordinates?.length) {
         route.pathCoordinates =
           window.FplacesFloorTransitions?.ensurePathFloors?.(
@@ -263,6 +269,9 @@
       this._lastAlongTickAt = null;
       this._gpsOffRouteMeters = Infinity;
       this._parentSimulatorAuthority = false;
+      this._physicalSessionId = null;
+      this._physicalSequence = -1;
+      this._retiredPhysicalSessions = this._retiredPhysicalSessions || new Set();
       this._authoritativeAlongPathM = null;
       this._authoritativeAlongAt = 0;
       this._authoritativeSimSpeedMps = PARENT_SIM_WALK_MPS;
@@ -342,7 +351,12 @@
       return cfg.useGpsProgress === false;
     }
 
+    isParentPhysicalWalkAuthority() {
+      return this._physicalSessionId != null;
+    }
+
     isParentSimulatorAuthority() {
+      if (this.isParentPhysicalWalkAuthority()) return true;
       if (!this.isParentEmbeddedNav()) return false;
       return (
         this._parentSimulatorAuthority ||
@@ -391,6 +405,12 @@
         ? window.FplacesRouteGeometry.totalPathLengthMeters(path)
         : 0;
       const auth = this._authoritativeAlongPathM ?? 0;
+      if (this.isParentPhysicalWalkAuthority()) {
+        // Committed walking distance is the only clock. Never extrapolate on time or SLAM.
+        this._simDisplayAlongPathM = auth;
+        this._lastSimDisplayTickAt = now;
+        return Math.max(0, Math.min(total, auth));
+      }
       const authAt = this._authoritativeAlongAt ?? now;
       const speed = this._authoritativeSimSpeedMps ?? PARENT_SIM_WALK_MPS;
       const progress = window.__fplacesNavigationProgress || {};
@@ -450,6 +470,7 @@
         return;
       }
 
+      if (this.isParentPhysicalWalkAuthority()) return; // Parent alone commits arrival.
       const total = window.FplacesRouteGeometry.totalPathLengthMeters(path);
       this.applyArrivalLatch(Math.max(0, total - along));
     }
@@ -459,7 +480,28 @@
      * @param {{ alongPathMeters: number, routeSimulating?: boolean, routeSimulationComplete?: boolean, latitude?: number, longitude?: number, heading?: number, floorId?: string, source?: string }} progress
      */
     applyNavigationSync(progress) {
-      if (!progress || typeof progress.alongPathMeters !== "number") return;
+      if (!progress || !Number.isFinite(progress.alongPathMeters)) return;
+      if (progress.routeId && this.route?.routeId && progress.routeId !== this.route.routeId) return;
+      if (progress.routeVersion != null && this.route?.routeVersion != null && progress.routeVersion !== this.route.routeVersion) return;
+      const physical = progress.navigationAuthority === 'parent-physical-walk';
+      if (physical) {
+        const id = progress.simulationSessionId;
+        if (!id || this._retiredPhysicalSessions.has(id)) return;
+        if (this._physicalSessionId === id && (progress.simulationSequence < this._physicalSequence || progress.alongPathMeters < (this._authoritativeAlongPathM ?? 0))) return;
+        if (this._physicalSessionId !== id) {
+          if (this._physicalSessionId) this._retiredPhysicalSessions.add(this._physicalSessionId);
+          this.applyArrivalLatch(null, { forceClear: true });
+          this._smoothDistToTarget = null; this._smoothDistRemaining = null;
+        }
+        this._physicalSessionId = id;
+        this._physicalSequence = progress.simulationSequence ?? 0;
+      } else if (this.isParentPhysicalWalkAuthority()) {
+        // Only an explicit matching release may replace this walking session.
+        if (progress.navigationAuthority !== 'local' || progress.simulationSessionId !== this._physicalSessionId) return;
+        this._retiredPhysicalSessions.add(this._physicalSessionId);
+        this._physicalSessionId = null; this._parentSimulatorAuthority = false;
+        window.__fplacesParentSimulatorAuthority = false; this.positionSource = 'none';
+      }
 
       const path = this.route?.pathCoordinates || [];
       if (!path.length) {
@@ -493,6 +535,7 @@
 
       const useParentSimulator =
         progress.navigationAuthority === "parent-simulator" ||
+        progress.navigationAuthority === "parent-physical-walk" ||
         (this.isParentEmbeddedNav() &&
           (progress.source === "simulator" || progress.routeSimulating));
 
@@ -583,6 +626,7 @@
     }
 
     resetProgressAtSnap(snap) {
+      if (this.isParentPhysicalWalkAuthority()) return;
       if (!snap || snap.latitude == null || snap.longitude == null) return;
 
       const path = this.route?.pathCoordinates || [];
@@ -656,6 +700,7 @@
      * @param {{ latitude: number, longitude: number, heading?: number, accuracy?: number, floorId?: string, source?: string }} pos
      */
     applyPosition(pos, options = {}) {
+      if (this.isParentPhysicalWalkAuthority()) return; // No competing GPS or position writer.
       if (!pos || pos.latitude == null || pos.longitude == null) {
         window.FplacesArDebug?.warn(
           "Navigator",
@@ -1239,6 +1284,7 @@
     /** Live distance to next maneuver - updates every frame with 0.1 m precision. */
     getDisplayDistanceMeters() {
       const raw = this.distanceToCurrentTargetMeters();
+      if (this.isParentPhysicalWalkAuthority()) return raw;
       if (raw == null) return this._smoothDistToTarget;
 
       const now = performance.now();
@@ -1583,6 +1629,7 @@
     }
 
     startGps() {
+      if (this.isParentPhysicalWalkAuthority()) return;
       if (!navigator.geolocation || !this.route?.pathCoordinates?.length) {
         window.FplacesArDebug?.warn("Navigator", "startGps skipped", {
           hasGeolocation: !!navigator.geolocation,
@@ -1748,7 +1795,8 @@
         this._lastMinimapAt = now;
         window.FplacesMinimap?.update?.(this, minimapHeading ?? null);
       }
-      if (!window.__fplacesXrSessionActive) {
+      // Confirmed arrival/reset must render even if XR's frame loop is paused.
+      if (!window.__fplacesXrSessionActive || state.arrived || window.document?.body?.classList?.contains('lv-arrived')) {
         window.FplacesLiveViewHud?.update?.(state, this);
       }
       window.FplacesArDebug?.logNavStateThrottled(

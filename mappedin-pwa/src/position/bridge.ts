@@ -13,7 +13,7 @@ import {
 import { routeLifecycleManager } from "../routing/route-lifecycle-manager";
 import type { FloorInfo, RouteCoordinate, RoutePayload } from "../types";
 import { buildArRoutePayload, encodeRouteForAr } from "../utils/route-helpers";
-import { applyPipShellLayout, hideArBootOverlay, isArShellVisible, showArBootOverlay, armArBootOverlayFallback } from "./ar-pip-shell";
+import { setArArrivalPresentation, applyPipShellLayout, hideArBootOverlay, isArShellVisible, showArBootOverlay, armArBootOverlayFallback } from "./ar-pip-shell";
 import type { FplacesPositionFrame, NavigationProgressSnapshot } from "./types";
 import { appLog, appWarn } from "../utils/logger";
 
@@ -119,6 +119,7 @@ function stashRouteHandoff(routePayload: Record<string, unknown>): void {
 }
 
 export function clearRouteHandoff(): void {
+  setArArrivalPresentation(false);
   try {
     sessionStorage.removeItem(ROUTE_HANDOFF_KEY);
   } catch {
@@ -271,7 +272,7 @@ export function notifyArSimulatorStarted(detail: {
 function withParentSimulatorAuthority(
   progress: NavigationProgressSnapshot,
 ): NavigationProgressSnapshot {
-  if (progress.source !== "simulator") return progress;
+  if (progress.navigationAuthority === "parent-physical-walk" || progress.source !== "simulator") return progress;
   return { ...progress, navigationAuthority: "parent-simulator" };
 }
 
@@ -280,6 +281,7 @@ export function syncNavigationToAr(
   progress: NavigationProgressSnapshot,
 ): void {
   const payload = withParentSimulatorAuthority(progress);
+  setArArrivalPresentation(payload.routeSimulationComplete === true);
   const shell = document.querySelector("#ar-pip-shell") as HTMLElement | null;
   const frameEl = document.querySelector(
     "#ar-frame",
@@ -288,7 +290,9 @@ export function syncNavigationToAr(
 
   const targetOrigin = resolvePostMessageTargetOrigin(frameEl);
 
-  if (payload.latitude != null && payload.longitude != null) {
+  // Physical walking is one atomic progress message. A separate position packet
+  // would enter the child's GPS/projection pipeline before its authority is set.
+  if (payload.navigationAuthority !== "parent-physical-walk" && payload.latitude != null && payload.longitude != null) {
     dispatchPositionToAr({
       latitude: payload.latitude,
       longitude: payload.longitude,
@@ -305,6 +309,15 @@ export function syncNavigationToAr(
     { type: "fplaces_navigation_sync", progress: payload },
     targetOrigin,
   );
+}
+
+/** Clear arrival/navigation UI only when the parent explicitly clears its route. */
+export function resetArRoutePresentation(route: Pick<RoutePayload, 'routeId' | 'routeVersion'> | null): void {
+  setArArrivalPresentation(false);
+  if (typeof document === 'undefined') return;
+  const frame = document.querySelector('#ar-frame') as HTMLIFrameElement | null;
+  if (!frame?.contentWindow) return;
+  frame.contentWindow.postMessage({ type: 'fplaces_navigation_reset', routeId: route?.routeId, routeVersion: route?.routeVersion }, resolvePostMessageTargetOrigin(frame));
 }
 
 export function isArFrameVisible(): boolean {
@@ -875,6 +888,7 @@ export function openArFullscreen(
   setArPresentation("fullscreen");
   showArBootOverlay();
   armArBootOverlayFallback(revealArStartFallback);
+  setArArrivalPresentation((routePayload?.navigationProgress as NavigationProgressSnapshot | undefined)?.routeSimulationComplete === true);
 
   if (tryActivateWarmedArIframe(frame, routePayload, launch)) {
     clearPendingLiveViewActivate();

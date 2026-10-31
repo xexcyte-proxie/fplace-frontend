@@ -1,0 +1,118 @@
+/* Shared by the 2D app and AR iframe: one arrival design. */
+.arrival-dialog-backdrop {
+  box-sizing: border-box;
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+  pointer-events: auto;
+  background: rgba(21, 21, 31, .48);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.arrival-dialog, .arrival-dialog * { box-sizing: border-box; }
+.arrival-dialog-backdrop--ar { position: fixed; z-index: 2100; }
+.arrival-dialog-backdrop.hidden, .arrival-dialog-backdrop[hidden] { display: none !important; }
+.arrival-dialog {
+  margin: 0;
+  width: min(100%, 380px);
+  max-height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: clamp(24px, 6vw, 36px) 28px 24px;
+  border: 1px solid rgba(255,255,255,.8);
+  border-radius: 28px;
+  background: radial-gradient(ellipse at 50% 0%, #f0f9f2 0%, #fff 58%);
+  color: var(--app-text, #15151f);
+  box-shadow: 0 24px 72px rgba(21,21,31,.2), 0 4px 16px rgba(21,21,31,.06);
+  font-family: var(--brand-sans, "Plus Jakarta Sans", system-ui, sans-serif);
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: normal;
+  letter-spacing: normal;
+  -webkit-font-smoothing: auto;
+  animation: arrival-reveal 260ms cubic-bezier(.2,.7,.2,1) both;
+}
+
+.arrival-dialog-icon {
+  flex-shrink: 0;
+  width: 76px;
+  height: 76px;
+  margin-bottom: 24px;
+  border: 1px solid rgba(46,158,104,.15);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #e4f3e9;
+  color: #238153;
+  box-shadow: 0 0 0 8px rgba(46,158,104,.045);
+}
+.arrival-dialog-icon svg { width: 54px; height: 54px; }
+.arrival-dialog-eyebrow {
+  margin: 0 0 8px;
+  color: #4a7660;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.arrival-dialog-title {
+  margin: 0;
+  font-family: var(--brand-serif, "Source Serif 4 Variable", "Source Serif 4", Georgia, ui-serif, serif);
+  font-size: clamp(28px, 7vw, 34px);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -.04em;
+}
+.arrival-dialog-body { margin: 12px 0 0; font-size: 14px; line-height: 1.6; color: var(--app-text-muted, #5c5f69); }
+.arrival-dialog-destination {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  max-width: 100%;
+  margin: 22px 0 0;
+  padding: 12px 16px;
+  border: 1px solid #e6e9e4;
+  border-radius: 12px;
+  background: rgba(255,255,255,.75);
+  color: var(--app-text, #15151f);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.arrival-dialog-destination svg { flex: 0 0 18px; width: 18px; height: 18px; margin-top: 2px; color: #4a7660; }
+.arrival-dialog-ok {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  flex-shrink: 0;
+  min-height: 52px;
+  margin-top: 28px;
+  padding: 14px 24px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--brand-orange, #e07a33);
+  color: var(--app-text, #15151f);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 150ms ease, transform 150ms ease;
+}
+.arrival-dialog-ok:hover { background: #d96f28; }
+.arrival-dialog-ok:active { transform: scale(.985); }
+.arrival-dialog-ok:focus-visible { outline: 3px solid #156068; outline-offset: 4px; }
+@keyframes arrival-reveal { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .arrival-dialog { animation: none; } .arrival-dialog-ok { transition: none; } }
