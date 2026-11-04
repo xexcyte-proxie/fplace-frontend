@@ -404,9 +404,6 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     case 'ar-nav-end-btn':
       void app.endArNavigation();
       return;
-    case 'begin-route-btn':
-      void app.beginOrResetRoute();
-      return;
     case 'onboarding-create-account':
     case 'ar-teaser-skip-btn':
     case 'ar-teaser-continue':
@@ -849,6 +846,17 @@ function handleKeydown(event: KeyboardEvent, host: UiRootEventHost): void {
   if (!app) return;
   const target = event.target;
 
+  const modal = host.root.querySelector('#location-gate-dismiss');
+  if (event.key === 'Tab' && modal) {
+    const controls = Array.from(modal.querySelectorAll<HTMLElement>('button:not(:disabled), summary, a[href]'));
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (first && (event.shiftKey ? target === first || !modal.contains(target as Node) : target === last || !modal.contains(target as Node))) {
+      event.preventDefault();
+      (event.shiftKey ? last : first)?.focus();
+    }
+    return;
+  }
   if (event.key === 'Escape') {
     if (host.root.querySelector('#location-gate-dismiss')) {
       event.preventDefault();
@@ -888,7 +896,7 @@ export function installUiRootEventDelegation(
   root.addEventListener('submit', (event) => handleSubmit(event, host));
   root.addEventListener('keydown', (event) => handleKeydown(event, host));
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !root.contains(event.target as Node) &&
+    if ((event.key === 'Escape' || event.key === 'Tab') && !root.contains(event.target as Node) &&
         root.querySelector('#location-gate-dismiss')) {
       handleKeydown(event, host);
     }

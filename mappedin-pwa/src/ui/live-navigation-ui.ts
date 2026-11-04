@@ -337,7 +337,7 @@ function setTextContent(el: Element | null, value: string): void {
 
 export function liveTrackingMessage(state: Pick<AppState, 'blueDotStatus' | 'route'>): string {
   if (!state.route) return '';
-  if (state.blueDotStatus === 'error') return 'Location unavailable. Check location permission and try again.';
+  if (state.blueDotStatus === 'error') return 'Location unavailable. Try again or check device and browser location access.';
   if (state.blueDotStatus === 'inactive') return 'Location signal is weak or lost. Waiting for an accurate location.';
   if (state.blueDotStatus === 'starting') return 'Finding your location…';
   return '';

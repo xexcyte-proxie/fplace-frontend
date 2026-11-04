@@ -1,3 +1,5 @@
+import { SOCIAL_DEMO_ENABLED } from '../demo/demo-mode';
+import { createDemoForumRepository } from '../demo/demo-forum-repository';
 import type {
   CreateCommentPayload,
   CreateLocationMessagePayload,
@@ -202,4 +204,7 @@ export class ForumRepositoryImpl implements ForumRepository {
   }
 }
 
-export const forumRepository = new ForumRepositoryImpl();
+const remoteForumRepository = new ForumRepositoryImpl();
+export const forumRepository = SOCIAL_DEMO_ENABLED
+  ? createDemoForumRepository(remoteForumRepository)
+  : remoteForumRepository;

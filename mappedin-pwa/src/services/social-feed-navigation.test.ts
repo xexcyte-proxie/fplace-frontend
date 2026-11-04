@@ -21,6 +21,16 @@ function harness() {
 }
 
 describe('venue post navigation', () => {
+  it('preserves a pending feed request when leaving and reopening Social', () => {
+    const { app, state } = harness();
+    Object.assign(state, { activeTab: 'social', venueFeedLoading: true, venueFeedPosts: [] });
+    app.setActiveTab('home');
+    expect(state.venueFeedLoading).toBe(true);
+    expect(app.venueFeedScopeGeneration).toBe(0);
+    app.setActiveTab('social');
+    expect(state.venueFeedLoading).toBe(true);
+  });
+
   it('opens the same posts and pagination from Social and View all posts', () => {
     const social = harness();
     const discover = harness();

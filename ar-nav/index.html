@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta
@@ -100,6 +100,7 @@
         <span class="lv-mode-dot" aria-hidden="true"></span>
         <span id="tracking-mode-label">AR mode active</span>
       </div>
+      <button type="button" id="ar-guidance-info" class="lv-chrome-btn" aria-label="About AR navigation" aria-haspopup="dialog"><span aria-hidden="true">ⓘ</span></button>
       <button
         type="button"
         id="lv-map-btn"
@@ -109,6 +110,16 @@
         <span class="lv-icon" data-lv-icon="map" aria-hidden="true"></span>
       </button>
     </div>
+
+    <dialog id="ar-guidance" aria-labelledby="ar-guidance-title" aria-describedby="ar-guidance-copy">
+      <h2 id="ar-guidance-title">Follow your surroundings</h2>
+      <div id="ar-guidance-copy">
+        <p>AR positioning may be inaccurate. Arrows may drift or disappear.</p>
+        <p>Watch your surroundings. Don’t rely only on AR.</p>
+        <p>Facing the right way but arrows missing? Tap Align route.</p>
+      </div>
+      <button type="button" id="ar-guidance-dismiss">Got it</button>
+    </dialog>
 
     <div
       id="lv-lighting-dialog"
@@ -124,8 +135,7 @@
           Poor lighting here
         </h2>
         <p id="lv-lighting-dialog-body" class="lv-dialog-body">
-          This spot is too dark for camera tracking. Keep the camera on the
-          path and wait for AR to recover.
+          Too dark for camera tracking. Keep the camera on the path while AR recovers.
         </p>
         <button type="button" id="lv-lighting-keep-ar" class="lv-start-btn">
           Keep using AR
@@ -269,6 +279,7 @@
     <script defer src="./js/pathGeometry.js?v=20261031-alignment-stability-v1"></script>
     <script defer src="./js/world-route-scene.js?v=20261027-visibility-v3"></script>
     <script defer src="./js/demo-sim-walk.js"></script>
+    <script defer src="./js/ar-guidance.js?v=20261031"></script>
     <script defer src="./js/live-guidance.js?v=20260908-no-advance-turns-v1"></script>
     <script defer src="./js/route-navigator.js?v=20261031-arrival-ui-v1"></script>
     <script defer src="./js/route-lane-heading.js?v=20260825-compass-lighting-v1"></script>

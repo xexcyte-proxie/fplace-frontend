@@ -17,12 +17,12 @@ export class RouteGuidedWalk {
   totalWalked = 0;
   private sequence = 0;
   constructor(path: RouteCoordinate[]) {
-    if (path.length < 2) throw new Error('Route-guided demo requires a route polyline');
+    if (path.length < 2) throw new Error('Route-guided walk requires a route polyline');
     this.path = path.map(p => { validatePoint(p); return { ...p }; });
-    if (!this.path[0].floorId || this.path[0].floorId === 'unknown' || this.path.some(p => p.floorId !== this.path[0].floorId)) throw new Error('Route-guided demo requires one known floor');
+    if (!this.path[0].floorId || this.path[0].floorId === 'unknown' || this.path.some(p => p.floorId !== this.path[0].floorId)) throw new Error('Route-guided walk requires one known floor');
     for (let i = 1; i < this.path.length; i++) this.cumulative.push(this.cumulative[i - 1] + segmentHorizontalMeters(this.path[i - 1], this.path[i]));
     this.length = this.cumulative.at(-1)!;
-    if (!Number.isFinite(this.length) || this.length <= 0) throw new Error('Route-guided demo requires a nonzero route');
+    if (!Number.isFinite(this.length) || this.length <= 0) throw new Error('Route-guided walk requires a nonzero route');
   }
   commit(event: WalkingDistanceIncrement): number {
     if (!Number.isInteger(event.sequence) || event.sequence <= this.sequence || !Number.isFinite(event.meters) || event.meters < 0) return 0;

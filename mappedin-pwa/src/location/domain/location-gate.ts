@@ -50,7 +50,7 @@ export function resolveLocationGateFailure(
   permanentlyDenied: boolean,
   formatMessage: (error: unknown) => string,
 ): LocationGateFailure {
-  if (isPermissionDeniedError(error)) {
+  if (permanentlyDenied || isPermissionDeniedError(error)) {
     return { action: 'required', permanentlyDenied };
   }
   return { action: 'error', message: formatMessage(error) };

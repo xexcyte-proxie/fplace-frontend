@@ -95,7 +95,7 @@ export class PhysicalWalkSession {
     this.recorder.record('session.state', { state, sessionId: this.options?.sessionId }, now);
   }
   start(options: SessionOptions, now = Date.now()): void {
-    if (!this.enabled) throw new Error('Physical Walk Demo is disabled');
+    if (!this.enabled) throw new Error('Physical Walk is disabled');
     if (!['idle', 'ended'].includes(this.state)) throw new Error('End the current session before starting');
     validatePoint(options.anchor);
     if (!options.sessionId || !options.mapId || !options.floorId) throw new Error('Session identities and floor are required');

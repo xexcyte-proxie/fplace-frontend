@@ -164,6 +164,15 @@ describe('renderVenueFeedScreen', () => {
   it('shows loading and pagination states for posts', () => {
     const loading = renderVenueFeedScreen(feedState({ venueFeedLoading: true, venueFeedPosts: [] }));
     expect(loading).toContain('aria-label="Loading posts"');
+    expect(loading).not.toContain('No posts yet');
+
+    const empty = renderVenueFeedScreen(feedState({ venueFeedLoading: false, venueFeedPosts: [] }));
+    expect(empty).toContain('No posts yet');
+    expect(empty).not.toContain('aria-label="Loading posts"');
+
+    const submitting = renderVenueFeedScreen(feedState({ venueFeedLoading: true, venueFeedSubmitting: true, venueFeedPosts: [] }));
+    expect(submitting).toContain('aria-label="Loading posts"');
+    expect(submitting).not.toContain('No posts yet');
 
     const older = renderVenueFeedScreen(feedState({
       forumFeedNext: 'https://api.example.com/api/forum/posts/?page=2',

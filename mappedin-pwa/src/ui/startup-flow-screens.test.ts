@@ -76,9 +76,9 @@ describe('startup flow screens (widget)', () => {
     const html = renderLocationPermissionScreen({
       locationGateLoading: false,
     });
-    expect(html).toContain('Enable location');
+    expect(html).toContain('Allow Location Access');
     expect(html).toContain('id="location-enable-btn"');
-    expect(html).toContain('Enable Location');
+    expect(html).toContain('Allow Location');
     expect(html).toContain('role="dialog"');
     expect(html).toContain('location-dialog-backdrop');
   });
@@ -98,8 +98,8 @@ describe('startup flow screens (widget)', () => {
       locationGateLoading: false,
       locationPermanentlyDenied: false,
     });
-    expect(html).toContain('Location is off');
-    expect(html).toContain('id="location-try-again-btn"');
+    expect(html).toContain('Location Services');
+    expect(html).not.toContain('id="location-try-again-btn"');
     expect(html).toContain('role="dialog"');
   });
 
@@ -108,8 +108,8 @@ describe('startup flow screens (widget)', () => {
       locationGateLoading: false,
       locationPermanentlyDenied: true,
     });
-    expect(html).toMatch(/Your browser has blocked location/i);
-    expect(html).toContain('browser or page settings');
+    expect(html).toContain('Enabling Location Services can enhance your navigation experience. To re-enable this feature, please adjust the relevant settings on your device.');
+    expect(html).toContain('>CLOSE</button>');
     expect(html).not.toContain('location-try-again-btn');
     expect(html).not.toContain('Location debug details');
   });
@@ -119,8 +119,8 @@ describe('startup flow screens (widget)', () => {
       locationGateLoading: false,
       locationGateError: 'Location request timed out. Try again.',
     });
-    expect(html).toContain('Location Error');
-    expect(html).toContain('Location request timed out. Try again.');
+    expect(html).toContain("We Couldn't Find Your Location");
+    expect(html).toContain('Try Again');
     expect(html).toContain('id="location-retry-btn"');
     expect(html).toContain('role="dialog"');
   });
@@ -133,7 +133,7 @@ describe('startup flow screens (widget)', () => {
     renderLocationErrorScreen({ locationGateLoading: true, locationGateError: 'Timeout' }),
   ]) {
     expect(html).toContain('id="location-gate-dismiss"');
-    expect(html).toMatch(/<button[^>]*id="location-dismiss-btn"[^>]*>Not now<\/button>/);
+    expect(html).toMatch(/<button[^>]*id="location-dismiss-btn"[^>]*>(?:Not Now|CLOSE)<\/button>/);
     expect(html.match(/<button[^>]*id="location-dismiss-btn"[^>]*>/)?.[0]).not.toContain('disabled');
   }
  });

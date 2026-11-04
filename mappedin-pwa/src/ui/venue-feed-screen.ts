@@ -16,6 +16,7 @@ import {
 import {
   estimateFansLive,
   categoryFiltersFromApi,
+  venueFeedCategoryLabel,
   filterVenueFeedPosts,
   VENUE_FEED_QUICK_REPLIES,
   venueFeedTimeAgo,
@@ -366,8 +367,7 @@ export function renderVenueFeedScreen(state: AppState): string {
 
   const feedLoading =
     state.venueFeedLoading &&
-    posts.length === 0 &&
-    !state.venueFeedSubmitting;
+    posts.length === 0;
   const sending = state.venueFeedSubmitting;
   const loadingMore = state.venueFeedLoadingMore && !sending;
   const feed = posts.length
@@ -380,7 +380,7 @@ export function renderVenueFeedScreen(state: AppState): string {
           const category = state.forumCategories.find(
             (item) => String(item.id) === post.categoryId,
           );
-          const chipLabel = category?.name ?? post.feedType.replaceAll('-', ' ');
+          const chipLabel = category ? venueFeedCategoryLabel(category) : post.feedType === 'help' ? 'Alerts' : post.feedType.replaceAll('-', ' ');
           const chipTone = categoryToneClass(category?.slug ?? post.feedType);
           return `
         <article class="venue-feed-card ${isHelp ? 'venue-feed-card--help' : ''}">
@@ -501,7 +501,7 @@ export function renderVenueFeedScreen(state: AppState): string {
     const fallback = fallbackForTopic(category.name, category.slug);
     return {
       id: String(category.id),
-      name: category.name,
+      name: venueFeedCategoryLabel(category),
       slug: category.slug || fallback.slug,
       iconUrl: categoryIconUrl(category),
       count: fallback.tips.length,
@@ -637,15 +637,8 @@ export function renderVenueFeedScreen(state: AppState): string {
         ${showingLiveFeed
           ? `
         <div class="venue-feed-filters" role="tablist" aria-label="Post categories">${filters}</div>
-        <div class="venue-feed-list screen-loading-host" role="tabpanel" aria-label="Live Feed">
+        <div class="venue-feed-list" role="tabpanel" aria-label="Live Feed" aria-busy="${feedLoading}">
           ${feed}
-          ${
-            feedLoading
-              ? renderContentLoadingOverlay(
-                  'Loading posts',
-                )
-              : ''
-          }
         </div>
         ${loadMore}`
           : whatToExpect}
@@ -707,6 +700,7 @@ export function renderVenueFeedScreen(state: AppState): string {
         }
       </div>`
         : ''}
+      ${showingLiveFeed && feedLoading ? renderContentLoadingOverlay('Loading posts') : ''}
     </div>
   `;
 }

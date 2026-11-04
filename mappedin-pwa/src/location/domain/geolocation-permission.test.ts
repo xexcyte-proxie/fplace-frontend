@@ -151,3 +151,14 @@ describe('startup marketing + location step helpers', () => {
     expect(isLocationGateAuthStep('venue-select')).toBe(false);
   });
 });
+
+describe('reliable failure classification', () => {
+  it.each([
+    [1, 'denied', 'denied'], [1, 'granted', 'restricted'], [1, 'unknown', 'restricted'],
+    [2, 'granted', 'unavailable'], [2, 'unknown', 'restricted'],
+    [3, 'granted', 'timeout'], [3, 'prompt', 'timeout'], [2, 'unsupported', 'unsupported'],
+  ] as const)('code %s with %s permission is %s', async (code, permission, expected) => {
+    const { classifyLocationFailure } = await import('./geolocation-permission');
+    expect(classifyLocationFailure({ code }, permission)).toBe(expected);
+  });
+});

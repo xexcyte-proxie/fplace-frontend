@@ -8,7 +8,7 @@ export const appConfig = {
      * Catalog venues use each venue's backend map id.
      */
     mapId: import.meta.env.VITE_MAPPEDIN_MAP_ID ?? DEFAULT_MAPPEDIN_MAP_ID,
-    venueName: 'Demo Mall',
+    venueName: 'Venue',
   },
   /**
    * API origin. Empty = same-origin `/api` (proxied to the AWS ALB in Vite dev + Netlify).

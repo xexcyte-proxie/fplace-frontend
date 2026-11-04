@@ -1658,7 +1658,11 @@
             positionSource: this.positionSource,
           });
           if (this.positionSource === "none") {
-            this.offPathMessage = `GPS: ${err.message}`;
+            this.offPathMessage = err.code === 3
+              ? "Finding your location took too long. Try again near a clearer signal."
+              : err.code === 2
+                ? "Your position is temporarily unavailable. Try near a clearer signal."
+                : "Location is unavailable. Check device and browser location access.";
             this.notify();
           }
         },

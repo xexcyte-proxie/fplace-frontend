@@ -85,6 +85,12 @@ export function resolveVenueFeedAreaName(
   return sectionName || null;
 }
 
+export function venueFeedCategoryLabel(category: Pick<ForumCategorySummary, 'slug' | 'name'>): string {
+  return category.slug.trim().toLowerCase() === 'help' || category.name.trim().toLowerCase() === 'help'
+    ? 'Alerts'
+    : category.name;
+}
+
 export function categoryFiltersFromApi(
   categories: ForumCategorySummary[],
 ): Array<{ id: VenueFeedFilter; label: string; iconUrl?: string | null; helpIcon?: boolean }> {
@@ -94,7 +100,7 @@ export function categoryFiltersFromApi(
       const apiIconUrl = (category as { icon_url?: string | null }).icon_url;
       return {
         id: String(category.id),
-        label: category.name,
+        label: venueFeedCategoryLabel(category),
         iconUrl: category.iconUrl ?? apiIconUrl ?? null,
         helpIcon: category.slug === 'help',
       };

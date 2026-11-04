@@ -1,3 +1,5 @@
+import { captureLocationDialogFocus, restoreLocationDialogFocus } from './location-dialog-focus';
+import { canPatchSocialUpvotes, patchSocialUpvotes } from './social-upvote-patch';
 import { userVenuePresence } from "../location/domain/venue-presence";
 import {
   isLocationGateAuthStep,
@@ -24,7 +26,7 @@ import { renderCheckEmailScreen } from "./check-email-screen";
 import { renderVerifyEmailScreen } from "./verify-email-screen";
 import { renderPseudoNameScreen } from "./pseudo-name-screen";
 import { buildSearchResultViews } from "./search-results-data";
-import { renderContentLoadingOverlay } from "./content-loading-overlay";
+import { renderBusyLabel, renderContentLoadingOverlay } from "./content-loading-overlay";
 import { renderMapBootOverlay } from "./map-boot-overlay";
 import {
   applyVenueSelectGatePatch,
@@ -91,7 +93,6 @@ import {
   applyToastUiPatch,
   classifyUiStateChange,
   myLocationFabPresentation,
-  routeNavigationPresencePresentation,
   renderToastHtml,
 } from "./live-navigation-ui";
 import { buildReturningHomeViewModel } from "../home/presentation/returning-home-data";
@@ -190,6 +191,7 @@ export class UiRoot {
   }
 
   render(state: AppState, app: MapApp): void {
+    captureLocationDialogFocus(this.root);
     this.app = app;
     // Keep the splash DOM intact while only loading progress changes so the
     // bottom loader stays visible.
@@ -201,6 +203,10 @@ export class UiRoot {
     }
 
     if (this.lastRenderedState) {
+      if (canPatchSocialUpvotes(this.lastRenderedState, state) && patchSocialUpvotes(this.root, state)) {
+        this.lastRenderedState = state;
+        return;
+      }
       if (canPatchProfileUpvotes(this.lastRenderedState, state) && patchProfileUpvotes(this.root, state)) {
         this.lastRenderedState = state;
         return;
@@ -517,7 +523,7 @@ export class UiRoot {
     this.root.innerHTML = `
       ${this.loadingOverlay(state)}
       ${state.locationGateLoading && !isLocationGateAuthStep(state.authStep)
-        ? renderLocationPermissionScreen({ locationGateLoading: true })
+        ? `<div class="location-acquisition-status" role="status" aria-live="polite">${renderBusyLabel("Getting location…")}</div>`
         : ""}
       ${onNavigateMap && showMapBootOverlay ? renderMapBootOverlay(state) : ""}
       ${showOnboardingScreen ? renderOnboardingScreen({
@@ -595,10 +601,13 @@ export class UiRoot {
       ${showLocationRequired ? renderLocationPermissionRequiredScreen({
         locationGateLoading: state.locationGateLoading,
         locationPermanentlyDenied: state.locationPermanentlyDenied,
+        locationPermission: state.locationPermission,
       }) : ""}
       ${showLocationError ? renderLocationErrorScreen({
         locationGateLoading: state.locationGateLoading,
         locationGateError: state.locationGateError,
+        locationFailure: state.locationFailure,
+        locationPermission: state.locationPermission,
       }) : ""}
       ${onFirstVisitHome ? renderFirstVisitVenueScreen(state) : ""}
       ${onReturningHome ? renderReturningHomeScreen(state) : ""}
@@ -682,6 +691,7 @@ export class UiRoot {
       }
     }
 
+    queueMicrotask(() => restoreLocationDialogFocus(this.root));
     this.afterFullRender();
     this.bindOtpInputs(app, focusedOtpIndex);
     this.restoreLoginPasswordDraft(showLogin);
@@ -1068,14 +1078,7 @@ export class UiRoot {
 
   private routeSheet(state: AppState, _app: MapApp): string {
     const summary = buildRouteSheetSummary(state);
-    const navigationPresence = routeNavigationPresencePresentation(state);
     const resetDisabled = summary.isCalculating;
-    const beginDisabled =
-      summary.isCalculating ||
-      state.routeSimulating ||
-      summary.needsReset ||
-      !state.route ||
-      !navigationPresence.enabled;
     const arDisabled =
       summary.isCalculating ||
       summary.needsReset ||
@@ -1104,16 +1107,9 @@ export class UiRoot {
             type="button"
             id="reset-route-sheet-btn"
             class="route-sheet-reset-btn route-sheet-reset-btn--primary"
-          >Reset &amp; start over</button>
+          >Reset route</button>
               `
               : `
-          <button
-            type="button"
-            id="begin-route-btn"
-            class="route-sheet-begin-btn ${beginDisabled ? "is-disabled" : ""}"
-            title="${escapeHtml(navigationPresence.label)}"
-            ${beginDisabled ? "disabled" : ""}
-          >${escapeHtml(summary.beginLabel)}</button>
           <button
             type="button"
             id="reset-route-sheet-btn"

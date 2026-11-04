@@ -2012,7 +2012,6 @@ button.is-loading:disabled,
 }
 
 .route-sheet--calculating .route-sheet-ar-btn,
-.route-sheet--calculating .route-sheet-begin-btn,
 .route-sheet--calculating .route-sheet-reset-btn {
   opacity: 0.55;
   cursor: not-allowed;
@@ -2088,24 +2087,6 @@ button.is-loading:disabled,
   align-items: stretch;
   gap: 10px;
   margin-top: 18px;
-}
-
-.route-sheet-begin-btn {
-  flex-shrink: 0;
-  padding: 16px 22px;
-  border: 1px solid var(--app-text);
-  border-radius: 999px;
-  background: var(--app-surface);
-  color: var(--app-text);
-  font-size: 15px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.route-sheet-begin-btn.is-disabled,
-.route-sheet-begin-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
 .route-sheet-reset-btn {
@@ -3145,3 +3126,30 @@ button.is-loading:disabled,
 #ar-pip-shell.ar-pip-shell--minimized.ar-pip-shell--arrived .ar-pip-bar { display: none; }
 #ar-pip-shell.ar-pip-shell--minimized.ar-pip-shell--arrived #ar-boot-overlay { display: none; }
 @media (prefers-reduced-motion: reduce) { .ar-pip-arrival svg { animation: none; } }
+
+.route-sheet-actions { flex-wrap: wrap; }
+.route-sheet-actions button { min-height: 44px; }
+
+.location-acquisition-status {
+  position: fixed;
+  z-index: 1200;
+  top: max(16px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 24px;
+  background: white;
+  color: #171820;
+  box-shadow: 0 2px 12px #0002;
+  pointer-events: none;
+}
+
+.location-dialog-icon { display: flex; justify-content: center; margin-bottom: 16px; }
+.location-dialog-icon img { display: block; width: min(100%, 200px); height: auto; }
+.location-help > summary { list-style: none; cursor: pointer; padding: 14px; border-radius: 12px; background: #1668e3; color: white; text-align: center; }
+.location-help > summary::-webkit-details-marker { display: none; }
+.location-help > summary:focus-visible, .location-dialog button:focus-visible { outline: 3px solid #1668e3; outline-offset: 3px; }
+.location-dialog-backdrop { position: fixed; }

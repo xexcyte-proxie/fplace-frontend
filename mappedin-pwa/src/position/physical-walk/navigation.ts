@@ -34,7 +34,7 @@ export class PhysicalWalkNavigation {
   private routeSignature = '';
   private visibilityHandler = () => {
     if (this.mode === 'route-guided' && document.visibilityState === 'hidden') {
-      this.end(); this.status = 'Route-Guided Physical Walk Demo paused in background — restart to capture a new origin';
+      this.end(); this.status = 'Route-Guided Physical Walk paused in background — restart to capture a new origin';
     }
   };
   private startedAt = 0;
@@ -46,7 +46,7 @@ export class PhysicalWalkNavigation {
   private continuity = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   running = false;
-  status = 'Select start and destination — physical demo starts automatically';
+  status = 'Select start and destination — physical walk starts automatically';
   metrics: WalkMetrics | null = null;
   get sessionState(): string { return this.session.state; }
   /** Committed authority, never a rendered/interpolated dot or a second GPS projection. */
@@ -69,7 +69,7 @@ export class PhysicalWalkNavigation {
     this.mode = mode;
     this.guided = mode === 'route-guided' ? new RouteGuidedWalk(route.pathCoordinates) : null;
     if (this.guided && typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-      this.status = 'Route-Guided Physical Walk Demo requires a visible page — restart when foregrounded'; return;
+      this.status = 'Route-Guided Physical Walk requires a visible page — restart when foregrounded'; return;
     }
     this.guidedSequence = 0;
     this.routeSignature = JSON.stringify(route.pathCoordinates);
@@ -114,7 +114,7 @@ export class PhysicalWalkNavigation {
   update(): void {
     if (!this.running || !this.route || !this.metrics) return;
     if (this.guided && (this.host.isCurrentRoute?.(this.route) === false || JSON.stringify(this.route.pathCoordinates) !== this.routeSignature)) {
-      this.end(); this.status = 'Route geometry changed — restart Route-Guided Physical Walk Demo'; return;
+      this.end(); this.status = 'Route geometry changed — restart Route-Guided Physical Walk'; return;
     }
     const now = this.clock(); this.session.checkFreshness(now);
     const snapshot = this.session.snapshot(now);
@@ -204,8 +204,8 @@ export class PhysicalWalkNavigation {
         movementEvidence: snapshot.movementEvidence, arrived: engine.arrived,
         reason: engine.arrived ? 'credible-walking-distance-reached-route-end' : 'accepted-walking-distance' }, now);
     }
-    if (engine.arrived) { this.session.end(now); if (this.timer) clearInterval(this.timer); this.timer = null; this.status = 'Route-Guided Physical Walk Demo arrived — held at route end'; }
-    else this.status = `Route-Guided Physical Walk Demo · simulated route-guided walk · ${this.status}`;
+    if (engine.arrived) { this.session.end(now); if (this.timer) clearInterval(this.timer); this.timer = null; this.status = 'Route-Guided Physical Walk arrived — held at route end'; }
+    else this.status = `Route-Guided Physical Walk · simulated route-guided walk · ${this.status}`;
     this.host.progress({ ...metrics }, point);
     this.positionAudit?.sample(metrics);
   }

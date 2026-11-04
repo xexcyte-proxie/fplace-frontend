@@ -103,7 +103,7 @@ function locationCopy(
   if (state.blueDotStatus === 'active') {
     return {
       label: 'Live location ready',
-      body: 'Use your current position as the start point when you begin a route.',
+      body: 'Use your location as your route’s start.',
     };
   }
   if (state.userLocation) {
@@ -154,7 +154,7 @@ function routeStage(
   if (state.route) {
     return {
       label: 'Route ready',
-      body: 'Begin on the 2D map, then switch to AR when camera guidance helps.',
+      body: 'Choose a route on the map, then switch to AR.',
       tone: 'active',
     };
   }

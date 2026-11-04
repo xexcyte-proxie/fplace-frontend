@@ -59,8 +59,9 @@ describe('Physical Walk MapApp wiring', () => {
     expect(await app.blockNavigationOutsideVenue('ar')).toBe(false);
     expect(app.showToast).not.toHaveBeenCalled();
   });
-  it('reclaims ownership if an earlier idle sensor enable resolves during the demo', async () => {
+  it('reclaims ownership if an earlier user-requested sensor enable resolves during the demo', async () => {
     const { app, state } = harness(); state.locationPermission = 'granted';
+    app.locationAttempted = true;
     let finish!: () => void;
     app.blueDotService.startTracking = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
     app.blueDotService.stopTracking = vi.fn(); app.blueDotService.enableHeading = vi.fn().mockResolvedValue(undefined);
@@ -110,7 +111,7 @@ describe('Physical Walk MapApp wiring', () => {
     if (!active) expect(app.blueDotService.setSimulatorParallelMode).toHaveBeenCalledWith(false);
   });
 
-  it('reproduces a normal navigation start resuming after physical provider acquisition', async () => {
+  it('preserves physical provider ownership when permission completes late', async () => {
     const { app, state } = harness(); state.locationPermission = 'granted';
     app.blockNavigationOutsideVenue = vi.fn().mockResolvedValue(false);
     let finish!: (value: boolean) => void;
@@ -122,9 +123,8 @@ describe('Physical Walk MapApp wiring', () => {
     const pending = app.startRouteMovement(); await Promise.resolve();
     app.physicalWalk = { running: true };
     finish(true); await pending;
-    // Characterization of the existing ownership race; deliberately not fixed here.
-    expect(app.blueDotService.applySimulatorFrame).toHaveBeenCalledWith(expect.objectContaining({ source: 'gps' }));
-    expect(app.liveRouteTracking).toBe(true);
+    expect(app.blueDotService.applySimulatorFrame).not.toHaveBeenCalled();
+    expect(app.liveRouteTracking).not.toBe(true);
   });
 
   it('attaches and releases opt-in diagnostics without adding a GPS watch', () => {
@@ -162,4 +162,31 @@ it('wires guided route rendering and stops publishing when the selected route is
     expect(app.blueDotService.setPhysicalWalkRoute).toHaveBeenLastCalledWith(null);
     expect(state.routeGuidedDemoRemainingSeconds).toBeNull();
   } finally { app.disposePhysicalWalk(); }
+});
+
+describe('route readiness starts existing navigation', () => {
+  it('starts after calculation finishes', async () => {
+    const { app, state } = harness();
+    const route = state.route;
+    app.routePlanner.generateRoute = vi.fn(async () => route);
+    app.applyRoute = vi.fn();
+    app.startRouteMovement = vi.fn(async () => {
+      expect(state.isCalculatingRoute).toBe(false);
+    });
+    await app.generateAndShowRoute();
+    expect(app.applyRoute).toHaveBeenCalledWith(route);
+    expect(app.startRouteMovement).toHaveBeenCalledOnce();
+  });
+  it('keeps recovery available without starting a failed route', async () => {
+    const { app, state } = harness();
+    app.routePlanner.generateRoute = vi.fn(async () => { throw new Error('No path'); });
+    app.routePlanner.setRoutePlanningPaused = vi.fn();
+    app.alongPathStabilizer = { reset: vi.fn() };
+    app.startRouteMovement = vi.fn();
+    await app.generateAndShowRoute();
+    expect(state.isCalculatingRoute).toBe(false);
+    expect(state.routeNotFound).toBe(true);
+    expect(state.showRouteSheet).toBe(true);
+    expect(app.startRouteMovement).not.toHaveBeenCalled();
+  });
 });

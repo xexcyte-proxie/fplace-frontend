@@ -83,6 +83,9 @@ if (import.meta.env.DEV) {
 
 const store = new AppStore();
 const app = new MapApp(store);
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => app.disposeLocationPermissionSync());
+}
 installArMessageBridge(app);
 installArPipShell({
   maximizeAr: () => app.maximizeAr(),

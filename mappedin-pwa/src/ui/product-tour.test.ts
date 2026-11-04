@@ -117,7 +117,7 @@ it('explains the top AR map icon and marks the live AR tour surface', () => {
   const step = contextualProductTourStep('ar-map-view')!;
   const html = renderProductTour({ step, index: 0, total: 1 });
   expect(html).toContain('data-tour-surface="ar"');
-  expect(html).toContain('map icon at the top');
-  expect(html).toContain('AR and the 2D map at the same time');
+  expect(html).toContain('Tap Map to minimize AR');
+  expect(html).toContain('Tap the small AR view to expand it');
   expect(stepsForHomeExperience('first-visit').some(s => s.id === step.id)).toBe(false);
 });

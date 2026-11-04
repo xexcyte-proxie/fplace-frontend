@@ -48,7 +48,7 @@ export const TERMS_OF_USE = {
     },
     {
       heading: 'Community standards',
-      body: 'Do not harass others, post illegal content, spam, or misuse Help channels for non-emergencies. We may remove content or suspend accounts that break these rules.',
+      body: 'Do not harass others, post illegal content, spam, or misuse Alerts channels for non-emergencies. We may remove content or suspend accounts that break these rules.',
     },
     {
       heading: 'Navigation disclaimer',

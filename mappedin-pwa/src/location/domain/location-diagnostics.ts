@@ -3,6 +3,7 @@ type DiagnosticEvent = { time: string; event: string; detail: Record<string, unk
 const events: DiagnosticEvent[] = [];
 
 export function recordLocationDiagnostic(event: string, detail: Record<string, unknown> = {}): void {
+  if (!import.meta.env.DEV) return;
   events.push({ time: new Date().toISOString(), event, detail });
   if (events.length > 40) events.shift();
 }

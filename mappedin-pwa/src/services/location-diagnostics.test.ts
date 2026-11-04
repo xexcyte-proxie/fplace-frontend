@@ -38,8 +38,8 @@ describe('location diagnostic report', () => {
     recordLocationDiagnostic('error', { message: '</textarea><script>alert(1)</script>' });
     expect(JSON.parse(getLocationDiagnosticReport()).events).toHaveLength(40);
     const html = renderLocationErrorScreen({ locationGateLoading: false, locationGateError: 'Failed' });
-    expect(html).toContain('Copy debug report');
-    expect(html).toContain('Location debug details');
+    expect(html).not.toContain('Copy debug report');
+    expect(html).not.toContain('Location debug details');
     expect(html).not.toContain('<script>');
     expect(html).toContain('id="location-dismiss-btn"');
   });

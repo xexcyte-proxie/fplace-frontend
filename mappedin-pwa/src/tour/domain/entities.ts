@@ -21,8 +21,8 @@ export interface ProductTourStep {
 export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'ar-map-view',
-    title: 'See AR and the map together',
-    body: 'Tap the map icon at the top of AR to minimize the camera view. You can then view AR and the 2D map at the same time. Tap the small AR view to expand it again.',
+    title: 'Show AR with the map',
+    body: 'Tap Map to minimize AR. Tap the small AR view to expand it.',
     targetSelector: '',
     placement: 'center',
     surface: 'ar',
@@ -31,7 +31,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'welcome',
     title: 'Quick tour',
-    body: 'Here’s a 30-second look at the controls you’ll use most. Skip anytime.',
+    body: 'Explore the main controls. Skip anytime.',
     targetSelector: '',
     placement: 'center',
     surface: 'home',
@@ -40,7 +40,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'try-ar',
     title: 'Try AR navigation',
-    body: 'Set a route first, then use camera guidance when it helps.',
+    body: 'Choose a route, then open AR for camera guidance.',
     targetSelector: '#navigate-ar-btn',
     placement: 'bottom',
     surface: 'navigate',
@@ -49,7 +49,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'venue-search',
     title: 'Find a venue',
-    body: 'Search for a stadium, mall, or campus to jump back in.',
+    body: 'Search for a stadium, mall, or campus.',
     targetSelector: '[data-tour-id="returning-search"]',
     placement: 'bottom',
     surface: 'home',
@@ -58,7 +58,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'recent-venues',
     title: 'Recently visited',
-    body: 'Tap a venue you already know to open it again.',
+    body: 'Tap a venue to reopen it.',
     targetSelector: '[data-tour-id="returning-recent"]',
     placement: 'top',
     surface: 'home',
@@ -67,7 +67,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'navigate-tab',
     title: 'Navigate',
-    body: 'Open the indoor map to search places and plan a walking route.',
+    body: 'Find places and plan a walking route.',
     targetSelector: '#nav-map',
     placement: 'top',
     surface: 'home',
@@ -76,7 +76,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'map-search',
     title: 'Search the map',
-    body: 'Look up a store or amenity, then tap the map to set start and destination.',
+    body: 'Search places or tap the map to choose your start and destination.',
     targetSelector: '[data-tour-id="map-search"]',
     placement: 'bottom',
     surface: 'map',
@@ -85,7 +85,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'my-location',
     title: 'Your location',
-    body: 'Center the map on you and use it as the start of a route.',
+    body: 'Center the map on your location to set your route’s start.',
     targetSelector: '#my-location-btn',
     placement: 'left',
     surface: 'map',
@@ -94,7 +94,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'social-tab',
     title: 'Social',
-    body: 'The venue feed is where fans share what’s happening in real time.',
+    body: 'See what fans are sharing at your venue.',
     targetSelector: '#nav-social',
     placement: 'top',
     surface: 'social',
@@ -103,7 +103,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'social-composer',
     title: 'Shout out',
-    body: 'Post a quick update to your section. Keep it to 140 characters.',
+    body: 'Share an update with your section, up to 140 characters.',
     targetSelector: '[data-tour-id="venue-composer"]',
     placement: 'top',
     surface: 'social',
@@ -112,7 +112,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'profile-tab',
     title: 'Profile',
-    body: 'Your pseudo-name, venue, and account live here.',
+    body: 'Manage your display name, venue, and account.',
     targetSelector: '#nav-profile',
     placement: 'top',
     surface: 'profile',
@@ -121,7 +121,7 @@ export const PRODUCT_TOUR_STEPS: readonly ProductTourStep[] = [
   {
     id: 'profile-settings',
     title: 'Settings',
-    body: 'Change notifications, turn this tour on or off, or switch venues anytime.',
+    body: 'Manage notifications, tours, and your venue.',
     targetSelector: '#profile-settings-btn',
     placement: 'bottom',
     surface: 'profile',

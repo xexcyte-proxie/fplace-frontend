@@ -103,7 +103,7 @@ export function resolveFirstVisitCategory(feedType: string): {
     return { label: 'FOOD', tone: 'food' };
   }
   if (normalized.includes('help')) {
-    return { label: 'HELP', tone: 'help' };
+    return { label: 'ALERTS', tone: 'help' };
   }
   if (normalized.includes('vibe') || normalized.includes('hype')) {
     return { label: 'VIBE', tone: 'vibe' };

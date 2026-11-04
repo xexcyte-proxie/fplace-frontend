@@ -1,3 +1,4 @@
+import { classifyLocationFailure } from '../location/domain/geolocation-permission';
 import { setArArrivalPresentation } from '../position/ar-pip-shell';
 import { mountPositionOverlay } from "../position/physical-walk/position-overlay";
 import { physicalWalkEnabled } from "../position/physical-walk/session";
@@ -230,10 +231,9 @@ import {
   type LocationCardSelection,
   type SocialMapMarkerService,
 } from "../map/social-map-markers";
-import { LocationService } from "./location-service";
+import { LocationService, type GeolocationPermissionState } from "./location-service";
 import {
   isLocationGateAuthStep,
-  resolveLocationGateEntry,
   resolveLocationGateFailure,
   resolveLocationGatePreflight,
 } from "../location/domain/location-gate";
@@ -357,6 +357,15 @@ export class MapApp {
   private autoRoutePending = false;
   private locationPromptShown = false;
   private locationGateRequestId = 0;
+  private locationSyncGeneration = 0;
+  private locationSyncInFlight = false;
+  private locationSyncDisposed = false;
+  private locationSyncPending = false;
+  private locationSyncPendingPermission?: GeolocationPermissionState;
+  private locationAttempted = false;
+  private pendingLocationAction: ((ready: boolean) => void) | null = null;
+  private stopLocationPermissionSync: (() => void) | null = null;
+  private removeLocationVisibilityListener: (() => void) | null = null;
   private lastProgressUiAt = 0;
   /** True while GPS/live navigation is actively tracking along the route (Begin pressed or mid-switch). */
   private liveRouteTracking = false;
@@ -439,52 +448,149 @@ export class MapApp {
       productTourEnabled: tourPreference.enabled,
       locationPermission: storedLocation,
     });
-    if (storedLocation === "granted") {
-      this.startLiveUserLocationWatch();
-    }
     onAuthSessionCleared((reason) => {
       this.handleAuthSessionExpired(reason);
     });
     if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") {
-          this.restoreVenueMapView();
-          void this.refreshLocationGateAfterBrowserSettingsChange();
-        }
+      const restore = () => {
+        if (document.visibilityState === "visible") this.restoreVenueMapView();
+      };
+      document.addEventListener("visibilitychange", restore);
+      this.removeLocationVisibilityListener = () => document.removeEventListener("visibilitychange", restore);
+      this.stopLocationPermissionSync = this.locationService.observePermissionChanges((permission, resumed) => {
+        void this.refreshLocationGateAfterBrowserSettingsChange(permission, resumed);
       });
-      window.addEventListener("focus", () => {
-        void this.refreshLocationGateAfterBrowserSettingsChange();
-      });
-      window.setInterval(() => {
-        void this.refreshLocationGateAfterBrowserSettingsChange();
-      }, 750);
     }
   }
 
-  /**
-   * Browser permission changes happen outside the app. Re-check when the tab
-   * returns so a stale Location is off dialog closes after the user allows it.
-   */
-  private async refreshLocationGateAfterBrowserSettingsChange(): Promise<void> {
-    const state = this.store.get();
-    if (
-      state.authStep !== "location-required" ||
-      !state.locationPermanentlyDenied ||
-      state.locationGateLoading
-    ) return;
-    // Keep the dialog visibly checking while the browser applies a changed
-    // site permission. This also catches settings changes without a reload.
-    this.store.patch({ locationGateLoading: true });
-    const permission = await this.locationService.queryPermission();
-    if (permission !== "granted") {
-      if (this.store.get().authStep === "location-required") {
-        this.store.patch({ locationGateLoading: false });
-      }
+  /** Release application-lifetime permission listeners when replacing the app. */
+  disposeLocationPermissionSync(): void {
+    this.locationSyncDisposed = true;
+    this.stopLocationPermissionSync?.();
+    this.stopLocationPermissionSync = null;
+    this.removeLocationVisibilityListener?.();
+    this.removeLocationVisibilityListener = null;
+    this.locationSyncGeneration += 1;
+    this.locationGateRequestId += 1;
+    this.stopLiveUserLocationWatch();
+    this.finishPendingLocationAction(false);
+  }
+
+  private async refreshLocationGateAfterBrowserSettingsChange(
+    observed?: GeolocationPermissionState,
+    resumed = false,
+  ): Promise<void> {
+    if (this.locationSyncDisposed) return;
+    // A permission event supersedes queries/fixes already in flight.
+    if (observed !== undefined) {
+      this.stopLiveUserLocationWatch();
+      this.locationSyncGeneration += 1;
+      this.locationGateRequestId += 1;
+    }
+    if (this.locationSyncInFlight) {
+      this.locationSyncPending = true;
+      if (observed !== undefined) this.locationSyncPendingPermission = observed;
+      // Apply revocation immediately, even if a GPS read is still outstanding.
+      if (observed === 'denied' || observed === 'prompt') this.applyLocationRevocation(observed);
       return;
     }
-    await this.runLocationGateRequest({
-      fromPermissionRequired: false,
-      forceRequestWhenDenied: true,
+    this.locationSyncInFlight = true;
+    const generation = this.locationSyncGeneration;
+    const gateRequest = this.locationGateRequestId;
+    const current = () => generation === this.locationSyncGeneration && gateRequest === this.locationGateRequestId;
+    try {
+      const permission = observed ?? await this.locationService.queryPermission();
+      if (!current()) return;
+      const state = this.store.get();
+      const gate = isLocationGateAuthStep(state.authStep);
+      const settingsRecovery = resumed && gate && this.locationAttempted;
+      recordLocationDiagnostic('lifecycle-refresh', { permission, resumed, gate });
+      if (permission === 'denied') {
+        this.applyLocationRevocation(permission);
+        return;
+      }
+      if (observed === 'prompt' && state.locationPermission === 'granted') {
+        this.applyLocationRevocation('prompt');
+        return;
+      }
+      if (permission !== 'granted') {
+        if (gate && !state.locationGateLoading) this.store.patch({ authStep: permission === 'prompt' ? 'location-permission' : 'location-required', locationPermanentlyDenied: false });
+        // An unknown or prompt result needs an explicit tap, including after
+        // settings return; a native prompt cannot be suppressed by a web app.
+        if (settingsRecovery) recordLocationDiagnostic('recovery-needs-user-action', { permission });
+        return;
+      }
+      if (permission === 'granted') {
+        // Permission approval is independent of whether the device can get a fix.
+        permissionChoiceLocalDatasource.saveLocation('granted');
+        this.store.patch({ locationPermission: 'granted', locationPermanentlyDenied: false });
+        if (gate) await this.dismissLocationGate(true);
+        if (generation !== this.locationSyncGeneration) return;
+        // dismissLocationGate invalidates older gate work; this attempt owns the new id.
+      }
+      const fixGeneration = this.locationSyncGeneration;
+      const fixGateRequest = this.locationGateRequestId;
+      const fixCurrent = () => fixGeneration === this.locationSyncGeneration && fixGateRequest === this.locationGateRequestId;
+      if (!this.locationAttempted || this.physicalWalk?.running || this.store.get().routeSimulating) {
+        this.finishPendingLocationAction(false);
+        return;
+      }
+      if (!gate && this.stopUserLocationWatch && permission === 'granted') return;
+      this.store.patch({ locationGateLoading: true });
+      try {
+        const coords = await this.locationService.requestLocation({ maximumAgeMs: 0 });
+        if (!fixCurrent()) return;
+        if (permission !== 'granted' && gate) await this.dismissLocationGate(true);
+        if (fixGeneration !== this.locationSyncGeneration) return;
+        this.persistLocationChoice('granted');
+        // Acquisition is for location availability; leave navigation providers in charge.
+        if (!this.liveRouteTracking && !this.positionProvider?.isRunning && !this.physicalWalk?.running) {
+          this.store.patch({ userLocation: coords });
+        }
+        this.store.patch({ locationGateLoading: false, locationGateError: null });
+        this.finishPendingLocationAction(true);
+      } catch (error) {
+        if (!fixCurrent()) return;
+        this.finishPendingLocationAction(false);
+        if (this.locationService.isPermissionDeniedError(error)) {
+          const browserPermission = await this.locationService.queryPermission();
+          if (!fixCurrent()) return;
+          if (browserPermission === 'granted') {
+            this.store.patch({ locationGateLoading: false, locationGateError: 'Location access could not be confirmed.', locationFailure: 'restricted' });
+            this.showToast('Your browser reports access is allowed, but Fplaces could not access a position. Check device and browser location settings.');
+          } else if (browserPermission === 'denied') {
+            this.applyLocationRevocation('denied');
+          } else {
+            this.store.patch({ locationGateLoading: false, locationFailure: 'restricted' });
+            this.showToast('Location access could not be confirmed. Use the location control to try again.');
+          }
+        } else {
+          this.store.patch({ locationGateLoading: false, locationGateError: this.locationService.geolocationErrorMessage(error as Error) });
+          // Keep approval intact: GPS failure does not mean permission denial.
+          this.showToast(this.locationService.geolocationErrorMessage(error as Error) + ' Use the location control to try again.');
+        }
+      }
+    } finally {
+      this.locationSyncInFlight = false;
+      if (this.locationSyncPending) {
+        this.locationSyncPending = false;
+        const pendingPermission = this.locationSyncPendingPermission;
+        this.locationSyncPendingPermission = undefined;
+        void this.refreshLocationGateAfterBrowserSettingsChange(pendingPermission);
+      }
+    }
+  }
+
+  private applyLocationRevocation(permission: 'denied' | 'prompt'): void {
+    this.locationGateRequestId += 1;
+    this.stopLiveUserLocationWatch();
+    permissionChoiceLocalDatasource.saveLocation(permission === 'denied' ? 'denied' : 'undecided');
+    this.store.patch({
+      locationPermission: permission === 'denied' ? 'denied' : 'undecided',
+      locationPermanentlyDenied: permission === 'denied',
+      locationGateLoading: false,
+      ...(!this.physicalWalk?.running && !this.store.get().routeSimulating ? { userLocation: null } : {}),
+      ...(isLocationGateAuthStep(this.store.get().authStep) ? { authStep: permission === 'denied' ? 'location-required' as const : 'location-permission' as const } : {}),
     });
   }
 
@@ -1255,7 +1361,7 @@ export class MapApp {
     if (openingSocialTab && wasInConversation) {
       this.restoreHomeFeedSnapshot();
       this.venueWideFeedSnapshot = null;
-    } else if (leavingSocial) {
+    } else if (leavingSocial && wasInConversation) {
       this.restoreHomeFeedSnapshot();
     }
 
@@ -2678,7 +2784,7 @@ export class MapApp {
   private async blockNavigationOutsideVenue(
     action: "route" | "ar" = "route",
   ): Promise<boolean> {
-    // A selected route can open AR from anywhere, independently of the physical demo.
+    // A selected route can open AR from anywhere, independently of the physical walk.
     if (action === "ar" && this.store.get().route) {
       const state = this.store.get();
       if (!state.authUser && state.guestAccessAllowed === false) {
@@ -2792,10 +2898,11 @@ export class MapApp {
   }
 
   private async ensureUserLocationForVenuePresence(): Promise<boolean> {
-    const state = this.store.get();
+    let state = this.store.get();
+    this.locationAttempted = true;
     if (state.locationPermission !== "granted") {
-      await this.ensureLocationEnabledForAction();
-      return false;
+      if (!(await this.ensureLocationEnabledForAction())) return false;
+      state = this.store.get();
     }
     if (!this.locationService) return true;
     const now =
@@ -2804,16 +2911,19 @@ export class MapApp {
       ? now - this.lastUserLocationPublishAt
       : Number.POSITIVE_INFINITY;
     if (state.userLocation && ageMs < 15_000) return true;
+    const permissionGeneration = this.locationSyncGeneration;
     this.store.patch({ locationGateLoading: true });
     try {
       const coords = await this.locationService.requestLocation({
-        timeoutMs: 8_000,
+        timeoutMs: 15_000,
       });
+      if (permissionGeneration !== this.locationSyncGeneration) return false;
       this.lastPublishedUserLocation = coords;
       this.lastUserLocationPublishAt = now;
       this.store.patch({ userLocation: coords });
       return true;
     } catch (error) {
+      if (permissionGeneration !== this.locationSyncGeneration) return false;
       await this.showLocationGateForRequiredAction(error);
       return false;
     } finally {
@@ -2851,9 +2961,9 @@ export class MapApp {
     this.pendingMapSearchFocus = false;
   }
 
-  /** After auth + venue setup, gate the main app on geolocation. */
+  /** Authentication never requests GPS; contextual actions own location access. */
   beginLocationPermissionGate(): Promise<void> {
-    return this.openLocationPermissionGate();
+    return this.continueAfterLocationGranted();
   }
 
   private persistLocationChoice(choice: PermissionChoice): void {
@@ -2866,17 +2976,28 @@ export class MapApp {
     this.stopLiveUserLocationWatch();
     this.store.patch({
       locationPermission: choice,
-      userLocation: null,
+      ...(!this.physicalWalk?.running && !this.store.get().routeSimulating ? { userLocation: null } : {}),
     });
   }
 
   private startLiveUserLocationWatch(): void {
+    if (!this.locationAttempted || this.store.get().routeSimulating || this.physicalWalk?.running) return;
     if (this.stopUserLocationWatch) return;
     if (this.store.get().locationPermission !== "granted") return;
+    const generation = this.locationSyncGeneration;
     this.stopUserLocationWatch = this.locationService.watchLocation(
-      (coords) => this.publishUserLocation(coords),
+      (coords) => {
+        if (generation === this.locationSyncGeneration && this.store.get().locationPermission === 'granted') this.publishUserLocation(coords);
+      },
       (error) => {
         appWarn("Location", "Live user location watch failed", error);
+        if (generation === this.locationSyncGeneration && this.locationService.isPermissionDeniedError(error)) {
+          void this.locationService.queryPermission().then(permission => {
+            if (generation !== this.locationSyncGeneration) return;
+            if (permission !== 'granted') this.applyLocationRevocation('denied');
+            else this.showToast('Fplaces could not access a position. Check device and browser location settings.');
+          });
+        }
       },
     );
   }
@@ -2963,48 +3084,6 @@ export class MapApp {
     // path. A new route always starts at the origin: never pretends the user
     // has already walked it.
     return { traveled: 0, remaining: remainingFallback };
-  }
-
-  /**
-   * Show Enable Location only on the first choice. Later visits reuse grant
-   * silently or skip GPS after a deny so the browser is not prompted again.
-   */
-  private async openLocationPermissionGate(): Promise<void> {
-    const state = this.store.get();
-    const underlyingStep = isLocationGateAuthStep(state.authStep)
-      ? (state.authStepBeforeLocation ?? "none")
-      : state.authStep;
-
-    const browser = await this.locationService.queryPermission();
-    const stored = permissionChoiceLocalDatasource.loadLocation();
-    const entry = resolveLocationGateEntry(browser, stored);
-
-    if (entry.action === "error-unsupported" || entry.action === "skip") {
-      if (entry.action === "skip") {
-        this.persistLocationChoice("denied");
-      }
-      await this.continueAfterLocationGranted();
-      return;
-    }
-
-    if (entry.action === "silent-request") {
-      await this.runLocationGateRequest({
-        fromPermissionRequired: false,
-        silent: true,
-      });
-      return;
-    }
-
-    this.store.patch({
-      onboardingComplete: false,
-      authStep: "location-permission",
-      authStepBeforeLocation: underlyingStep,
-      authLoading: false,
-      guestContinueLoading: false,
-      locationGateLoading: false,
-      locationPermanentlyDenied: false,
-      locationGateError: null,
-    });
   }
 
   showArTeaser(): void {
@@ -3413,6 +3492,7 @@ export class MapApp {
     this.store.patch({
       authLoading: options?.holdEnterLock ? state.authLoading : true,
       authFieldErrors: {},
+      venueFeedLoading: true,
     });
     try {
       if (!venue) {
@@ -3474,6 +3554,7 @@ export class MapApp {
         selectedVenueId: selection.venueId,
         selectedGateId: selection.sectionId,
         venueFeedPosts,
+        venueFeedLoading: false,
         forumFeedNext: feed.next,
         forumFeedCount: feed.count,
         upvotedPostIds,
@@ -3530,6 +3611,7 @@ export class MapApp {
         this.beginLocationPermissionGate();
       }
     } catch (error) {
+      this.store.patch({ venueFeedLoading: false });
       this.handleAuthFailure(
         error,
         "Could not load the venue feed. Please try again.",
@@ -4826,9 +4908,8 @@ export class MapApp {
     if (options?.toast) {
       this.showToast(options.toast);
     }
-    if (storedLocation === "granted") {
-      this.startLiveUserLocationWatch();
-    }
+    this.locationAttempted = false;
+    this.finishPendingLocationAction(false);
   }
 
   private handleAuthSessionExpired(
@@ -6579,7 +6660,7 @@ export class MapApp {
   }
 
   async selectFloor(floorId: string): Promise<void> {
-    if (this.physicalWalk?.running) { this.showToast("End the physical demo before changing floors."); return; }
+    if (this.physicalWalk?.running) { this.showToast("End the physical walk before changing floors."); return; }
     if (!this.mapView) return;
     this.floorOrchestrator.forceFloor(floorId);
     positionTelemetry.setOrchestratorState(this.floorOrchestrator.getState());
@@ -6704,6 +6785,8 @@ export class MapApp {
   }
 
   async goToMyLocation(): Promise<void> {
+    if (this.store.get().routeSimulating) { this.blueDotService?.focusOnUser(); return; }
+    if (this.store.get().locationGateLoading) return;
     if (this.physicalWalk?.running) { this.blueDotService?.focusOnUser(); return; }
     if (!this.mapView || !this.blueDotService) {
       this.showToast("Map is still loading. Try again in a moment.");
@@ -6712,7 +6795,7 @@ export class MapApp {
 
     if (this.maybeShowContextualProductTour("my-location")) return;
 
-    if (!(await this.ensureLocationEnabledForAction())) return;
+    if (!(await this.ensureLocationEnabledForAction('my-location'))) return;
 
     if (this.isAwayFromSelectedVenue()) {
       const state = this.store.get();
@@ -6723,11 +6806,13 @@ export class MapApp {
       return;
     }
 
+    const permissionGeneration = this.locationSyncGeneration;
     try {
       this.store.patch({ locationGateLoading: true });
       const coords = await this.locationService.requestLocation({
         timeoutMs: 15_000,
       });
+      if (permissionGeneration !== this.locationSyncGeneration) return;
       this.persistLocationChoice("granted");
       this.publishUserLocation(coords);
       if (this.physicalWalk?.running) return;
@@ -6806,6 +6891,7 @@ export class MapApp {
           : "You are here.",
       );
     } catch (error) {
+      if (permissionGeneration !== this.locationSyncGeneration) return;
       await this.showLocationGateForRequiredAction(error);
     } finally {
       if (!isLocationGateAuthStep(this.store.get().authStep)) {
@@ -7274,14 +7360,14 @@ export class MapApp {
     const anchor = route.origin ?? route.pathCoordinates[0];
     const floorId = anchor.floorId;
     if (!floorId || floorId === "unknown") { this.showToast("Select a start on a known floor."); return false; }
-    if (route.pathCoordinates.some(point => point.floorId !== floorId)) { this.showToast("Choose a single-floor route for Physical Walk Demo."); return false; }
+    if (route.pathCoordinates.some(point => point.floorId !== floorId)) { this.showToast("Choose a single-floor route for Physical Walk."); return false; }
     this.mapView?.setFloor(floorId);
     this.store.patch({ currentFloorId: floorId });
     this.routePlanner?.clearTravelledPathTracking();
     try {
       controller.start({ sessionId: crypto.randomUUID(), mapId: this.loadedVenueMapId, floorId, anchor }, route);
     } catch (error) {
-      this.showToast(error instanceof Error ? error.message : 'Unable to start physical walk demo'); return false;
+      this.showToast(error instanceof Error ? error.message : 'Unable to start physical walk'); return false;
     }
     controller.positionAudit?.greenMarker(this.routePlanner?.markersState?.origin);
     return controller.running;
@@ -7559,6 +7645,9 @@ export class MapApp {
     if (!(await this.ensureLocationEnabledForAction())) {
       return;
     }
+    // Permission prompts may outlive a route reset or provider handoff.
+    if (this.physicalWalk?.running || this.store.get().routeSimulating) return;
+    if (this.store.get().route !== state.route || this.store.get().isCalculatingRoute) return;
     this.alongPathStabilizer.reset(targetAlong);
     this.applyNavigationPositionMode({
       path: state.route.pathCoordinates,
@@ -7923,6 +8012,10 @@ export class MapApp {
       });
     } finally {
       this.store.patch({ isCalculatingRoute: false });
+    }
+    // Use the existing movement lifecycle as soon as the selected route is ready.
+    if (this.store.get().route && !this.store.get().routeNotFound) {
+      await this.startRouteMovement();
     }
   }
 
@@ -8382,7 +8475,7 @@ export class MapApp {
   }
 
   private async maybeAutoStartBlueDot(): Promise<void> {
-    if (this.physicalWalk?.running) return;
+    if (!this.locationAttempted || this.store.get().routeSimulating || this.physicalWalk?.running) return;
     if (
       !this.blueDotService ||
       !navigator.permissions?.query ||
@@ -8421,13 +8514,18 @@ export class MapApp {
     }
   }
 
-  private async ensureLocationEnabledForAction(): Promise<boolean> {
+  private async ensureLocationEnabledForAction(source = 'navigation'): Promise<boolean> {
+    recordLocationDiagnostic('contextual-action', { source, userInitiated: true, positioning: this.store.get().routeSimulating ? 'simulated' : 'physical' });
     const state = this.store.get();
+    this.locationAttempted = true;
     if (state.locationPermission === "granted") return true;
     if (isLocationGateAuthStep(state.authStep)) return false;
 
-    await this.showLocationGateForRequiredAction();
-    return false;
+    if (this.pendingLocationAction) return false;
+    const ready = new Promise<boolean>(resolve => { this.pendingLocationAction = resolve; });
+    try { await this.showLocationGateForRequiredAction(); }
+    catch { this.finishPendingLocationAction(false); }
+    return ready;
   }
 
   private async showLocationGateForRequiredAction(error?: unknown): Promise<void> {
@@ -8435,20 +8533,31 @@ export class MapApp {
     if (isLocationGateAuthStep(state.authStep)) return;
 
     const underlyingStep = state.authStep;
+    const generation = this.locationSyncGeneration;
+    const requestId = this.locationGateRequestId;
     const deniedError =
       this.locationService?.isPermissionDeniedError(error) ?? false;
-    const permanentlyDenied =
-      deniedError || !error
-        ? (await this.locationService?.isPermanentlyDenied()) === true
-        : false;
+    const browserPermission = await this.locationService.queryPermission();
+    if (generation !== this.locationSyncGeneration || requestId !== this.locationGateRequestId || this.store.get().authStep !== underlyingStep) {
+      this.finishPendingLocationAction(false);
+      return;
+    }
+    recordLocationDiagnostic('dialog-shown', { permission: browserPermission, source: 'contextual-action' });
+    const permanentlyDenied = browserPermission === 'denied';
+    this.store.patch({ locationFailure: error ? classifyLocationFailure(error, browserPermission) : null });
+    if (browserPermission === 'unsupported') {
+      this.store.patch({ authStep: 'location-error', authStepBeforeLocation: underlyingStep,
+        locationGateLoading: false, locationFailure: 'unsupported', locationGateError: 'Geolocation is not supported. Use HTTPS and a supported browser.' });
+      return;
+    }
 
-    if (deniedError) {
+    if (deniedError && permanentlyDenied) {
       this.persistLocationChoice("denied");
     }
 
-    if (error && !deniedError) {
+    if (error && !deniedError && !permanentlyDenied) {
       const message =
-        error instanceof GeolocationPositionError || error instanceof Error
+        error instanceof Error || (typeof error === "object" && error !== null && "code" in error)
           ? (this.locationService?.geolocationErrorMessage(
               error as GeolocationPositionError | Error,
             ) ?? "Could not get your location.")
@@ -8464,7 +8573,7 @@ export class MapApp {
     }
 
     this.store.patch({
-      authStep: permanentlyDenied ? "location-required" : "location-permission",
+      authStep: permanentlyDenied || deniedError ? "location-required" : "location-permission",
       authStepBeforeLocation: underlyingStep,
       locationGateLoading: false,
       locationPermanentlyDenied: permanentlyDenied,
@@ -8472,17 +8581,28 @@ export class MapApp {
     });
   }
 
+  private finishPendingLocationAction(ready: boolean): void {
+    const complete = this.pendingLocationAction;
+    this.pendingLocationAction = null;
+    complete?.(ready);
+  }
+
   /** Leave location optional and invalidate any pending permission/GPS result. */
-  async dismissLocationGate(): Promise<void> {
+  async dismissLocationGate(recovering = false): Promise<void> {
     const state = this.store.get();
     if (!isLocationGateAuthStep(state.authStep)) return;
-    recordLocationDiagnostic('dialog-dismissed');
+    recordLocationDiagnostic('dialog-dismissed', { recovering });
+    if (!recovering) {
+      this.locationAttempted = false;
+      this.finishPendingLocationAction(false);
+    }
     this.locationGateRequestId += 1;
     this.store.patch({
       authStep: state.authStepBeforeLocation ?? "none",
       authStepBeforeLocation: null,
       locationGateLoading: false,
       locationGateError: null,
+      locationFailure: null,
       locationPermanentlyDenied: false,
       authLoading: false,
       guestContinueLoading: false,
@@ -8496,6 +8616,7 @@ export class MapApp {
    * Enable Location CTA - request permission via Geolocation API, then read coords.
    */
   async enableLocationPermission(): Promise<void> {
+    if (this.store.get().locationPermanentlyDenied) return;
     appLog("LocationGate", "enableLocationPermission invoked");
     await this.runLocationGateRequest({
       fromPermissionRequired: false,
@@ -8505,6 +8626,7 @@ export class MapApp {
 
   /** Try Again on Location Permission Required. */
   async retryLocationPermission(): Promise<void> {
+    if (this.store.get().locationPermanentlyDenied) return;
     appLog("LocationGate", "retryLocationPermission invoked");
     await this.runLocationGateRequest({
       fromPermissionRequired: true,
@@ -8514,6 +8636,7 @@ export class MapApp {
 
   /** Retry on Location Error - permission already granted; re-read position. */
   async retryLocationRetrieval(): Promise<void> {
+    if (this.store.get().locationPermanentlyDenied) return;
     appLog("LocationGate", "retryLocationRetrieval invoked");
     await this.runLocationGateRequest({
       fromPermissionRequired: false,
@@ -8531,6 +8654,9 @@ export class MapApp {
       return;
     }
 
+    this.locationAttempted = true;
+    this.stopLiveUserLocationWatch();
+    this.locationSyncGeneration += 1;
     const requestId = ++this.locationGateRequestId;
     recordLocationDiagnostic('gate-attempt', { requestId, ...options });
     const isCurrent = () => requestId === this.locationGateRequestId;
@@ -8646,7 +8772,12 @@ export class MapApp {
       appLog("LocationGate", "calling requestLocation");
       const coords = await this.locationService.requestLocation();
       if (!isCurrent()) return;
-      appLog("LocationGate", "requestLocation succeeded", coords);
+      this.store.patch({ locationFailure: null });
+      if (this.physicalWalk?.running || this.store.get().routeSimulating) {
+        await this.dismissLocationGate();
+        return;
+      }
+      appLog("LocationGate", "requestLocation succeeded", { accuracyMeters: coords.accuracy });
       this.persistLocationChoice("granted");
       // Keep the dialog + underlying screen until continueAfterLocationGranted
       // swaps authStep in one patch (avoids flashing Find places behind).
@@ -8664,20 +8795,25 @@ export class MapApp {
           authStepBeforeLocation: null,
           locationGateLoading: false,
         });
+        this.finishPendingLocationAction(true);
         void this.maybeAutoStartBlueDot();
         return;
       }
       appLog("LocationGate", "location granted; continuing onboarding");
       await this.continueAfterLocationGranted();
+      this.finishPendingLocationAction(true);
       void this.maybeAutoStartBlueDot();
     } catch (error) {
       if (!isCurrent()) return;
       appWarn("LocationGate", "request failed", error);
-      const permanentlyDenied = this.locationService.isPermissionDeniedError(
-        error,
-      )
-        ? await this.locationService.isPermanentlyDenied()
-        : false;
+      const browserPermission = await this.locationService.queryPermission();
+      const permanentlyDenied = browserPermission === 'denied';
+      if (!isCurrent()) return;
+      this.store.patch({ locationFailure: classifyLocationFailure(error, browserPermission) });
+      if (browserPermission === 'granted') {
+        permissionChoiceLocalDatasource.saveLocation('granted');
+        this.store.patch({ locationPermission: 'granted' });
+      }
       if (!isCurrent()) return;
       appLog("LocationGate", "failure classification", {
         isPermissionDenied: this.locationService.isPermissionDeniedError(error),
@@ -8700,7 +8836,7 @@ export class MapApp {
 
       if (failure.action === "required") {
         appLog("LocationGate", "routing to location-required", failure);
-        this.persistLocationChoice("denied");
+        if (failure.permanentlyDenied) this.persistLocationChoice("denied");
         this.store.patch({ locationGateLoading: false });
         if (returnToApp) {
           this.store.patch({
@@ -8713,7 +8849,7 @@ export class MapApp {
         if (silent || !options.fromPermissionRequired) {
           appLog("LocationGate", "permission denied from non-required/silent path; continuing without location");
           this.showToast(
-            "Location is off. Tap ⊕ anytime if you want to turn it on.",
+            "Location access is unavailable. Tap ⊕ to review access or try again.",
           );
           await this.continueAfterLocationGranted();
           return;

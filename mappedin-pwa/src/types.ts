@@ -475,6 +475,7 @@ export interface AppState {
   locationPermanentlyDenied: boolean;
   /** User-facing message on the Location Error gate. */
   locationGateError: string | null;
+  locationFailure: import('./location/domain/geolocation-permission').LocationFailureKind | null;
   blueDotStatus: BlueDotStatus;
   blueDotFollowing: boolean;
   routeSimulating: boolean;
@@ -670,6 +671,7 @@ export const initialAppState = (): AppState => ({
   locationGateLoading: false,
   locationPermanentlyDenied: false,
   locationGateError: null,
+  locationFailure: null,
   blueDotStatus: "off",
   blueDotFollowing: false,
   routeSimulating: false,

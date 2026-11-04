@@ -127,6 +127,7 @@
   }
 
   function activateLiveView(options) {
+    window.FplacesArGuidance?.open();
     applyLaunchConfig(options);
     const wasParked = !!window.__fplacesLiveViewParked;
     window.__fplacesLiveViewRequested = true;
