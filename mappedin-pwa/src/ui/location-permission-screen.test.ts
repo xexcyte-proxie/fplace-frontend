@@ -6,7 +6,7 @@ describe('contextual location dialogs', () => {
   it('offers a native permission request before settings instructions', () => {
     const html = renderLocationPermissionScreen({ locationGateLoading: false });
     expect(html).toContain('Allow Location Access');
-    expect(html).toContain('Fplaces uses your location to show where you are and guide you to your destination.');
+    expect(html).toContain('fplaces uses your location to show where you are and guide you to your destination.');
     expect(html).toContain('id="location-enable-btn"');
     expect(html).not.toContain('details');
   });
@@ -104,7 +104,7 @@ describe('visible Location Services instructions', () => {
     expect(device).toBeLessThan(browser);
     expect(browser).toBeLessThan(refresh);
     expect(refresh).toBeLessThan(html.indexOf('>CLOSE</button>'));
-    expect(html).toContain('Return to Fplaces and refresh.');
+    expect(html).toContain('Return to fplaces and refresh.');
     expect(html).not.toContain('<details');
   });
   it.each([
@@ -119,6 +119,6 @@ describe('visible Location Services instructions', () => {
     expect(steps[0]).toContain(deviceText);
     expect(steps[1]).toContain(browserText);
     expect(steps[1]).toContain('browser you used to install it');
-    expect(steps[2]).toBe('Return to Fplaces and refresh.');
+    expect(steps[2]).toBe('Return to fplaces and refresh.');
   });
 });

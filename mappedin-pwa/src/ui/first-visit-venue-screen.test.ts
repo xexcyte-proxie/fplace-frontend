@@ -1,3 +1,4 @@
+import { initialAppState } from '../types';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -315,4 +316,23 @@ describe('first-visit venue home', () => {
     expect(html).not.toContain('<b>hi</b>');
     expect(html).toContain('data-upvote-id="p1"');
   });
+});
+
+it('disables venue selection and actions while switching, then allows recovery after failure', () => {
+  const state = initialAppState();
+  state.selectedVenueId = '1';
+  state.forumVenues = [{ id: 1, name: 'Venue', location: 'Lagos' }];
+  state.venueSwitchStatus = 'loading';
+  state.venueSwitchMessage = 'Opening Venue…';
+  let html = renderFirstVisitVenueScreen(state);
+  expect(html).toContain('aria-label="Change venue" disabled aria-busy="true"');
+  expect(html).toContain('Opening Venue…');
+  expect(html).toContain('inert aria-busy="true"');
+  state.venueSwitchStatus = 'error';
+  state.venueSwitchMessage = 'Please choose another venue.';
+  html = renderFirstVisitVenueScreen(state);
+  expect(html).not.toContain('Please choose another venue.');
+  expect(html).not.toContain('first-visit-venue-retry');
+  expect(html).not.toContain('aria-label="Change venue" disabled');
+  expect(html).not.toContain('inert aria-busy="true"');
 });

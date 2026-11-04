@@ -122,7 +122,7 @@ export function renderFirstVisitVenueScreen(
     | 'venueFeedPosts'
     | 'venueFeedLoading'
     | 'upvotedPostIds'
-  > & Partial<Pick<AppState, 'venueOnlineCount'>>,
+  > & Partial<Pick<AppState, 'venueOnlineCount' | 'venueSwitchStatus' | 'venueSwitchMessage'>>,
 ): string {
   const displayName = state.authUser
     ? resolveDisplayName(state.authUser)
@@ -144,6 +144,7 @@ export function renderFirstVisitVenueScreen(
     upvotedPostIds: state.upvotedPostIds,
   });
   const view = buildFirstVisitVenueHomeViewModel({ displayName, content });
+  const switching = state.venueSwitchStatus === 'loading' || state.venueSwitchStatus === 'slow';
   const feedLoading = state.venueFeedLoading && state.venueFeedPosts.length === 0;
   const postsMarkup = feedLoading
     ? ''
@@ -219,7 +220,7 @@ export function renderFirstVisitVenueScreen(
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                   </svg>
-                  <select id="first-visit-venue-select" aria-label="Change venue">
+                  <select id="first-visit-venue-select" aria-label="Change venue" ${switching ? 'disabled aria-busy="true"' : ''}>
                     ${sortVenuesByNameDescending(state.forumVenues).map((item) => `<option value="${escapeHtml(String(item.id))}"${String(item.id) === state.selectedVenueId ? ' selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}
                   </select>
                 </span>
@@ -237,7 +238,8 @@ export function renderFirstVisitVenueScreen(
         }
       </header>
 
-      <div class="first-visit-sheet">
+      ${switching && state.venueSwitchMessage ? `<p class="first-visit-switch-status" role="${state.venueSwitchStatus === 'error' ? 'alert' : 'status'}">${switching ? '<span class="busy-indicator" aria-hidden="true"></span>' : ''}${escapeHtml(state.venueSwitchMessage)}</p>` : ''}
+      <div class="first-visit-sheet" ${switching ? 'inert aria-busy="true"' : ''}>
         <div class="first-visit-actions" role="group" aria-label="Quick actions">
           <button type="button" class="first-visit-action first-visit-action--discover" id="first-visit-discover-btn">
             <span class="first-visit-action-icon" aria-hidden="true">
@@ -259,7 +261,7 @@ export function renderFirstVisitVenueScreen(
           <h2 class="first-visit-feed-title">Live from the crowd</h2>
           <div class="first-visit-post-list screen-loading-host">
             ${postsMarkup}
-            ${feedLoading ? renderContentLoadingOverlay('Loading posts') : ''}
+            ${feedLoading && !switching ? renderContentLoadingOverlay('Loading posts') : ''}
           </div>
           <button type="button" class="first-visit-see-all" id="first-visit-see-all-btn">
             View category updates

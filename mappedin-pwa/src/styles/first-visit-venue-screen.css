@@ -474,3 +474,15 @@ div.first-visit-post-meta {
   cursor: pointer;
   font-size: 16px;
 }
+
+.first-visit-switch-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 24px;
+  padding: 14px;
+  border-radius: 12px;
+  background: #f2f4f7;
+  color: #263238;
+}
+.first-visit-venue-picker:has(select:disabled) { opacity: 0.6; }

@@ -129,6 +129,7 @@ export class UiRoot {
   private verifyResendEndsAt: number | null = null;
   private verifyResendInterval: number | null = null;
   private lastRenderedState: AppState | null = null;
+  private venueSwitchPreviousState: AppState | null = null;
   private app: MapApp | null = null;
 
   constructor(container: HTMLElement) {
@@ -193,6 +194,40 @@ export class UiRoot {
   render(state: AppState, app: MapApp): void {
     captureLocationDialogFocus(this.root);
     this.app = app;
+    const venueSwitchLoading = state.venueSwitchStatus === "loading" || state.venueSwitchStatus === "slow";
+    if (venueSwitchLoading) {
+      // Keep the rendered venue intact while the services prepare the next one.
+      // Intermediate catalog, feed and map updates must never paint a partial venue.
+      this.venueSwitchPreviousState ??= this.lastRenderedState;
+      let overlay = this.root.querySelector<HTMLElement>(".venue-switch-overlay");
+      if (!overlay) {
+        for (const child of Array.from(this.root.children)) {
+          if (child instanceof HTMLElement) child.inert = true;
+        }
+        overlay = document.createElement("div");
+        overlay.className = "venue-switch-overlay";
+        overlay.innerHTML = `${renderContentLoadingOverlay('Opening venue')}<p class="venue-switch-overlay-message" role="status" aria-live="polite"></p>`;
+        this.root.append(overlay);
+      }
+      const message = overlay.querySelector<HTMLElement>(".venue-switch-overlay-message");
+      if (message) message.textContent = state.venueSwitchMessage || "Opening venue…";
+      return;
+    }
+    if (this.venueSwitchPreviousState) {
+      if (state.venueSwitchStatus === "error") {
+        state = {
+          ...this.venueSwitchPreviousState,
+          venueSwitchStatus: "idle",
+          venueSwitchMessage: "",
+          toast: undefined,
+        };
+      }
+      if (state.venueSwitchStatus !== "error") this.venueSwitchPreviousState = null;
+      this.root.querySelector(".venue-switch-overlay")?.remove();
+      for (const child of Array.from(this.root.children)) {
+        if (child instanceof HTMLElement) child.inert = false;
+      }
+    }
     // Keep the splash DOM intact while only loading progress changes so the
     // bottom loader stays visible.
     if (this.patchSplashProgress(state)) {

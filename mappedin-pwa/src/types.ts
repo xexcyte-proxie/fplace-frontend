@@ -527,6 +527,8 @@ export interface AppState {
   /** Venue search on the returning-user home screen. */
   homeVenueSearchQuery: string;
   /** Navigate Discover dialog for picking which venue's expectations to view. */
+  venueSwitchStatus: 'idle' | 'loading' | 'slow' | 'error';
+  venueSwitchMessage: string;
   navigateDiscoverVenuePickerOpen: boolean;
   navigateDiscoverVenuePickerLoading: boolean;
   navigateVenuePickerMode: "discover" | "ar";
@@ -701,6 +703,8 @@ export const initialAppState = (): AppState => ({
   navigateView: "home",
   homeExperience: "returning",
   homeVenueSearchQuery: "",
+  venueSwitchStatus: 'idle',
+  venueSwitchMessage: '',
   navigateDiscoverVenuePickerOpen: false,
   navigateDiscoverVenuePickerLoading: false,
   navigateVenuePickerMode: "discover",

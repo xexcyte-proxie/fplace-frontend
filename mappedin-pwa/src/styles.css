@@ -3153,3 +3153,22 @@ button.is-loading:disabled,
 .location-help > summary::-webkit-details-marker { display: none; }
 .location-help > summary:focus-visible, .location-dialog button:focus-visible { outline: 3px solid #1668e3; outline-offset: 3px; }
 .location-dialog-backdrop { position: fixed; }
+
+.venue-switch-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--app-bg) 85%, transparent);
+}
+.venue-switch-overlay .screen-loading-overlay { background: transparent; }
+.venue-switch-overlay-message {
+  position: absolute;
+  top: calc(50% + 30px);
+  left: 24px;
+  right: 24px;
+  margin: 0;
+  text-align: center;
+  color: var(--app-text);
+  z-index: 5;
+}

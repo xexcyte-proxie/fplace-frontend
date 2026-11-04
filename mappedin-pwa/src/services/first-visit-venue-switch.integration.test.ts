@@ -40,3 +40,34 @@ describe('first-visit venue switching', () => {
     expect(app.openHomeVenue).not.toHaveBeenCalled();
   });
 });
+
+it('explains a slow switch and clears loading when it fails', async () => {
+  vi.useFakeTimers();
+  try {
+    const state = { ...initialAppState(), selectedVenueId: '1' };
+    const app = Object.create(MapApp.prototype) as any;
+    let finish!: () => void;
+    Object.assign(app, {
+      store: { get: () => state, patch: (patch: object) => Object.assign(state, patch) },
+      resolveVenueSelection: () => ({ forumVenue: { id: 2, name: 'New venue' } }),
+      showToast: vi.fn(),
+      beginBackgroundVenueMapSwitch: vi.fn(async () => { state.selectedVenueId = '2'; }),
+      loadOnboardingSections: vi.fn(() => new Promise<void>(resolve => { finish = resolve; })),
+    });
+    app.teardownMappedinScene = vi.fn();
+    const pending = app.openHomeVenue('2', false, true);
+    expect(state.venueSwitchStatus).toBe('loading');
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(state.venueSwitchStatus).toBe('slow');
+    expect(state.venueSwitchMessage).toContain('taking longer than expected');
+    finish();
+    await pending;
+    expect(state.venueSwitchStatus).toBe('idle');
+    expect(state.venueSwitchMessage).toBe('');
+    expect(state.selectedVenueId).toBe('1');
+    expect(state.toast).toBeUndefined();
+    expect(app.venueEnterInFlight).toBe(false);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(state.venueSwitchStatus).toBe('idle');
+  } finally { vi.useRealTimers(); }
+});

@@ -257,7 +257,7 @@ export class LocationService {
     const geoError = error as GeolocationPositionError;
     switch (geoError.code) {
       case 1:
-        return 'Fplaces can’t access your current location. Check device location services and browser access.';
+        return 'fplaces can’t access your current location. Check device location services and browser access.';
       case 2:
         return 'Your device could not provide a location. Check device location services and browser access, then try near a window or outdoors.';
       case 3:

@@ -190,7 +190,8 @@ export function renderNavigateHubScreen(state: AppState): string {
   const navigateLoading =
     venueContent == null ||
     state.mapStatus === 'initial' ||
-    state.mapStatus === 'loading';
+    state.mapStatus === 'loading' ||
+    state.navigateDiscoverVenuePickerLoading;
   const content = venueContent ?? {
     recentlyVisited: [],
     otherVenues: [],
@@ -281,7 +282,8 @@ export function renderNavigateHubScreen(state: AppState): string {
           ${venueSections}
         </div>
       </div>
-      ${navigateLoading ? renderContentLoadingOverlay('Loading navigate') : ''}
+      ${(state.venueSwitchStatus === 'loading' || state.venueSwitchStatus === 'slow') && state.venueSwitchMessage ? `<p role="status">${escapeHtml(state.venueSwitchMessage)}</p>` : ''}
+      ${navigateLoading && state.venueSwitchStatus !== 'error' && state.venueSwitchStatus !== 'slow' && !state.navigateDiscoverVenuePickerOpen ? renderContentLoadingOverlay('Loading navigate') : ''}
       ${venuePicker}
       ${arPrompt}
     </section>

@@ -164,7 +164,7 @@ function handleClick(event: Event, host: UiRootEventHost): void {
     '[data-navigate-expect-venue-id]',
   );
   if (expectVenue?.dataset.navigateExpectVenueId) {
-    void app.openSocialExpectForVenue(expectVenue.dataset.navigateExpectVenueId);
+    void app.selectNavigateVenue(expectVenue.dataset.navigateExpectVenueId);
     return;
   }
 

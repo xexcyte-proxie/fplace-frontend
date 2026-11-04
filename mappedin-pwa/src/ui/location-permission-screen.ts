@@ -21,7 +21,7 @@ function requestButton(state: DialogState, id: string, label: string): string {
 }
 export function renderLocationPermissionScreen(state: DialogState): string {
   return dialog(state, 'location-dialog', 'Allow Location Access',
-    'Fplaces uses your location to show where you are and guide you to your destination.',
+    'fplaces uses your location to show where you are and guide you to your destination.',
     requestButton(state, 'location-enable-btn', 'Allow Location'));
 }
 const deviceLocationDescription = 'Enabling Location Services can enhance your navigation experience. To re-enable this feature, please adjust the relevant settings on your device.';
@@ -43,8 +43,8 @@ export function renderLocationErrorScreen(state: DialogState & Pick<AppState, 'l
   const deviceRecovery = !unsupported && !timeout && state.locationPermission === 'granted';
   if (deviceRecovery) return deviceLocationDialog(state, 'location-error');
   return dialog(state, 'location-error', unsupported || restricted ? 'Location Unavailable' : "We Couldn't Find Your Location",
-    unsupported ? 'Live location requires a supported browser and a secure (HTTPS) connection. You can still browse the map and choose places manually.' : restricted ? "Fplaces can't access your current location. Check that location services are turned on and that your browser is allowed to use your location." : timeout
+    unsupported ? 'Live location requires a supported browser and a secure (HTTPS) connection. You can still browse the map and choose places manually.' : restricted ? "fplaces can't access your current location. Check that location services are turned on and that your browser is allowed to use your location." : timeout
       ? 'Finding your position took too long. Try moving to an area with a clearer signal, then try again.'
-      : "Fplaces couldn't determine your current position. Try moving to an area with a clearer signal, then try again.",
+      : "fplaces couldn't determine your current position. Try moving to an area with a clearer signal, then try again.",
     (unsupported ? '' : requestButton(state, 'location-retry-btn', 'Try Again')) + help('How to Fix This'));
 }
