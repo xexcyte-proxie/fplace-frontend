@@ -5,6 +5,7 @@ interface ImportMetaEnv {
   readonly VITE_MAPPEDIN_MAP_ID: string;
   readonly VITE_AR_URL: string;
   readonly VITE_API_URL?: string;
+  readonly VITE_API_PROXY?: string;
   readonly VITE_WS_URL?: string;
   readonly VITE_DEV_HTTP?: string;
   readonly VITE_GOOGLE_CLIENT_ID?: string;
