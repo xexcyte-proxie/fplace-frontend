@@ -1,6 +1,8 @@
 /**
  * Convert a browser client point into map-canvas pixel coordinates.
- * Mappedin screen APIs are relative to the canvas top-left, not the page.
+ * Use these local pixels for projected marker hit-testing and canvas bounds.
+ * The installed SDK screen-to-coordinate method takes browser client pixels
+ * and subtracts its container offset internally; do not pass local pixels to it.
  */
 export function clientPointToCanvasPoint(
   clientX: number,

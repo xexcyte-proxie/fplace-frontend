@@ -268,8 +268,8 @@ export function renderNavigateHubScreen(state: AppState): string {
             <span class="first-visit-action-icon" aria-hidden="true">
               ${firstVisitCameraIcon}
             </span>
-            <span class="first-visit-action-title">Try AR</span>
-            <span class="first-visit-action-copy">Point your camera to navigate</span>
+            <span class="first-visit-action-title"><span class="ar-mobile-copy">Try AR</span><span class="ar-desktop-copy">AR on mobile</span></span>
+            <span class="first-visit-action-copy"><span class="ar-mobile-copy">Point your camera to navigate</span><span class="ar-desktop-copy">Open fplaces on your phone to use AR</span></span>
           </button>
         </div>
 

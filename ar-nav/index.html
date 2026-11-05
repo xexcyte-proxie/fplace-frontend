@@ -28,9 +28,10 @@
       as="script"
       crossorigin
     />
+    <script src="./js/mobile-device.js"></script>
     <script>
       (function () {
-        if (!window.isSecureContext) return;
+        if (window.__fplacesArDesktopBlocked || !window.isSecureContext) return;
         // Start THREE / 8th Wall immediately so SLAM chunks download during HTML parse.
         window.__fplacesXrScriptsInjected = true;
         const three = document.createElement("script");

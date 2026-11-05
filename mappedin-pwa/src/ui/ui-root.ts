@@ -1,3 +1,4 @@
+import { renderDesktopBrand } from './desktop-brand';
 import { captureLocationDialogFocus, restoreLocationDialogFocus } from './location-dialog-focus';
 import { canPatchSocialUpvotes, patchSocialUpvotes } from './social-upvote-patch';
 import { userVenuePresence } from "../location/domain/venue-presence";
@@ -556,6 +557,7 @@ export class UiRoot {
         : null;
 
     this.root.innerHTML = `
+      ${showOnboardingFlow && !showOnboardingScreen ? renderDesktopBrand() : ""}
       ${this.loadingOverlay(state)}
       ${state.locationGateLoading && !isLocationGateAuthStep(state.authStep)
         ? `<div class="location-acquisition-status" role="status" aria-live="polite">${renderBusyLabel("Getting location…")}</div>`
@@ -681,7 +683,7 @@ export class UiRoot {
       }) : ""}
       ${showOverlays && onProfileAbout ? renderAboutSettingsScreen() : ""}
       ${showOverlays && onProfilePrivacy ? renderPrivacySettingsScreen() : ""}
-      ${showOverlays && !onProfileOverlay && !onNotificationsInbox ? this.bottomNav(state) : ""}
+      ${showOverlays ? this.bottomNav(state, onProfileOverlay || onNotificationsInbox) : ""}
       ${
         showOverlays && state.guestArGatePrompt
           ? renderGuestArGateDialog(state.guestArGatePrompt, {
@@ -1156,7 +1158,7 @@ export class UiRoot {
               <path d="M12 3.5 20 8v8l-8 4.5L4 16V8l8-4.5Z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
               <path d="M12 12.5 20 8M12 12.5v8.5M12 12.5 4 8" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
             </svg>
-            AR Mode
+            <span class="ar-mobile-copy">AR Mode</span><span class="ar-desktop-copy">AR on mobile</span>
           </button>
               `
           }
@@ -1165,7 +1167,7 @@ export class UiRoot {
     `;
   }
 
-  private bottomNav(state: AppState): string {
+  private bottomNav(state: AppState, desktopOnly = false): string {
     const homeActive = state.activeTab === "home";
     const mapActive = state.activeTab === "map";
     const socialActive = state.activeTab === "social";
@@ -1173,10 +1175,13 @@ export class UiRoot {
     const showNavigateTab = state.homeExperience !== "first-visit";
 
     return `
-      <nav class="bottom-nav" aria-label="Main navigation">
+      <nav class="bottom-nav${desktopOnly ? " bottom-nav--desktop-only" : ""}" aria-label="Main navigation">
+        <div class="desktop-nav-brand"><span class="desktop-nav-mark" aria-hidden="true">f</span><span>fplaces<small>Your places, connected.</small></span></div>
+        <span class="desktop-nav-section">Your space</span>
         <button
           type="button"
           id="nav-home"
+          aria-current="${homeActive ? "page" : "false"}"
           class="bottom-nav-item ${homeActive ? "bottom-nav-item--active" : ""}"
         >
           ${bottomNavHomeIcon}
@@ -1185,6 +1190,7 @@ export class UiRoot {
         ${showNavigateTab ? `<button
           type="button"
           id="nav-map"
+          aria-current="${mapActive ? "page" : "false"}"
           class="bottom-nav-item ${mapActive ? "bottom-nav-item--active" : ""}"
         >
           ${bottomNavNavigateIcon}
@@ -1193,6 +1199,7 @@ export class UiRoot {
         <button
           type="button"
           id="nav-social"
+          aria-current="${socialActive ? "page" : "false"}"
           class="bottom-nav-item ${socialActive ? "bottom-nav-item--active" : ""}"
         >
           ${bottomNavSocialIcon}
@@ -1201,11 +1208,13 @@ export class UiRoot {
         <button
           type="button"
           id="nav-profile"
+          aria-current="${profileActive ? "page" : "false"}"
           class="bottom-nav-item ${profileActive ? "bottom-nav-item--active" : ""}"
         >
           ${bottomNavProfileIcon}
           <span class="bottom-nav-label">Profile</span>
         </button>
+        <div class="desktop-nav-footer"><span class="desktop-nav-footer-icon" aria-hidden="true">↗</span><strong>A new perspective.</strong><span>There’s more to every place.</span></div>
       </nav>
     `;
   }

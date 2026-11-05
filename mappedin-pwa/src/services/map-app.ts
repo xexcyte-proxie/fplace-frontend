@@ -1,3 +1,4 @@
+import { AR_MOBILE_MESSAGE, isDesktopArDevice } from '../ar/domain/device-access';
 import { classifyLocationFailure } from "../location/domain/geolocation-permission";
 import { setArArrivalPresentation } from "../position/ar-pip-shell";
 import { mountPositionOverlay } from "../position/physical-walk/position-overlay";
@@ -1545,6 +1546,10 @@ export class MapApp {
   }
 
   openNavigateArVenuePicker(): void {
+    if (isDesktopArDevice()) {
+      this.showToast(AR_MOBILE_MESSAGE);
+      return;
+    }
     // AR is one product capability even though it has Home and Navigate entry
     // points. Remember the contextual tour as soon as it is shown so moving
     // between those entry points cannot show the same tour twice.
@@ -1566,6 +1571,10 @@ export class MapApp {
   }
 
   async openArForNavigateVenue(venueId: string): Promise<void> {
+    if (isDesktopArDevice()) {
+      this.showToast(AR_MOBILE_MESSAGE);
+      return;
+    }
     if (this.store.get().navigateDiscoverVenuePickerLoading) return;
     const state = this.store.get();
     const { forumVenue: matchedForumVenue } = this.resolveVenueSelection(
@@ -2822,6 +2831,10 @@ export class MapApp {
 
   /** Try AR from the first-visit venue home. */
   async openVenueArFromHome(): Promise<void> {
+    if (isDesktopArDevice()) {
+      this.showToast(AR_MOBILE_MESSAGE);
+      return;
+    }
     if (this.maybeShowContextualProductTour("try-ar")) return;
     if (!(await this.ensureUserLocationForVenuePresence())) return;
     if (await this.blockNavigationOutsideVenue("ar")) return;
@@ -7173,6 +7186,10 @@ export class MapApp {
   }
 
   async openAr(): Promise<void> {
+    if (isDesktopArDevice()) {
+      this.showToast(AR_MOBILE_MESSAGE);
+      return;
+    }
     if (await this.blockNavigationOutsideVenue("ar")) return;
     const state = this.store.get();
     if (!state.route) {
@@ -7231,6 +7248,10 @@ export class MapApp {
    * backend immediately, then open AR.
    */
   async confirmGuestArOneTimeTrial(): Promise<void> {
+    if (isDesktopArDevice()) {
+      this.showToast(AR_MOBILE_MESSAGE);
+      return;
+    }
     if (await this.blockNavigationOutsideVenue("ar")) return;
     if (!isGuestMode()) {
       this.store.patch({ guestArGatePrompt: null });
@@ -7256,6 +7277,10 @@ export class MapApp {
   }
 
   private async enterArFullscreen(): Promise<void> {
+    if (isDesktopArDevice()) {
+      this.showToast(AR_MOBILE_MESSAGE);
+      return;
+    }
     if (await this.blockNavigationOutsideVenue("ar")) return;
     const state = this.store.get();
     if (!state.route) {
@@ -7390,6 +7415,10 @@ export class MapApp {
   }
 
   maximizeAr(): void {
+    if (isDesktopArDevice()) {
+      this.showToast(AR_MOBILE_MESSAGE);
+      return;
+    }
     if (!isArSessionActive(this.store.get().arPresentation)) return;
     setArMaximized();
     this.store.patch({ arPresentation: "fullscreen" });
@@ -8679,9 +8708,10 @@ export class MapApp {
   }
 
   /**
-   * Prefer projecting the real finger position through the map canvas.
-   * SDK click raycasts can land on the wrong 3D surface and place the pin
-   * across the venue from where the guest tapped.
+   * Project the browser pointer onto the current floor, after checking bounds.
+   * The installed SDK subtracts its container's viewport offset internally, so
+   * its screen-to-coordinate API must receive client pixels, not canvas-local
+   * pixels. Subtracting here too shifts taps on maps beside the desktop rail.
    */
   private resolveTapCoordinateFromPointer(
     pointer: { x: number; y: number } | null | undefined,
@@ -8696,8 +8726,8 @@ export class MapApp {
     try {
       return (
         this.mapView.createCoordinateFromScreenCoordinate?.(
-          canvasPoint.x,
-          canvasPoint.y,
+          pointer.x,
+          pointer.y,
           this.mapView.currentFloor ?? undefined,
         ) ?? null
       );

@@ -2,6 +2,7 @@
  * User-gesture gate for camera + motion sensors (required in iframe / iOS).
  */
 (function () {
+  if (window.__fplacesArDesktopBlocked) return;
   const SLOG = () => window.FplacesSlamDiagnostics;
   let pendingCallback = null;
   let started = false;

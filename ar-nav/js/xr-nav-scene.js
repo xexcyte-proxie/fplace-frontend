@@ -2,6 +2,7 @@
  * 8th Wall camera pipeline + map-anchored world route (demo-grade floor AR).
  */
 (function () {
+  if (window.__fplacesArDesktopBlocked) return;
   const SLOG = () => window.FplacesSlamDiagnostics;
   function injectCalibrationUi() {
     if (

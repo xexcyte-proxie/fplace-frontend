@@ -2,6 +2,7 @@
  * Bootstraps 8th Wall XR or fallback mode after route is available.
  */
 (function () {
+  if (window.__fplacesArDesktopBlocked) return;
   const cfg = window.FPLACES_AR_CONFIG || {};
   const DBG = () => window.FplacesArDebug;
   const SLOG = () => window.FplacesSlamDiagnostics;
