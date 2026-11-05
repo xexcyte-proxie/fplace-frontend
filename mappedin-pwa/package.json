@@ -11,7 +11,7 @@
     "prebuild": "npm run check:ar && npm run copy:ar:public",
     "build": "tsc && vite build",
     "check:ar": "node scripts/check-ar-scripts.mjs",
-    "copy:ar:public": "rm -rf public/ar && mkdir -p public/ar && rsync -a --exclude .netlify ../ar-nav/ public/ar/",
+    "copy:ar:public": "node scripts/copy-ar-public.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
