@@ -1,8 +1,15 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { parseEnv } from 'node:util';
 
 // Match Vite's production defaults; hosting environment values take precedence.
-const defaults = parseEnv(readFileSync(new URL('./.env.production', import.meta.url), 'utf8'));
+// Vercel bundles this module into .vercel/, so import.meta.url is not the source path.
+// Resolve from the selected project root instead (repository root or mappedin-pwa).
+const envFile = [
+  path.resolve(process.cwd(), 'mappedin-pwa/.env.production'),
+  path.resolve(process.cwd(), '.env.production'),
+].find((candidate) => existsSync(candidate));
+const defaults = envFile ? parseEnv(readFileSync(envFile, 'utf8')) : {};
 const env = { ...defaults, ...process.env };
 const proxyEnabled = env.VITE_API_PROXY === '1';
 const origin = (env.VITE_API_URL ?? '').trim().replace(/\/$/, '');
