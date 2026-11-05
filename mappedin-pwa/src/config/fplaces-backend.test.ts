@@ -2,26 +2,19 @@ import { describe, expect, it } from 'vitest';
 
 import { describeWsUrl } from './ws-origin';
 import {
-  FPLACES_BACKEND_HOST,
-  FPLACES_BACKEND_HTTP_ORIGIN,
   FPLACES_BACKEND_WS_ORIGIN,
   toWebSocketOrigin,
 } from './fplaces-backend';
 
 describe('toWebSocketOrigin', () => {
-  it('converts the ALB HTTP origin to ws', () => {
-    expect(toWebSocketOrigin(FPLACES_BACKEND_HTTP_ORIGIN)).toBe(
-      `ws://${FPLACES_BACKEND_HOST}`,
-    );
-    expect(toWebSocketOrigin(`http://${FPLACES_BACKEND_HOST}/`)).toBe(
-      `ws://${FPLACES_BACKEND_HOST}`,
-    );
+  it('converts HTTP origins to ws', () => {
+    expect(toWebSocketOrigin('http://example.com')).toBe('ws://example.com');
+    expect(toWebSocketOrigin('http://example.com/')).toBe('ws://example.com');
   });
 
   it('preserves transport security when converting origins', () => {
     expect(toWebSocketOrigin('https://example.com')).toBe('wss://example.com');
     expect(toWebSocketOrigin('wss://example.com')).toBe('wss://example.com');
-    expect(FPLACES_BACKEND_WS_ORIGIN).toBe('wss://api.fplaces.com');
     expect(toWebSocketOrigin('api.fplaces.com/')).toBe('wss://api.fplaces.com');
     expect(toWebSocketOrigin('ws://example.com')).toBe('ws://example.com');
   });

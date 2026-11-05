@@ -11,14 +11,14 @@ export const appConfig = {
     venueName: 'Demo Mall',
   },
   /**
-   * API origin. Empty = same-origin `/api` (proxied to the AWS ALB in Vite dev + Netlify).
-   * Set VITE_API_URL only when the backend allows your origin via CORS.
+   * API origin from VITE_API_URL. The backend must allow the frontend origin.
+   * Production builds require an HTTPS origin in the environment.
    */
   apiUrl: (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, ''),
   /**
    * WebSocket origin for live rooms (`/ws/venues/<id>/`,
    * `/ws/venues/<id>/locations/<location_id>/`, `/ws/notifications/`).
-   * Defaults to wss://api.fplaces.com when API and WebSocket overrides are unset.
+   * Falls back to the configured API origin when VITE_WS_URL is unset.
    * HTTP(S) values are converted to WS(S), preserving transport security.
    */
   wsUrl: (import.meta.env.VITE_WS_URL ?? '').replace(/\/$/, ''),

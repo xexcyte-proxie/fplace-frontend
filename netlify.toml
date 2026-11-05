@@ -2,9 +2,6 @@
   command = "npm ci --prefix mappedin-pwa && npm run build --prefix mappedin-pwa"
   publish = "mappedin-pwa/dist"
 
-[build.environment]
-  VITE_WS_URL = "wss://api.fplaces.com"
-
 # Fresh shell after every deploy (SPA routes + index.html + SW).
 # Hashed /assets/* override below so bundles stay immutable.
 [[headers]]
@@ -20,13 +17,6 @@
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
-
-# Proxy API requests to the fPlaces backend (must be before SPA fallback).
-[[redirects]]
-  from = "/api/*"
-  to = "http://fplaces-alb-1964416382.us-east-1.elb.amazonaws.com/api/:splat"
-  status = 200
-  force = true
 
 # Password-reset email deep links → SPA (then opens Set new password).
 [[redirects]]
