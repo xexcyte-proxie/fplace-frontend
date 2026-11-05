@@ -83,7 +83,7 @@ describe('renderSettingsScreen', () => {
     expect(html).toContain('id="settings-confirm-cancel-btn"');
     expect(html).toContain('id="settings-confirm-logout-btn"');
     expect(html).toContain('Log out?');
-    expect(html).toContain('You will need to sign in again to use fPlaces.');
+    expect(html).toContain('You will need to sign in again to use fplaces.');
     expect(html).not.toContain('id="settings-confirm-delete-btn"');
   });
 

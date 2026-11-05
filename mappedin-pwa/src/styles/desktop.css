@@ -239,3 +239,56 @@
 .ar-desktop-copy { display: none; }
 html[data-ar-device="desktop"] .ar-mobile-copy { display: none; }
 html[data-ar-device="desktop"] .ar-desktop-copy { display: inline; }
+
+.venue-picker-workspace, .venue-picker-eyebrow, .venue-picker-footer-copy { display: none; }
+
+@media (min-width: 1024px) {
+  .auth-screen.venue-select-screen {
+    padding: 36px max(40px, calc((100% - 1200px) / 2)) 28px;
+    background: #f5f5ef;
+  }
+  .venue-select-screen .auth-header { position: relative; margin-top: 24px; }
+  .venue-picker-eyebrow { display: block; margin: 0 0 12px; color: #547263; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+  .venue-picker-eyebrow span { text-transform: none; letter-spacing: -.03em; font-size: 13px; font-weight: 700; }
+  .venue-select-screen .auth-title { font: 500 42px/1.2 var(--brand-serif); letter-spacing: -1.2px; color: #234c3f; }
+  .venue-select-screen .auth-subtitle { max-width: none; margin-top: 10px; color: #768075; font-size: 13px; }
+  .venue-select-screen .auth-back-btn { width: 40px; height: 40px; border-radius: 12px; background: #fcfbf7; border-color: #dfe3d9; }
+  .venue-select-body { gap: 24px; margin-top: 28px; padding-bottom: 0; overflow: hidden; }
+  .venue-select-search { width: min(100%, 380px); flex-shrink: 0; }
+  .venue-select-search-input { min-height: 48px; border-radius: 12px; border-color: #dce1d6; font-size: 13px; }
+  .venue-select-search-input:focus { border-color: #397966; outline: 3px solid #39796618; }
+  .venue-select-mobile-tree { display: none; }
+  .venue-picker-workspace { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); flex: 1; min-height: 0; gap: 20px; }
+  .venue-picker-column { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: #fffefa; border: 1px solid #dfe3d9; border-radius: 18px; }
+  .venue-picker-column-header { display: flex; align-items: center; gap: 12px; padding: 22px; border-bottom: 1px solid #e8e9e1; }
+  .venue-picker-step { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; border-radius: 10px; background: #e9efe5; color: #28604c; font-size: 11px; font-weight: 700; }
+  .venue-picker-column-header h2 { color: #294b3c; font-size: 14px; font-weight: 700; }
+  .venue-picker-column-header p { margin-top: 5px; color: #899083; font-size: 11px; }
+  .venue-picker-options { flex: 1; min-height: 0; padding: 14px; gap: 10px; overflow-y: auto; overscroll-behavior: contain; }
+  .venue-picker-options .venue-select-card { flex-shrink: 0; min-height: 76px; padding: 14px; gap: 10px; border: 1px solid #e1e5db; border-radius: 12px; background: #fff; }
+  .venue-picker-options .venue-select-card:hover:not(:disabled) { background: #f3f5ef; border-color: #b7cbbb; }
+  .venue-picker-options .venue-select-card--selected { background: #edf3ea; border-color: #3b7b60; }
+  .venue-picker-options .venue-select-card-title { font-family: var(--brand-sans); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  .venue-picker-options .venue-select-card-subtitle { margin-top: 2px; font-size: 11px; line-height: 1.5; }
+  .venue-picker-options .venue-select-card-icon, .venue-picker-options .venue-select-gate-badge { width: 34px; height: 34px; border-radius: 10px; background: #f2f1e9; color: #73846c; font-size: 12px; }
+  .venue-picker-options .venue-select-card--selected .venue-select-card-icon, .venue-picker-options .venue-select-card--selected .venue-select-gate-badge { background: #dce9d8; color: #28604c; }
+  .venue-picker-options .venue-select-card--selected .venue-select-card-check { color: #36755a; }
+  .venue-picker-column--waiting { background: #f2f3ec; border-style: dashed; }
+  .venue-picker-column--waiting .venue-picker-step { background: #e9ebe2; color: #8b9486; }
+  .venue-picker-empty { max-width: 230px; margin: auto; padding: 32px 16px; text-align: center; color: #8b9387; font-size: 12px; line-height: 1.8; }
+  .venue-select-actions { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 24px; margin-top: 24px; padding-top: 20px; border-top: 1px solid #dde2d6; }
+  .venue-picker-footer-copy { display: block; }
+  .venue-picker-footer-copy strong { color: #365541; font-size: 12px; font-weight: 600; }
+  .venue-picker-footer-copy p { margin-top: 5px; color: #85907f; font-size: 11px; }
+  .venue-select-actions .auth-cta-primary { width: 200px; min-height: 48px; flex-shrink: 0; border-radius: 12px; background: #245e4c; font-size: 13px; font-weight: 600; }
+  .venue-select-actions .auth-cta-primary:disabled { background: #dfe5d9; color: #899681; opacity: 1; cursor: not-allowed; }
+}
+
+@media (min-width: 1024px) and (max-height: 740px) {
+  .auth-screen.venue-select-screen { padding-top: 20px; padding-bottom: 20px; }
+  .venue-select-screen .auth-header { margin-top: 16px; }
+  .venue-select-screen .auth-title { font-size: 34px; }
+  .venue-select-body { margin-top: 20px; gap: 16px; }
+  .venue-picker-column-header { padding: 16px; }
+  .venue-select-actions { margin-top: 16px; padding-top: 16px; }
+}

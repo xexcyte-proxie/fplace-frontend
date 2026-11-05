@@ -400,6 +400,8 @@ export class MapApp {
   /** When session dies during splash, finish map load then open sign-in or create-account. */
   private pendingSessionRecovery: AuthSessionClearedReason | null = null;
   private authResumeInFlight = false;
+  private authSessionGeneration = 0;
+  private logoutInFlight: Promise<void> | null = null;
   private venueEnterInFlight = false;
   private handlingSessionExpiry = false;
   private interestOptionsLoaded = false;
@@ -3628,6 +3630,7 @@ export class MapApp {
   }
 
   private async enterSelectedVenue(options?: EnterVenueOptions): Promise<void> {
+    const sessionGeneration = this.authSessionGeneration;
     if (!options?.holdEnterLock && this.venueEnterInFlight) return;
 
     const state = this.store.get();
@@ -3681,6 +3684,7 @@ export class MapApp {
             venue,
           ];
         } catch (error) {
+          if (sessionGeneration !== this.authSessionGeneration) return;
           appWarn("Venue", "Could not load venue name", error);
         }
       }
@@ -3705,6 +3709,7 @@ export class MapApp {
       }
 
       const feed = await loadInitialVenueFeed(venueId);
+      if (sessionGeneration !== this.authSessionGeneration) return;
       const venueFeedPosts = mapForumPostsToVenueFeed(
         feed.results,
         sections,
@@ -3722,6 +3727,7 @@ export class MapApp {
       const refreshedUser = user
         ? await this.refreshProfileQuietly(user)
         : null;
+      if (sessionGeneration !== this.authSessionGeneration) return;
 
       this.store.patch({
         authUser: refreshedUser ?? user,
@@ -3760,6 +3766,7 @@ export class MapApp {
       this.connectVenueLiveFeed(venueId);
       void this.bootstrapPersonalNotifications();
       await this.ensureMapForSelectedVenue();
+      if (sessionGeneration !== this.authSessionGeneration) return;
       if (this.store.get().mapStatus === "error") {
         const message =
           this.store.get().mapError ||
@@ -3788,6 +3795,7 @@ export class MapApp {
         this.beginLocationPermissionGate();
       }
     } catch (error) {
+      if (sessionGeneration !== this.authSessionGeneration) return;
       this.store.patch({ venueFeedLoading: false });
       if (options?.holdEnterLock) throw error;
       this.handleAuthFailure(
@@ -3828,6 +3836,7 @@ export class MapApp {
   }
 
   private async bootstrapPersonalNotifications(): Promise<void> {
+    const sessionGeneration = this.authSessionGeneration;
     if (!hasStoredAuthTokens()) return;
     if (!this.store.get().notificationsEnabled) return;
     if (this.personalNotificationsBootstrapInFlight) return;
@@ -3835,6 +3844,7 @@ export class MapApp {
     this.personalNotificationsBootstrapInFlight = true;
     try {
       const page = await loadInitialNotifications();
+      if (sessionGeneration !== this.authSessionGeneration) return;
       const notifications = page.results.map(mapNotificationToItem);
       this.store.patch({
         notifications,
@@ -3843,6 +3853,7 @@ export class MapApp {
       });
       this.connectPersonalNotifications();
     } catch (error) {
+      if (sessionGeneration !== this.authSessionGeneration) return;
       appWarn("Notifications", "Initial inbox fetch failed", error);
       // Still open the socket so live badge updates can arrive.
       this.connectPersonalNotifications();
@@ -4097,6 +4108,7 @@ export class MapApp {
   private async restoreReturningSession(
     snapshot: ReturningSessionSnapshot,
   ): Promise<void> {
+    const sessionGeneration = this.authSessionGeneration;
     let venueId = snapshot.selectedVenueId;
     let gateId = snapshot.selectedGateId;
     const storedUser = loadStoredUser();
@@ -4127,6 +4139,7 @@ export class MapApp {
     if (hasStoredAuthTokens()) {
       try {
         const user = await fetchCurrentUser();
+        if (sessionGeneration !== this.authSessionGeneration) return;
         this.persistSessionUser(user);
         this.store.patch({
           authUser: user,
@@ -4157,6 +4170,7 @@ export class MapApp {
         });
         return;
       } catch (error) {
+        if (sessionGeneration !== this.authSessionGeneration) return;
         clearStoredAuthTokens();
         clearStoredAuthUser();
         this.store.patch({ authUser: null });
@@ -4257,6 +4271,7 @@ export class MapApp {
   }
 
   private async resumeAuthSession(): Promise<void> {
+    const sessionGeneration = this.authSessionGeneration;
     if (this.authResumeInFlight) return;
 
     const state = this.store.get();
@@ -4278,6 +4293,7 @@ export class MapApp {
     this.store.patch({ authLoading: true, authFieldErrors: {} });
     try {
       const user = await fetchCurrentUser();
+      if (sessionGeneration !== this.authSessionGeneration) return;
       this.persistSessionUser(user);
       this.store.patch({
         authUser: user,
@@ -4291,6 +4307,7 @@ export class MapApp {
         promptLocation: false,
       });
     } catch (error) {
+      if (sessionGeneration !== this.authSessionGeneration) return;
       clearStoredAuthTokens();
       clearStoredAuthUser();
       markDeviceHasUsedApp();
@@ -4925,17 +4942,19 @@ export class MapApp {
   }
 
   async logout(): Promise<void> {
-    this.store.patch({ authLoading: true, settingsConfirm: "logout" });
-    this.disconnectVenueLiveFeed();
-    this.disconnectLocationLiveFeed();
-    this.disconnectPersonalNotifications();
-    try {
-      await logoutUser();
-    } catch (error) {
-      clearStoredAuthTokens();
-      appWarn("Auth", "Logout request failed; cleared local session", error);
-    }
+    if (this.logoutInFlight) return this.logoutInFlight;
+    // Capture/send the old credentials before clearing them locally. The UI must
+    // not depend on a successful or timely response from the logout endpoint.
+    const request = logoutUser();
+    clearStoredAuthTokens();
+    this.pendingSessionRecovery = null;
     this.resetAuthState({ showLogin: true, toast: "Logged out." });
+    this.logoutInFlight = request.catch((error) => {
+      appWarn("Auth", "Logout request failed; local session is already cleared", error);
+    }).finally(() => {
+      this.logoutInFlight = null;
+    });
+    return this.logoutInFlight;
   }
 
   async deleteAccount(): Promise<void> {
@@ -4977,6 +4996,7 @@ export class MapApp {
     /** After account deletion, allow marketing onboarding again. */
     preserveAsNewDevice?: boolean;
   }): void {
+    this.authSessionGeneration = (this.authSessionGeneration ?? 0) + 1;
     this.pendingAuthPassword = null;
     clearStoredAuthUser();
     clearAllVenueSelections();
@@ -5221,13 +5241,14 @@ export class MapApp {
   private async refreshProfileQuietly(
     fallback: RegisteredUser,
   ): Promise<RegisteredUser> {
+    const sessionGeneration = this.authSessionGeneration;
     try {
       const user = await fetchCurrentUser();
-      this.persistSessionUser(user);
+      if (sessionGeneration === this.authSessionGeneration) this.persistSessionUser(user);
       return user;
     } catch (error) {
       appWarn("Auth", "Could not refresh profile after onboarding step", error);
-      this.persistSessionUser(fallback);
+      if (sessionGeneration === this.authSessionGeneration) this.persistSessionUser(fallback);
       return fallback;
     }
   }

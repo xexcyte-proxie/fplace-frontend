@@ -85,7 +85,8 @@ export class AuthRepositoryImpl implements AuthRepository {
     try {
       await authRemoteDatasource.logout(refresh);
     } finally {
-      tokenLocalDatasource.clear();
+      // A late logout response must not clear credentials from a new sign-in.
+      if (tokenLocalDatasource.getRefreshToken() === refresh) tokenLocalDatasource.clear();
     }
   }
 

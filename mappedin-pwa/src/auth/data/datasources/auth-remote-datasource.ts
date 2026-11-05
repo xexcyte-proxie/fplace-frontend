@@ -181,6 +181,7 @@ export class AuthRemoteDatasource {
       method: 'POST',
       body: { refresh },
       auth: true,
+      skipRefresh: true,
       fallbackError: 'Could not log out. Please try again.',
     });
   }

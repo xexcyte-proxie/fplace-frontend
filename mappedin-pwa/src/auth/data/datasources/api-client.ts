@@ -221,6 +221,8 @@ async function refreshAccessToken(
         response,
       );
 
+      // Logout or a newer sign-in invalidates this pending refresh response.
+      if (tokenLocalDatasource.getRefreshToken() !== refresh) return null;
       if (!response.ok) {
         const refreshBody = body as ApiErrorBody;
         clearTokensAndNotify(sessionClearedReasonFromBody(refreshBody));
@@ -243,7 +245,7 @@ async function refreshAccessToken(
       }
       return tokens.access;
     } catch {
-      clearTokensAndNotify();
+      if (tokenLocalDatasource.getRefreshToken() === refresh) clearTokensAndNotify();
       return null;
     } finally {
       refreshInFlight = null;

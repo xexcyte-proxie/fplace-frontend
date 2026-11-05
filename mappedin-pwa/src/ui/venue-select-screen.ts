@@ -145,51 +145,30 @@ export function renderVenueSelectScreen(
         </div>
       </div>`
     : '';
+  const availableFloors = floors.filter((floor) => String(floor.venue) === state.selectedVenueId);
+  const floorButton = (floor: (typeof floors)[number]): string => {
+    const selected = String(floor.id) === state.selectedFloorId;
+    return `<button type="button" class="venue-select-card${selected ? ' venue-select-card--selected' : ''}" data-floor-id="${floor.id}" aria-pressed="${selected}" ${state.authLoading ? 'disabled' : ''}>
+      <span class="venue-select-card-copy"><span class="venue-select-card-title">${escapeHtml(floor.name)}</span></span>
+      <span class="venue-select-card-check" aria-hidden="true">${selected ? selectedCheckIcon() : idleCheckIcon()}</span>
+    </button>`;
+  };
   const floorChoices = `<div class="venue-select-children venue-select-section" aria-labelledby="venue-select-floors-heading">
     <h3 id="venue-select-floors-heading" class="venue-select-section-label">Select your floor</h3>
     <div class="venue-select-list screen-loading-host" role="group" aria-label="Floors">
-      ${floors.filter((floor) => String(floor.venue) === state.selectedVenueId).map((floor) => {
-        const selected = String(floor.id) === state.selectedFloorId;
-        return `<div class="venue-select-branch">
-          <button type="button" class="venue-select-card${selected ? ' venue-select-card--selected' : ''}" data-floor-id="${floor.id}" aria-pressed="${selected}" ${state.authLoading ? 'disabled' : ''}>
-            <span class="venue-select-card-copy"><span class="venue-select-card-title">${escapeHtml(floor.name)}</span></span>
-            <span class="venue-select-card-check" aria-hidden="true">${selected ? selectedCheckIcon() : idleCheckIcon()}</span>
-          </button>
-          ${selected ? sectionChoices : ''}
-        </div>`;
-      }).join('')}
-      ${floorsLoading ? renderContentLoadingOverlay('Loading floors') : floors.length ? '' : '<p class="venue-select-empty">No floors for this venue.</p>'}
+      ${availableFloors.map((floor) => `<div class="venue-select-branch">${floorButton(floor)}${String(floor.id) === state.selectedFloorId ? sectionChoices : ''}</div>`).join('')}
+      ${floorsLoading ? renderContentLoadingOverlay('Loading floors') : availableFloors.length ? '' : '<p class="venue-select-empty">No floors for this venue.</p>'}
     </div>
   </div>`;
-
-  const venueCards = venues
-    .map((venue) => {
-      const selected = venue.id === state.selectedVenueId;
-      return `
-        <div class="venue-select-branch">
-        <button
-          type="button"
-          class="venue-select-card${selected ? ' venue-select-card--selected' : ''}"
-          data-venue-id="${escapeHtml(venue.id)}"
-          aria-pressed="${selected ? 'true' : 'false'}"
-          ${state.authLoading ? 'disabled' : ''}
-        >
-          <span class="venue-select-card-icon" aria-hidden="true">
-            ${pinIcon()}
-          </span>
-          <span class="venue-select-card-copy">
-            <span class="venue-select-card-title">${escapeHtml(venue.name)}</span>
-            <span class="venue-select-card-subtitle">${escapeHtml(venue.subtitle)}</span>
-          </span>
-          <span class="venue-select-card-check" aria-hidden="true">
-            ${selected ? selectedCheckIcon() : idleCheckIcon()}
-          </span>
-        </button>
-        ${selected ? floorChoices : ''}
-        </div>
-      `;
-    })
-    .join('');
+  const venueButton = (venue: (typeof venues)[number]): string => {
+    const selected = venue.id === state.selectedVenueId;
+    return `<button type="button" class="venue-select-card${selected ? ' venue-select-card--selected' : ''}" data-venue-id="${escapeHtml(venue.id)}" aria-pressed="${selected}" ${state.authLoading ? 'disabled' : ''}>
+      <span class="venue-select-card-icon" aria-hidden="true">${pinIcon()}</span>
+      <span class="venue-select-card-copy"><span class="venue-select-card-title">${escapeHtml(venue.name)}</span><span class="venue-select-card-subtitle">${escapeHtml(venue.subtitle)}</span></span>
+      <span class="venue-select-card-check" aria-hidden="true">${selected ? selectedCheckIcon() : idleCheckIcon()}</span>
+    </button>`;
+  };
+  const venueCards = venues.map((venue) => `<div class="venue-select-branch">${venueButton(venue)}${venue.id === state.selectedVenueId ? floorChoices : ''}</div>`).join('');
 
   const venuesEmpty = venuesLoading
     ? ''
@@ -205,7 +184,7 @@ export function renderVenueSelectScreen(
         ${backChevronIcon()}
       </button>
 
-      <div class="auth-header">
+      <div class="auth-header"><p class="venue-picker-eyebrow"><span>fplaces</span> · Explore a place</p>
         <h1 class="auth-title auth-title--sans">Where are you today?</h1>
         <p class="auth-subtitle">
           Select your venue, floor, then section.
@@ -228,13 +207,14 @@ export function renderVenueSelectScreen(
             type="search"
             class="venue-select-search-input"
             placeholder="Search venues"
+            aria-label="Search venues"
             value="${escapeHtml(state.venueSearchQuery)}"
             autocomplete="off"
             ${state.authLoading ? 'disabled' : ''}
           />
         </label>
 
-        <section class="venue-select-section" aria-labelledby="venue-select-venues-heading">
+        <section class="venue-select-section venue-select-mobile-tree" aria-labelledby="venue-select-venues-heading">
           <h2 id="venue-select-venues-heading" class="venue-select-section-label">Select your venue</h2>
           <div class="venue-select-list screen-loading-host" role="group" aria-label="Venues">
             ${venueCards || venuesEmpty}
@@ -242,10 +222,33 @@ export function renderVenueSelectScreen(
           </div>
         </section>
 
-
+        <div class="venue-picker-workspace">
+          <section class="venue-picker-column" aria-labelledby="desktop-venues-heading">
+            <header class="venue-picker-column-header"><span class="venue-picker-step" aria-hidden="true">01</span><div><h2 id="desktop-venues-heading">Your venue</h2><p>Find your place.</p></div></header>
+            <div class="venue-picker-options venue-select-list screen-loading-host" role="group" aria-label="Choose a venue">
+              ${venues.map(venueButton).join('') || venuesEmpty}
+              ${venuesLoading ? renderContentLoadingOverlay('Loading venues') : ''}
+            </div>
+          </section>
+          <section class="venue-picker-column${state.selectedVenueId ? '' : ' venue-picker-column--waiting'}" aria-labelledby="desktop-floors-heading">
+            <header class="venue-picker-column-header"><span class="venue-picker-step" aria-hidden="true">02</span><div><h2 id="desktop-floors-heading">Your floor</h2><p>One level closer.</p></div></header>
+            <div class="venue-picker-options venue-select-list screen-loading-host" role="group" aria-label="Choose a floor">
+              ${state.selectedVenueId ? availableFloors.map(floorButton).join('') || (floorsLoading ? '' : '<p class="venue-picker-empty">No floors available for this venue.</p>') : '<p class="venue-picker-empty">Select a venue to see its floors.</p>'}
+              ${floorsLoading ? renderContentLoadingOverlay('Loading floors') : ''}
+            </div>
+          </section>
+          <section class="venue-picker-column${state.selectedFloorId ? '' : ' venue-picker-column--waiting'}" aria-labelledby="desktop-sections-heading">
+            <header class="venue-picker-column-header"><span class="venue-picker-step" aria-hidden="true">03</span><div><h2 id="desktop-sections-heading">Your section</h2><p>Make it your starting point.</p></div></header>
+            <div class="venue-picker-options venue-select-list screen-loading-host" role="group" aria-label="Choose a section">
+              ${state.selectedFloorId ? sectionCards || (gatesLoading ? '' : '<p class="venue-picker-empty">No sections available for this floor.</p>') : '<p class="venue-picker-empty">Select a floor to see its sections.</p>'}
+              ${gatesLoading && state.selectedFloorId ? renderContentLoadingOverlay('Loading sections') : ''}
+            </div>
+          </section>
+        </div>
       </div>
 
       <div class="auth-actions venue-select-actions">
+        <div class="venue-picker-footer-copy"><strong>Your next discovery starts here.</strong><p>Choose your venue, floor and section, then head inside.</p></div>
         <button
           type="button"
           id="venue-select-enter-btn"

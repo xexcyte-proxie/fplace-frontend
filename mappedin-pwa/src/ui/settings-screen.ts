@@ -64,7 +64,7 @@ function renderSettingsConfirm(state: AppState): string {
   const title = isDelete ? 'Delete account?' : 'Log out?';
   const body = isDelete
     ? 'This permanently removes your account and cannot be undone.'
-    : 'You will need to sign in again to use fPlaces.';
+    : 'You will need to sign in again to use fplaces.';
   const confirmLabel = isDelete ? 'Delete account' : 'Log out';
   const confirmId = isDelete
     ? 'settings-confirm-delete-btn'
