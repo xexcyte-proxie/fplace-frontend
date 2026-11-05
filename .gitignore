@@ -31,3 +31,5 @@ mappedin-pwa/dev-dist/
 *.tar.gz
 *.tgz
 *.7z
+
+.vercel/
