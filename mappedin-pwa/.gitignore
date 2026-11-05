@@ -10,3 +10,5 @@ public/ar
 
 # Public deployment defaults only; private credentials stay in local env files.
 !.env.production
+
+.vercel/

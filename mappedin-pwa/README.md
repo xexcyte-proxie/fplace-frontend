@@ -102,3 +102,10 @@ in Vercel. Set `VITE_WS_URL` to the actual WebSocket backend origin separately.
 The configuration reads `.env.production` defaults and lets hosting environment
 variables override them. It creates the API rewrite and SPA fallback for Vercel;
 Netlify continues using the build-generated `_redirects` file.
+
+Vercel uses `vercel.json` in the selected Root Directory. Its build command runs
+`prepare-vercel-output.mjs` after Vite, producing `.vercel/output/static` and a
+Build Output API `config.json` with the environment-based API proxy, real static
+file routing, and SPA fallback. Keep dashboard Build Command overrides disabled
+so this packaging step runs. Do not set Output Directory to the repository root;
+Vercel consumes the generated Build Output API directory automatically.
