@@ -6,7 +6,6 @@ import { defineConfig, loadEnv, type Plugin } from 'vite';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import { VitePWA } from 'vite-plugin-pwa';
 
-import { FPLACES_BACKEND_HTTP_ORIGIN } from './src/config/fplaces-backend';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const arNavRoot = path.join(repoRoot, 'ar-nav');
@@ -60,22 +59,24 @@ function serveArNav(): Plugin {
   };
 }
 
-const BACKEND_ORIGIN = FPLACES_BACKEND_HTTP_ORIGIN;
-const BACKEND_WS_PROXY = {
-  target: BACKEND_ORIGIN.replace(/^http/i, 'ws'),
-  changeOrigin: true,
-  secure: false,
-  ws: true,
-  configure(proxy: { on: (event: string, fn: (error: Error) => void) => void }) {
-    proxy.on('error', (error) => {
-      console.warn('[vite /ws proxy]', error.message);
-    });
-  },
-};
-
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const devHttp = env.VITE_DEV_HTTP === '1';
+  const backendOrigin = (env.VITE_API_URL ?? '').trim().replace(/\/$/, '');
+  if (!backendOrigin) throw new Error('VITE_API_URL must be set in the environment.');
+  const backendUrl = new URL(backendOrigin);
+  if (!['http:', 'https:'].includes(backendUrl.protocol)) {
+    throw new Error('VITE_API_URL must be an HTTP(S) origin.');
+  }
+  if (mode === 'production' && backendUrl.protocol !== 'https:') {
+    throw new Error('VITE_API_URL must use HTTPS for production builds.');
+  }
+  const backendWsProxy = {
+    target: (env.VITE_WS_URL || backendOrigin).replace(/^http/i, 'ws'),
+    changeOrigin: true,
+    ws: true,
+  };
+
 
   return {
     define: { __WALK_BUILD_FINGERPRINT__: JSON.stringify(`route-guided-v1-${new Date().toISOString()}`) },
@@ -160,11 +161,10 @@ export default defineConfig(({ mode }) => {
     },
     proxy: {
       '/api': {
-        target: BACKEND_ORIGIN,
+        target: backendOrigin,
         changeOrigin: true,
-        secure: false,
       },
-      '/ws': BACKEND_WS_PROXY,
+      '/ws': backendWsProxy,
     },
   },
   preview: {
@@ -175,11 +175,10 @@ export default defineConfig(({ mode }) => {
     },
     proxy: {
       '/api': {
-        target: BACKEND_ORIGIN,
+        target: backendOrigin,
         changeOrigin: true,
-        secure: false,
       },
-      '/ws': BACKEND_WS_PROXY,
+      '/ws': backendWsProxy,
     },
   },
   };

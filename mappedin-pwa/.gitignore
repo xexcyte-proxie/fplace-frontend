@@ -7,3 +7,6 @@ public/ar
 !.env.example
 *.local
 .DS_Store
+
+# Public deployment defaults only; private credentials stay in local env files.
+!.env.production

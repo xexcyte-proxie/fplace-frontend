@@ -119,7 +119,7 @@ function waitForSocketOpen(url: string): Promise<WebSocket> {
 describe('Live ALB REST + WebSocket', () => {
   it('maps the ALB HTTP origin to ws://', () => {
     expect(toWebSocketOrigin(FPLACES_BACKEND_HTTP_ORIGIN)).toBe(
-      FPLACES_BACKEND_HTTP_ORIGIN.replace("http://", "ws://"),
+      FPLACES_BACKEND_HTTP_ORIGIN.replace(/^http/, "ws"),
     );
     expect(venueWsUrl(1, 'abc')).toBe(
       `${FPLACES_BACKEND_WS_ORIGIN}/ws/venues/1/?token=abc`,

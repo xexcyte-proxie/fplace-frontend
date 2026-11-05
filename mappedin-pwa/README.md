@@ -45,12 +45,16 @@ Future: Mappedin official `@mappedin/blue-dot` + venue IPS.
 
 ## Configuration
 
-Copy `.env.example` → `.env`:
+For local development, copy `.env.example` to `.env` and set `VITE_API_URL`
+and `VITE_WS_URL`. Production builds load the public settings in `.env.production`;
+Netlify environment variables override those values. Backend URLs and demo flags
+are configured in the environment, not `netlify.toml`. Rebuild after changing them.
 
-```
-VITE_MAPPEDIN_MAP_ID=...
-VITE_AR_URL=https://fplaces-test.netlify.app/
-```
+The browser calls `VITE_API_URL` directly. Use an HTTPS API origin without `/api`
+(the client adds endpoint paths). The backend must allow the deployed frontend
+origin through CORS. Configure Google OAuth origins for the deployment domain
+when using `VITE_GOOGLE_CLIENT_ID`. Never put private credentials in `VITE_*`
+variables: they are included in the browser bundle.
 
 Mappedin **key/secret are not used in the client**. Map credentials come from the backend:
 - guests: `POST /api/users/guest/` → `mappedin.token`
