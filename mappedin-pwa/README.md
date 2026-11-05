@@ -88,3 +88,17 @@ run-mappedin-pwa    Dev server launcher
 3. For AR camera: deploy `dist/` to HTTPS or use `npm run preview` over LAN with caution
 
 See also: [docs/PRD.md](../docs/PRD.md)
+
+## Vercel deployment
+
+Use Node.js 22 or newer. The build copies AR assets with Node; `rsync` is not needed.
+Vercel configuration is included for either repository root or `mappedin-pwa` as
+Root Directory. With `mappedin-pwa` selected, enable **Include source files outside
+of the Root Directory in the Build Step** so the sibling `ar-nav` folder is available.
+The repository-root configuration includes the entire source tree automatically.
+
+Set `VITE_API_URL` to your backend origin (without `/api`) and `VITE_API_PROXY=1`
+in Vercel. Set `VITE_WS_URL` to the actual WebSocket backend origin separately.
+The configuration reads `.env.production` defaults and lets hosting environment
+variables override them. It creates the API rewrite and SPA fallback for Vercel;
+Netlify continues using the build-generated `_redirects` file.

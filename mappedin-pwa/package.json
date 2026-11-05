@@ -10,7 +10,7 @@
     "slop": "node scripts/detect-slop.mjs",
     "prebuild": "npm run copy:ar:public",
     "build": "tsc && vite build",
-    "copy:ar:public": "rm -rf public/ar && mkdir -p public/ar && rsync -a --exclude .netlify ../ar-nav/ public/ar/",
+    "copy:ar:public": "node scripts/copy-ar-public.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
