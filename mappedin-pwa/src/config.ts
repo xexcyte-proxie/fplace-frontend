@@ -12,9 +12,11 @@ export const appConfig = {
   },
   /**
    * API origin from VITE_API_URL. The backend must allow the frontend origin.
-   * Production builds require an HTTPS origin in the environment.
+   * VITE_API_PROXY=1 uses same-origin /api with an environment-generated proxy.
    */
-  apiUrl: (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, ''),
+  apiUrl: import.meta.env.VITE_API_PROXY === '1'
+    ? ''
+    : (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, ''),
   /**
    * WebSocket origin for live rooms (`/ws/venues/<id>/`,
    * `/ws/venues/<id>/locations/<location_id>/`, `/ws/notifications/`).

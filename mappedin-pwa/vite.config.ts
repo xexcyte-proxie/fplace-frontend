@@ -68,7 +68,8 @@ export default defineConfig(({ mode }) => {
   if (!['http:', 'https:'].includes(backendUrl.protocol)) {
     throw new Error('VITE_API_URL must be an HTTP(S) origin.');
   }
-  if (mode === 'production' && backendUrl.protocol !== 'https:') {
+  const apiProxy = env.VITE_API_PROXY === '1';
+  if (mode === 'production' && !apiProxy && backendUrl.protocol !== 'https:') {
     throw new Error('VITE_API_URL must use HTTPS for production builds.');
   }
   const backendWsProxy = {
@@ -82,6 +83,18 @@ export default defineConfig(({ mode }) => {
     plugins: [
       ...(devHttp ? [] : [basicSsl()]),
       serveArNav(),
+      {
+        name: 'environment-api-proxy',
+        generateBundle() {
+          if (apiProxy) {
+            this.emitFile({
+              type: 'asset',
+              fileName: '_redirects',
+              source: `/api/* ${backendOrigin}/api/:splat 200!\n`,
+            });
+          }
+        },
+      },
       VitePWA({
       registerType: 'autoUpdate',
       injectRegister: false,

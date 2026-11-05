@@ -50,11 +50,14 @@ and `VITE_WS_URL`. Production builds load the public settings in `.env.productio
 Netlify environment variables override those values. Backend URLs and demo flags
 are configured in the environment, not `netlify.toml`. Rebuild after changing them.
 
-The browser calls `VITE_API_URL` directly. Use an HTTPS API origin without `/api`
-(the client adds endpoint paths). The backend must allow the deployed frontend
-origin through CORS. Configure Google OAuth origins for the deployment domain
-when using `VITE_GOOGLE_CLIENT_ID`. Never put private credentials in `VITE_*`
-variables: they are included in the browser bundle.
+`VITE_API_URL` is the upstream backend origin without `/api`. With
+`VITE_API_PROXY=1`, the browser calls same-origin `/api` and the build generates
+`dist/_redirects` pointing to that upstream. Netlify and Vite development/preview
+proxy to the same environment-defined destination. This avoids browser CORS and
+allows an HTTP upstream behind Netlify HTTPS. No backend URL is in `netlify.toml`.
+Set `VITE_API_PROXY=0` only for direct HTTPS API calls with backend CORS configured.
+`VITE_WS_URL` configures WebSockets separately. Rebuild after environment changes.
+Never put private credentials in `VITE_*` variables: they are public build settings.
 
 Mappedin **key/secret are not used in the client**. Map credentials come from the backend:
 - guests: `POST /api/users/guest/` → `mappedin.token`
