@@ -365,7 +365,7 @@
 
   window.executeDemoCalibrationFlow = function executeDemoCalibrationFlow(options = {}) {
     if (!window.FplacesSpatialAlignment?.canCalibrate(options.manual)) {
-      if (options.manual) window.FplacesLiveViewHud?.setStatus?.('Face the route and wait for fresh heading and tracking, then tap Align route.', true);
+      if (options.manual) window.FplacesLiveViewHud?.showAlignmentPrompt?.();
       return false;
     }
     if (!window.FplacesCameraStart?.isStarted?.()) {

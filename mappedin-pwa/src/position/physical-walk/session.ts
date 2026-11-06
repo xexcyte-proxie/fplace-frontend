@@ -47,7 +47,6 @@ export class PhysicalWalkSession {
   private lastRaw: PhysicalFix | null = null;
   private rejectedFix: PhysicalFix | null = null;
   private baseline: { east: number; north: number } = { east: 0, north: 0 };
-  private pending: { east: number; north: number } | null = null;
   private lastOutput: VenueFix | null = null;
   private recoverySamples = 0;
   private readonly motionWindow: MovementEvidenceWindow;
@@ -86,7 +85,7 @@ export class PhysicalWalkSession {
   private interrupt(now: number): void {
     this.distanceReference = null;
     this.motionWindow.reset();
-    this.recoverySamples = 0; this.pending = null; this.candidates = [];
+    this.recoverySamples = 0; this.candidates = [];
     this.movementEvidence = 'none'; this.transition('degraded', now);
   }
   private transition(state: WalkState, now: number): void {
@@ -102,16 +101,16 @@ export class PhysicalWalkSession {
     this.options = { ...options, anchor: { ...options.anchor } };
     this.walkingIncrement = null; this.distanceSequence = 0; this.distanceReference = null;
     this.originCapturedAt = null; this.lastPublishedAt = null;
-    this.recorder.record('session.config', { ...this.tuning.movement, ...this.tuning.interpolation, reason: 'physical-walk-responsive-v1' }, now);
+    this.recorder.record('session.config', { ...this.tuning.movement, ...this.tuning.interpolation, reason: 'physical-walk-trajectory-required-v2' }, now);
     this.origin = null; this.candidates = []; this.lastRaw = null;
-    this.baseline = { east: 0, north: 0 }; this.pending = null; this.lastOutput = null; this.recoverySamples = 0;
+    this.baseline = { east: 0, north: 0 }; this.lastOutput = null; this.recoverySamples = 0;
     this.observation = null; this.lastMovementTimestamp = null; this.movementEvidence = 'none';
     this.recoveryMovementAnchor = null; this.motionWindow.reset();
     this.transition('capturing-origin', now);
   }
   end(now = Date.now()): void {
     this.stopWatch?.(); this.stopWatch = null;
-    this.origin = null; this.lastRaw = null; this.candidates = []; this.pending = null;
+    this.origin = null; this.lastRaw = null; this.candidates = [];
     this.recoverySamples = 0; this.movementEvidence = 'none';
     this.transition('ended', now);
   }
@@ -193,7 +192,7 @@ export class PhysicalWalkSession {
     if (recovering) {
       this.distanceReference = { ...delta };
       this.recoverySamples++;
-      this.pending = null;
+
       if (this.recoverySamples >= 2) {
         this.transition(this.origin ? 'active' : 'capturing-origin', now);
         this.recoverySamples = 0;
@@ -260,26 +259,25 @@ export class PhysicalWalkSession {
       evidenceThreshold: trend.evidenceThreshold, windowSeconds: trend.windowSeconds, fittedSpeedMps: trend.fittedSpeedMps };
     this.recorder.record('walking-distance.candidate', { candidateMeters: this.distanceReference ? Math.hypot(delta.east - this.distanceReference.east, delta.north - this.distanceReference.north) : 0,
       committedMeters: 0, fixTimestamp: fix.timestamp, accuracy: fix.accuracy, ...delta, reason: heldReason }, now);
-    const coherent = this.pending && move.east * this.pending.east + move.north * this.pending.north > 0 &&
-      Math.hypot(move.east - this.pending.east, move.north - this.pending.north) <= Math.max(c.confirmationRadiusMeters, threshold);
-    if (recentTooSlow || (!sustained && (distance < threshold || !coherent))) {
-      this.pending = distance >= threshold ? move : null;
+    // Two agreeing displaced fixes can be a stationary GPS cluster. Never
+    // bypass the trajectory evidence gate merely because they agree.
+    if (!sustained) {
       this.recorder.record('fix.held', { ...details, reason: heldReason,
         classification: distance < threshold ? 'stationary-or-uncertain' : 'uncertain' }, now);
       this.movementEvidence = 'held';
       return null; // Retain original accepted timestamp, never refresh a held position.
     }
-    this.recorder.record('movement.accepted', { ...details, reason: sustained ? (trend.sustained ? 'sustained-low-scatter-trajectory' : 'continuing-consistent-walk') : 'accuracy-deadband-and-confirmation' }, now);
+    this.recorder.record('movement.accepted', { ...details, reason: trend.sustained ? 'sustained-low-scatter-trajectory' : 'continuing-consistent-walk' }, now);
     const candidateMeters = this.distanceReference ? Math.hypot(delta.east - this.distanceReference.east, delta.north - this.distanceReference.north) : 0;
     this.walkingIncrement = { sequence: ++this.distanceSequence, meters: candidateMeters, timestamp: fix.timestamp };
     this.distanceReference = { ...delta };
-    this.pending = null; this.baseline = delta; this.transition('active', now);
+    this.baseline = delta; this.transition('active', now);
     this.recoveryMovementAnchor = null;
     this.lastMovementTimestamp = fix.timestamp; this.movementEvidence = 'accepted';
     return this.publish(delta, fix, now);
   }
   private reject(reason: string, now: number): null {
-    this.pending = null; this.motionWindow.reset(); this.recoverySamples = 0; this.movementEvidence = 'none';
+    this.motionWindow.reset(); this.recoverySamples = 0; this.movementEvidence = 'none';
     this.recorder.record('fix.rejected', { reason, accuracy: this.rejectedFix?.accuracy, fixTimestamp: this.rejectedFix?.timestamp }, now); return null;
   }
   private publish(delta: { east: number; north: number }, fix: PhysicalFix, now: number): VenueFix {

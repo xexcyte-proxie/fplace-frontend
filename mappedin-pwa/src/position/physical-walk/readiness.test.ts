@@ -33,14 +33,17 @@ describe('Phase 1 readiness verification', () => {
       expect(gps).not.toHaveBeenCalled(); expect(ui).not.toHaveBeenCalled();
     } finally { vi.unstubAllEnvs(); vi.unstubAllGlobals(); }
   });
-  it('holds stationary, reaches 10m north then 5m east, backtracks, rejects stale and resets', () => {
+  it('holds stationary, reaches 10m north then 8m east, backtracks, rejects stale and resets', () => {
     const s = ready(); const initial = s.position;
     for (let t = 4000; t <= 6000; t += 1000) s.ingest(fix(0.1, -0.1, t), t);
     expect(s.position).toEqual(initial);
-    // Repeated endpoint samples confirm displacement without scripted advancement.
-    s.ingest(fix(0, 10, 10000), 10000); s.ingest(fix(0, 10, 11000), 11000); assertMetres(s, 0, 10);
-    s.ingest(fix(5, 10, 14000), 14000); s.ingest(fix(5, 10, 15000), 15000); assertMetres(s, 5, 10);
-    s.ingest(fix(0, 10, 18000), 18000); s.ingest(fix(0, 10, 19000), 19000); assertMetres(s, 0, 10);
+    // Movement fixtures include the observed trajectory, not repeated teleports.
+    for (let n = 1; n <= 10; n++) s.ingest(fix(0, n, 6000 + n * 1000), 6000 + n * 1000);
+    assertMetres(s, 0, 10);
+    for (let e = 1; e <= 8; e++) s.ingest(fix(e, 10, 16000 + e * 1000), 16000 + e * 1000);
+    assertMetres(s, 8, 10);
+    for (let e = 7; e >= 0; e--) s.ingest(fix(e, 10, 25000 + (7 - e) * 1000), 25000 + (7 - e) * 1000);
+    assertMetres(s, 0, 10);
     const accepted = s.position;
     for (const sample of [fix(10, 10, 20000), fix(100, 0, 20000, 100)]) {
       expect(s.ingest(sample, 40000)).toBeNull(); expect(s.position).toEqual(accepted);
@@ -88,12 +91,12 @@ describe('Phase 1 readiness verification', () => {
     expect(s.ingest(fix(11, 0, 22000), 22000)).toBeNull();
     expect(s.state).toBe('active'); expect(s.position).toEqual(before);
     expect(s.snapshot(22000).lastMovementTimestamp).toBeNull();
-    expect(s.ingest(fix(14, 0, 23000), 23000)).toBeNull();
-    expect(s.ingest(fix(14, 0, 24000), 24000)).not.toBeNull();
+    for (let i = 1; i <= 5; i++) s.ingest(fix(11 + i, 0, 22000 + i * 1000), 22000 + i * 1000);
+    expect(s.snapshot(27000).lastMovementTimestamp).toBe(27000);
     const movement = s.position;
-    s.ingest(fix(14, 0, 25000), 25000);
-    expect(s.position).toEqual(movement); expect(s.snapshot(25000).lastMovementTimestamp).toBe(24000);
-    expect(s.snapshot(25000).observation?.timestamp).toBe(25000);
+    s.ingest(fix(16, 0, 28000), 28000);
+    expect(s.position).toEqual(movement); expect(s.snapshot(28000).lastMovementTimestamp).toBe(27000);
+    expect(s.snapshot(28000).observation?.timestamp).toBe(28000);
   });
   it.each(['duplicate', 'out-of-order', 'compass', 'timeout'])('interrupts recovery on %s without counting timers as evidence', kind => {
     const s = ready(); s.checkFreshness(20000); s.ingest(fix(10, 0, 21000), 21000);

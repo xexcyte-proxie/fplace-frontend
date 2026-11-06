@@ -6,16 +6,39 @@
   const MISSING_ARROW_MS = 800;
   let status = 'UNKNOWN';
   let needsManual = false;
+  let findingDirection = false;
   let lastSampleAt = null;
   let arrowsMissing = false, missingSince = null, facingSince = null;
   let lastVisibilityAt = -Infinity;
   let frustum, projection;
+  let driftSince = null;
+  const DRIFT_THRESHOLD_DEG = 45;
+  const DRIFT_STABLE_MS = 1800;
+
+  function compassReliable() {
+    const accuracy = window.FplacesOrientationCompass?.getCompassAccuracy?.();
+    return accuracy == null || (Number.isFinite(accuracy) && accuracy >= 0 && accuracy <= 30);
+  }
+  function checkHeadingDrift(now) {
+    const slam = window.FplacesSlamHeading;
+    const compass = window.FplacesOrientationCompass?.getRawCompassHeading?.(HEADING_MAX_AGE_MS);
+    const heading = slam?.getHeadingDegrees?.();
+    if (!sessionReady() || !trackingReady(now) || needsManual ||
+        !window.FplacesAnchorEngine?.isCalibrated || !slam?.isActive?.() || !slam?.isCalibrated?.() ||
+        !compassReliable() || !Number.isFinite(compass) || !Number.isFinite(heading)) {
+      driftSince = null; return;
+    }
+    const error = Math.abs(((heading - compass + 540) % 360) - 180);
+    if (error < DRIFT_THRESHOLD_DEG) { driftSince = null; return; }
+    driftSince ??= now;
+    if (now - driftSince >= DRIFT_STABLE_MS) invalidate('AR direction has drifted.');
+  }
 
   function facingRoute() {
     // Use independent, fresh compass evidence; never assume the user faces the route.
     const heading = window.FplacesOrientationCompass?.getRawCompassHeading?.(HEADING_MAX_AGE_MS);
     const bearing = window.__fplacesNavigator?.getTargetBearingDegrees?.();
-    if (!Number.isFinite(heading) || !Number.isFinite(bearing)) return false;
+    if (!compassReliable() || !Number.isFinite(heading) || !Number.isFinite(bearing)) return false;
     return Math.abs(((heading - bearing + 540) % 360) - 180) <= FACING_TOLERANCE_DEG;
   }
   function trackingReady(now) {
@@ -31,46 +54,53 @@
     const facing = facingRoute();
     if (facing) facingSince ??= now;
     else facingSince = null;
-    const show = (needsManual || arrowsMissing) && sessionReady() && trackingReady(now) &&
-      facing && now - facingSince >= FACING_STABLE_MS;
+    const nav = window.__fplacesNavigator;
+    const guidanceVisible = findingDirection && nav?.route?.pathCoordinates?.length && !nav.arrived &&
+      window.FplacesCameraStart?.isStarted?.() && !window.__fplacesLiveViewParked;
+    const show = guidanceVisible || ((needsManual || arrowsMissing) && sessionReady() && trackingReady(now) &&
+      facing && now - facingSince >= FACING_STABLE_MS);
     const button = window.document?.getElementById('fplaces-calibrate-btn');
     if (!button) return;
     button.hidden = !show;
     // A reused iframe/button may retain legacy inline hiding after park/recovery.
     if (button.style) { button.style.display = ''; button.style.visibility = 'visible'; button.style.opacity = '1'; }
     button.textContent = 'Align route';
-    button.title = 'Facing the route. Tap to realign arrows at your current route progress.';
+    button.title = guidanceVisible
+      ? 'Face the path and tap to align the route. Fresh heading and tracking are required.'
+      : 'Facing the route. Tap to realign arrows at your current route progress.';
   }
   function invalidate(reason) {
     if (window.FplacesTrailDiagnostics?.enabled) window.FplacesTrailDiagnostics.record('alignment-invalidated', { reason, trackingStatus: status });
     const alreadyInvalid = needsManual && !window.FplacesAnchorEngine?.isCalibrated;
-    needsManual = true; arrowsMissing = false; missingSince = null;
+    needsManual = true; arrowsMissing = false; missingSince = null; driftSince = null;
     if (!alreadyInvalid) {
       window.FplacesAnchorEngine?.reset?.();
       window.FplacesWorldRoute?.invalidate?.(reason);
       window.FplacesSlamPose?.deactivate?.();
     }
     updateLabel();
-    window.FplacesLiveViewHud?.setStatus?.(reason + ' Face the route; when tracking recovers, tap Align route.');
+    window.FplacesLiveViewHud?.showAlignmentPrompt?.();
   }
   function observe(next) {
-    if (next !== 'NORMAL' && next !== 'LIMITED') return;
+    if (!['NORMAL', 'LIMITED', 'LOST', 'UNAVAILABLE', 'UNKNOWN'].includes(next)) return;
     lastSampleAt = performance.now();
-    if (next === 'LIMITED' && status !== 'LIMITED' &&
+    if (next !== 'NORMAL' && next !== status &&
         (status === 'NORMAL' || window.FplacesAnchorEngine?.isCalibrated)) invalidate('Tracking interrupted.');
     status = next;
+    checkHeadingDrift(performance.now());
     // Heading can change while tracking status remains NORMAL.
     updateLabel();
   }
   window.FplacesSpatialAlignment = {
     observe, invalidate, facingRoute,
     syncButton: updateLabel,
+    setFindingDirection(visible) { findingDirection = !!visible; updateLabel(); },
     canCalibrate(manual) {
       this.checkFreshness();
       return sessionReady() && trackingReady(performance.now()) && (!needsManual || manual === true) &&
         (manual !== true || facingRoute());
     },
-    calibrated() { needsManual = false; arrowsMissing = false; missingSince = null; updateLabel(); },
+    calibrated() { driftSince = null; needsManual = false; arrowsMissing = false; missingSince = null; updateLabel(); },
     observeArrowVisibility(visible, now = performance.now()) {
       const nav = window.__fplacesNavigator;
       const remaining = nav?.distanceRemainingToDestinationMeters?.();
@@ -111,9 +141,11 @@
       this.observeArrowVisibility(visible, now);
     },
     checkFreshness() {
+      checkHeadingDrift(performance.now());
       if (window.FplacesAnchorEngine?.isCalibrated && lastSampleAt != null && performance.now() - lastSampleAt > 3000) {
         status = 'UNKNOWN'; invalidate('Tracking unavailable.');
       }
+      updateLabel();
     },
     get status() { return status; },
     get needsManual() { return needsManual; },

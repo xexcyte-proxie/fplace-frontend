@@ -188,6 +188,10 @@
   window.FplacesLiveViewHud = {
     setTrackingMode,
     syncPresentation: syncArrivalPresentation,
+    showAlignmentPrompt() {
+      const nav = window.__fplacesNavigator;
+      if (nav) this.update(nav.getState?.(), nav);
+    },
 
     update(state, navigator) {
       const liveNav = document.getElementById('live-nav');
@@ -195,15 +199,18 @@
       const tripFooter = document.getElementById('trip-footer');
       const offPathEl = document.getElementById('offPath');
       const arrivalCard = document.getElementById('arrival-card');
-      if (!liveNav) return;
+      const clearAlignment = () => window.FplacesSpatialAlignment?.setFindingDirection?.(false);
+      if (!liveNav) { clearAlignment(); return; }
 
       const route = navigator?.route;
       if (updateArrival(state, route)) {
+        clearAlignment();
         for (const id of ['live-nav', 'trip-footer', 'status', 'offPath', 'scan-overlay']) toggleClass(document.getElementById(id), 'hidden', true);
         toggleClass(document.body, 'lv-active', false);
         return;
       }
       if (!state || !route) {
+        clearAlignment();
         liveNav.classList.add('hidden');
         tripFooter?.classList.add('hidden');
         arrivalCard?.classList.add('hidden');
@@ -215,6 +222,7 @@
         window.FplacesCameraStart?.isAwaiting?.() ||
         !window.FplacesCameraStart?.isStarted?.()
       ) {
+        clearAlignment();
         liveNav.classList.add('hidden');
         tripFooter?.classList.add('hidden');
         arrivalCard?.classList.add('hidden');
@@ -225,23 +233,17 @@
       setScanOverlay(false);
 
       const deviceHeading =
-        window.FplacesOrientationCompass?.getDeviceHeading?.() ??
-        state.deviceHeadingDegrees ??
-        null;
+        window.FplacesOrientationCompass?.getDeviceHeading?.() ?? null;
       const guidance = navigator?.getLiveGuidance?.(deviceHeading) || {};
-      const primary = guidance.primary || { label: 'Follow route', symbol: 'straight' };
-      const compassDelta = window.FplacesSlamHeading?.isActive?.()
-        ? null
-        : window.FplacesOrientationCompass?.getAlignmentDelta?.(state);
-      const headingDelta =
-        compassDelta != null && Number.isFinite(compassDelta)
-          ? compassDelta
-          : guidance.alignmentDelta;
-
-      const liveDist =
-        navigator?.getDisplayDistanceMeters?.() ??
-        state.distanceToTargetMeters ??
-        guidance.distanceMeters;
+      const requiresAlignment = guidance.requiresAlignment || guidance.primary?.label === 'Face the route' ||
+        window.FplacesSpatialAlignment?.needsControl === true;
+      const primary = requiresAlignment ? { label: 'Face the route', symbol: 'explore' }
+        : guidance.primary || { label: 'Follow route', symbol: 'straight' };
+      toggleClass(liveNav, 'lv-instruction-card--alignment', !!requiresAlignment);
+      window.FplacesSpatialAlignment?.setFindingDirection?.(!!requiresAlignment);
+      if (requiresAlignment && !document.getElementById('fplaces-calibrate-btn')) {
+        window.FplacesArCalibrationUi?.inject?.();
+      }
 
       const destName = state.destinationName || route.destinationName || 'Destination';
       const remainingTotal =
@@ -255,10 +257,6 @@
       liveNav.classList.remove('hidden');
       tripFooter?.classList.remove('hidden');
       statusEl?.classList.add('hidden');
-      const aligned =
-        headingDelta == null ||
-        !Number.isFinite(headingDelta) ||
-        Math.abs(headingDelta) < 18;
 
       const turnIconEl = document.getElementById('turn-icon');
       const turnTextEl = document.getElementById('turn-text');
@@ -274,15 +272,11 @@
       }
 
       if (turnTextEl && distBar) {
-        // Never announce an upcoming route turn early; only head-straight
-        // while aligned, or alignment corrections (left/right/around).
-        turnTextEl.textContent = instructionLabel(primary);
-        if (!aligned) {
-          distBar.textContent = 'Point your phone at the path';
-        } else {
-          distBar.textContent =
-            distancePhrase(liveDist) || guidance.distanceLabel || '';
-        }
+        const label = instructionLabel(primary);
+        if (turnTextEl.textContent !== label) turnTextEl.textContent = label;
+        const detail = requiresAlignment ? 'Point your phone toward the path, then tap Align route'
+          : [guidance.distanceLabel, guidance.alignmentPrompt].filter(Boolean).join(' · ');
+        if (distBar.textContent !== detail) distBar.textContent = detail;
       }
 
       const tripDistEl = document.getElementById('trip-dist');

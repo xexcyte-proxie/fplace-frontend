@@ -413,3 +413,70 @@ describe('source-branch automatic calibration safeguards', () => {
     expect(c.executeDemoCalibrationFlow).toHaveBeenCalledOnce();
   });
 });
+
+describe('AR malfunction detection', () => {
+  function driftSetup() {
+    const h = setup();
+    const button = { hidden: true };
+    h.c.document = { getElementById: () => button };
+    Object.assign(h.c.FplacesSlamHeading, {
+      isActive: () => true, isCalibrated: () => true, getHeadingDegrees: () => 80,
+    });
+    h.c.FplacesOrientationCompass.getCompassAccuracy = () => 5;
+    return { ...h, button };
+  }
+  it('requires sustained AR/compass disagreement, then offers manual recovery without moving progress', () => {
+    const { c, tick, button, nav } = driftSetup();
+    const progress = nav._authoritativeAlongPathM;
+    c.FplacesSpatialAlignment.observe('NORMAL');
+    tick(); c.FplacesSpatialAlignment.observe('NORMAL'); expect(button.hidden).toBe(true);
+    for (let i = 0; i < 3; i++) { tick(); c.FplacesSpatialAlignment.observe('NORMAL'); }
+    expect(c.FplacesSpatialAlignment.needsManual).toBe(true);
+    expect(button.hidden).toBe(false);
+    expect(c.FplacesAnchorEngine.isCalibrated).toBe(false);
+    expect(nav._authoritativeAlongPathM).toBe(progress);
+    c.FplacesSpatialAlignment.calibrated(); expect(button.hidden).toBe(true);
+  });
+  it('does not flag a brief mismatch or an inaccurate compass', () => {
+    const { c, tick } = driftSetup();
+    c.FplacesSpatialAlignment.observe('NORMAL'); tick();
+    c.FplacesSlamHeading.getHeadingDegrees = () => 0;
+    c.FplacesSpatialAlignment.observe('NORMAL'); tick();
+    c.FplacesSlamHeading.getHeadingDegrees = () => 80;
+    c.FplacesOrientationCompass.getCompassAccuracy = () => 70;
+    for (let i = 0; i < 5; i++) { tick(); c.FplacesSpatialAlignment.observe('NORMAL'); }
+    expect(c.FplacesSpatialAlignment.needsManual).toBe(false);
+  });
+  it('handles north wraparound without reporting drift', () => {
+    const { c, tick } = driftSetup();
+    c.FplacesSlamHeading.getHeadingDegrees = () => 355;
+    c.FplacesOrientationCompass.getRawCompassHeading = () => 5;
+    for (let i = 0; i < 5; i++) { tick(); c.FplacesSpatialAlignment.observe('NORMAL'); }
+    expect(c.FplacesSpatialAlignment.needsManual).toBe(false);
+  });
+  it('hides recovery during explicit loss and offers it after tracking returns', () => {
+    const { c, tick, button } = driftSetup();
+    c.FplacesSlamHeading.getHeadingDegrees = () => 0;
+    c.FplacesSpatialAlignment.observe('NORMAL'); tick();
+    c.FplacesSpatialAlignment.observe('LOST');
+    expect(c.FplacesSpatialAlignment.needsManual).toBe(true); expect(button.hidden).toBe(true);
+    tick(); c.FplacesSpatialAlignment.observe('NORMAL'); expect(button.hidden).toBe(false);
+  });
+});
+
+describe('Finding your direction recovery button', () => {
+  it('shows immediately without heading or ready tracking and retains calibration safeguards', () => {
+    const { c, nav } = setup();
+    const button = { hidden: true }; c.document = { getElementById: () => button };
+    c.FplacesOrientationCompass.getRawCompassHeading = () => null;
+    c.FplacesSpatialAlignment.setFindingDirection(true);
+    expect(button.hidden).toBe(false);
+    expect(c.FplacesSpatialAlignment.canCalibrate(true)).toBe(false);
+    c.FplacesSpatialAlignment.syncButton(); expect(button.hidden).toBe(false);
+    c.FplacesSpatialAlignment.setFindingDirection(false); expect(button.hidden).toBe(true);
+    c.FplacesSpatialAlignment.setFindingDirection(true);
+    nav.arrived = true; c.FplacesSpatialAlignment.syncButton(); expect(button.hidden).toBe(true);
+    nav.arrived = false; c.__fplacesLiveViewParked = true;
+    c.FplacesSpatialAlignment.syncButton(); expect(button.hidden).toBe(true);
+  });
+});

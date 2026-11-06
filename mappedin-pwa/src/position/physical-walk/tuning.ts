@@ -3,7 +3,7 @@ export const PHYSICAL_WALK_TUNING = Object.freeze({
   movement: Object.freeze({
     deadbandMinMeters: 1.2, // Previously 2m; 40% reduction.
     deadbandAccuracyFactor: 0.3, // Previously 0.5; 40% reduction.
-    evidenceWindowMs: 5000, // Previously 10000.
+    evidenceWindowMs: 8000, // Enough history to establish slow walking without a two-fix shortcut.
     evidenceMaxSamples: 16,
     evidenceMinSamples: 4,
     evidenceMinSpanSeconds: 3,

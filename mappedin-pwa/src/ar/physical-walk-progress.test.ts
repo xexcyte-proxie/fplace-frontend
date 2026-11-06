@@ -16,7 +16,7 @@ function setup() {
   c.addEventListener = vi.fn(); c.parent = { postMessage: vi.fn() };
   c.navigator = { geolocation: { watchPosition: vi.fn(() => 8), clearWatch: vi.fn() } };
   c.sessionStorage = { getItem: () => null };
-  for (const file of ['geo-math', 'route-geometry', 'anchorEngine', 'visual-route-state', 'floor-transitions', 'spatial-alignment', 'pathGeometry', 'world-route-scene', 'indoor-position', 'slam-pose-bridge', 'route-navigator', 'route-bridge']) {
+  for (const file of ['live-guidance', 'geo-math', 'route-geometry', 'anchorEngine', 'visual-route-state', 'floor-transitions', 'spatial-alignment', 'pathGeometry', 'world-route-scene', 'indoor-position', 'slam-pose-bridge', 'route-navigator', 'route-bridge']) {
     vm.runInContext(readFileSync(new URL(`../../../ar-nav/js/${file}.js`, import.meta.url), 'utf8'), c);
   }
   const path = [origin, point(0, 10), point(40, 10)];
@@ -135,4 +135,16 @@ it('clears stale arrival/navigation UI on an explicit matching parent route rese
   message({ origin: h.c.location.origin, data: { type: 'fplaces_navigation_reset', routeId: 'r', routeVersion: 1 } });
   expect(h.nav.route).toBeNull(); expect(h.nav.arrived).toBe(false); expect(h.c.fplacesActiveRoute).toBeNull();
   expect(h.engine.progress).toBe(progress);
+});
+
+it('suppresses walking cues when parent sensor readiness is lost and recovers without advancing', () => {
+  const h = setup();
+  const along = h.nav.getDisplayAlongPathMeters();
+  h.deliver({ ...h.snapshot(), positionReliable: false } as any);
+  expect(h.nav.getLiveGuidance(0).primary.label).toBe('Position uncertain');
+  expect(h.nav.getDisplayAlongPathMeters()).toBe(along);
+  h.deliver({ ...h.snapshot(), positionReliable: true } as any);
+  expect(h.nav.getLiveGuidance(0).primary.label).toBe('Head straight');
+  expect(h.nav.getLiveGuidance(null).primary.label).toBe('Face the route');
+  expect(h.nav.getDisplayAlongPathMeters()).toBe(along);
 });

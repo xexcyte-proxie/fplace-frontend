@@ -3,6 +3,7 @@ import { PhysicalWalkSession } from './session';
 import { PhysicalWalkRecorder } from './recorder';
 import { PHYSICAL_WALK_TUNING } from './tuning';
 import { offset, displacement } from './transform';
+import { RouteGuidedWalk } from './route-guided';
 import { PositionInterpolation } from './render-interpolation';
 const physical = { latitude: 6.5, longitude: 3.4 };
 const anchor = { latitude: 43.46, longitude: -80.52, floorId: 'g' };
@@ -21,13 +22,13 @@ describe('demo movement responsiveness', () => {
     expect(times.slice(-8)).toEqual([13, 14, 15, 16, 17, 18, 19, 20]);
     expect(session.position!.east).toBeCloseTo(8, 5);
   });
-  it('continues slow 0.25m/s walking without requiring 1.4m inside every short window', () => {
+  it('establishes slow 0.25m/s walking from the full evidence window', () => {
     const { session, send } = setup(); const times: number[] = [];
     for (let i = 1; i <= 24; i++) if (send(0, i * 0.25, 3000 + i * 1000)) times.push(i);
     expect(times[0]).toBeLessThanOrEqual(6); expect(times.length).toBeGreaterThanOrEqual(10);
     expect(session.position!.north).toBeCloseTo(6, 5);
     const events = JSON.parse(session.recorder.report()).events;
-    expect(events.some((e: any) => e.type === 'movement.accepted' && e.data.reason === 'continuing-consistent-walk')).toBe(true);
+    expect(events.some((e: any) => e.type === 'movement.accepted' && e.data.consistentEvidence === true)).toBe(true);
   });
   it('does not accumulate repeated bounded stationary jitter into distance', () => {
     const { session, send } = setup(); const origin = session.position;
@@ -96,4 +97,20 @@ describe('rendered-position interpolation contract', () => {
     expect(a.sample(5000)).toEqual(a.sample(100000));
     a.reset(); expect(a.sample(100001)).toBeNull();
   });
+});
+
+it('does not convert stationary GPS cluster changes into route distance', () => {
+  const { session, send } = setup();
+  const route = new RouteGuidedWalk([anchor, { ...offset(anchor, { east: 100, north: 0 }), floorId: 'g' }]);
+  const origin = session.position;
+  // A seated phone can report repeated fixes in a displaced cluster, then return.
+  // These are not a sustained trajectory even when two fixes agree.
+  for (let i = 1; i <= 120; i++) {
+    send(Math.floor((i - 1) / 2) % 2 ? 0 : 3, 0, 3000 + i * 1000);
+    const increment = session.snapshot(3000 + i * 1000).walkingIncrement;
+    if (increment) route.commit(increment);
+  }
+  expect(route.progress).toBe(0);
+  expect(session.position).toEqual(origin);
+  expect(session.snapshot(123000).lastMovementTimestamp).toBeNull();
 });

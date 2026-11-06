@@ -53,7 +53,8 @@ export class PhysicalWalkNavigation {
   get progressSnapshot(): NavigationProgressSnapshot | null {
     if (!this.running || !this.guided || !this.route) return null;
     const point = this.guided.at();
-    return { alongPathMeters: this.guided.progress, routeTraveledMeters: this.guided.progress,
+    return { positionReliable: this.session.snapshot(this.clock()).positionFresh,
+      alongPathMeters: this.guided.progress, routeTraveledMeters: this.guided.progress,
       routeRemainingMeters: this.guided.remaining, routeSimulating: false,
       routeSimulationComplete: this.guided.arrived, latitude: point.latitude, longitude: point.longitude,
       floorId: point.floorId, source: 'physical-gps-transformed', navigationAuthority: 'parent-physical-walk',

@@ -56,8 +56,7 @@ describe('2D physical walk integration controller', () => {
   it('does not follow a virtual turn when physical walking stays straight', () => {
     const h = harness();
     try {
-      h.send(0, 20, 13000); h.send(0, 20, 14000);
-      h.send(0, 30, 19000); h.send(0, 30, 20000);
+      for (let n = 1; n <= 30; n++) h.send(0, n, 3000 + n * 1000);
       const last = h.host.render.mock.calls.at(-1)![0];
       expect(last.east).toBeCloseTo(0, 5); expect(last.north).toBeCloseTo(30, 5);
       expect(h.controller.metrics!.alongMeters).toBeLessThanOrEqual(20.01);
@@ -111,9 +110,10 @@ describe('2D physical walk integration controller', () => {
   it('uses one projection for route metrics and styling while retaining unsnapped off-route authority', () => {
     const h = harness();
     try {
-      h.send(0, 10, 9000); h.send(0, 10, 10000);
+      for (let n = 1; n <= 10; n++) h.send(0, n, 3000 + n * 1000);
+      for (let e = 1; e < 8; e++) h.send(e, 10, 13000 + e * 1000);
       h.host.progress.mockClear();
-      h.send(8, 10, 15000); h.send(8, 10, 16000);
+      h.send(8, 10, 21000);
       const projected = h.host.progress.mock.calls.filter(([, point]) => point != null);
       expect(projected).toHaveLength(1);
       const [metrics, point] = projected[0];
@@ -123,7 +123,7 @@ describe('2D physical walk integration controller', () => {
       expect(metrics.percent).toBeCloseTo(25, 3);
       expect(point.longitude).toBeCloseTo(anchor.longitude, 8);
       expect(h.host.render.mock.calls.at(-1)![0].east).toBeCloseTo(8, 5);
-      h.send(0, 10, 21000); h.send(0, 10, 22000);
+      for (let e = 7; e >= 0; e--) h.send(e, 10, 22000 + (7 - e) * 1000);
       expect(h.controller.metrics!.offRouteMeters).toBeCloseTo(0, 3);
       expect(h.controller.metrics!.remainingMeters).toBeCloseTo(30, 3);
     } finally { h.controller.end(); }

@@ -20,7 +20,7 @@ function fixture() {
     };
   }
   const ids = ['live-nav', 'trip-footer', 'status', 'offPath', 'scan-overlay', 'arrival-card', 'arrival-dest', 'arrival-ok-btn',
-    'lv-chrome', 'lv-back-btn', 'lv-map-btn', 'lv-end-nav-btn', 'lv-sheet-toggle'];
+    'turn-text', 'distance-bar', 'turn-icon', 'fplaces-calibrate-btn', 'lv-chrome', 'lv-back-btn', 'lv-map-btn', 'lv-end-nav-btn', 'lv-sheet-toggle'];
   const elements = Object.fromEntries(ids.map(id => [id, new Element()]));
   elements['arrival-card'].classList.add('hidden'); elements['arrival-card'].setAttribute('aria-hidden', 'true');
   const body = new Element(); let message: (event: unknown) => void;
@@ -80,4 +80,39 @@ describe('confirmed arrival presentation', () => {
     h.elements['arrival-ok-btn'].events.get('click')!();
     expect(h.c.parent.postMessage).toHaveBeenCalledWith({ type: 'fplaces_ar_arrived_done' }, h.c.location.origin);
   });
+});
+
+it('requests Align route whenever the visible card is requesting alignment, and clears it afterward', () => {
+  const h = fixture();
+  const setFindingDirection = vi.fn();
+  h.c.FplacesSpatialAlignment = { setFindingDirection };
+  h.nav.getLiveGuidance = () => ({ primary: { label: 'Face the route', symbol: 'explore' } });
+  h.update(false); expect(setFindingDirection).toHaveBeenLastCalledWith(true);
+  h.nav.getLiveGuidance = () => ({ primary: { label: 'Head straight', symbol: 'straight' } });
+  h.update(false); expect(setFindingDirection).toHaveBeenLastCalledWith(false);
+  h.update(true); expect(setFindingDirection).toHaveBeenLastCalledWith(false);
+  h.camera(false); h.update(false); expect(setFindingDirection).toHaveBeenLastCalledWith(false);
+});
+
+it('uses one stable red instruction card for alignment and restores its normal theme', () => {
+  const h = fixture();
+  const setFindingDirection = vi.fn();
+  h.c.FplacesSpatialAlignment = { setFindingDirection, needsControl: true };
+  h.nav.getLiveGuidance = () => ({ primary: { label: 'Head straight', symbol: 'straight' } });
+  h.update(false);
+  const card = h.elements['live-nav'], title = h.elements['turn-text'], detail = h.elements['distance-bar'];
+  expect(title.textContent).toBe('Face the route');
+  expect(card.classList.contains('lv-instruction-card--alignment')).toBe(true);
+  expect(card.classList.contains('hidden')).toBe(false);
+  expect(h.elements['status'].classList.contains('hidden')).toBe(true);
+  const writes = [title.writes, detail.writes, h.elements['turn-icon'].innerHTML];
+  setFindingDirection.mockClear();
+  for (let i = 0; i < 100; i++) h.update(false);
+  expect([title.writes, detail.writes, h.elements['turn-icon'].innerHTML]).toEqual(writes);
+  expect(setFindingDirection.mock.calls.every(([visible]) => visible === true)).toBe(true);
+  h.c.FplacesSpatialAlignment.needsControl = false;
+  h.update(false);
+  expect(title.textContent).toBe('Head straight');
+  expect(card.classList.contains('lv-instruction-card--alignment')).toBe(false);
+  expect(setFindingDirection).toHaveBeenLastCalledWith(false);
 });

@@ -58,13 +58,20 @@ describe('physical walk stabilization', () => {
   });
   it.each([[0, 5], [5, 0], [0, -5]])('maps physical E/N (%s,%s) at unit scale', (east, north) => {
     const s = ready();
-    s.ingest(fixture(east, north, 6000), 6000); s.ingest(fixture(east, north, 7000), 7000);
+    for (let i = 1; i <= 5; i++) {
+      const t = 3000 + i * 1000; s.ingest(fixture(east * i / 5, north * i / 5, t), t);
+    }
     expect(venueMeters(s).east).toBeCloseTo(east, 5);
     expect(venueMeters(s).north).toBeCloseTo(north, 5);
   });
   it('retraces the same geographic path without changing anchor or scale', () => {
     const s = ready();
-    for (const [n, t] of [[5, 6000], [5, 7000], [0, 10000], [0, 11000], [-5, 14000], [-5, 15000], [0, 18000], [0, 19000]]) s.ingest(fixture(0, n, t), t);
+    let time = 3000;
+    for (const n of [1, 2, 3, 4, 5, 6, 7, 8,
+      7, 6, 5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6, -7, -8,
+      -7, -6, -5, -4, -3, -2, -1, 0]) {
+      time += 1000; s.ingest(fixture(0, n, time), time);
+    }
     expect(venueMeters(s).north).toBeCloseTo(0, 5);
     expect(venueMeters(s).east).toBeCloseTo(0, 5);
   });

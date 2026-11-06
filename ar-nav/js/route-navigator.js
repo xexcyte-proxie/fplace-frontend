@@ -149,6 +149,10 @@
       this.watchId = null;
       this.onUpdate = null;
       this.lastPosition = null;
+      this._guidancePositionAt = null;
+      this._guidanceSyncAt = null;
+      this._guidanceTracker = null;
+      this._guidanceRoute = null;
       this.positionSource = "none";
       this.externalHeadingDegrees = null;
       this.pathSegmentIndex = 0;
@@ -249,6 +253,10 @@
       this.offPathMessage = "";
       this._warnedShortPath = false;
       this.lastPosition = null;
+      this._guidancePositionAt = null;
+      this._guidanceSyncAt = null;
+      this._guidanceTracker = null;
+      this._guidanceRoute = null;
       this.positionSource = "none";
       this.externalHeadingDegrees = null;
       this.pathSegmentIndex = 0;
@@ -528,6 +536,8 @@
 
       if (latitude == null || longitude == null) return;
 
+      this._guidanceSyncAt = performance.now();
+      this._guidanceParentReliable = progress.positionReliable;
       window.__fplacesNavigationProgress = {
         ...progress,
         alongPathMeters: along,
@@ -723,6 +733,7 @@
         },
       );
 
+      this._guidancePositionAt = performance.now();
       this.lastPosition = {
         latitude: Number(pos.latitude),
         longitude: Number(pos.longitude),
@@ -812,6 +823,7 @@
       }
 
       this.positionSource = "simulator";
+      this._guidancePositionAt = performance.now();
       this.lastPosition = {
         latitude: Number(pos.latitude),
         longitude: Number(pos.longitude),
@@ -1564,9 +1576,8 @@
     }
 
     /**
-     * Live instruction from heading alignment + progress.
-     * Aligned → head straight (no advance turn callouts). Misaligned →
-     * turn left/right/around until facing the path again.
+     * Main instructions follow facing relative to the current path.
+     * Unreliable sensors suppress walking instructions.
      */
     getLiveGuidance(deviceHeading) {
       const distRaw = this.getDisplayDistanceMeters();
@@ -1574,53 +1585,35 @@
         deviceHeading != null
           ? this.getAlignmentDeltaDegrees(deviceHeading)
           : null;
-      const resolve = window.FplacesLiveGuidance?.resolveLiveGuidance;
-      if (typeof resolve === "function") {
-        return resolve({
+      const api = window.FplacesLiveGuidance;
+      if (typeof api?.createGuidanceTracker === "function") {
+        if (this._guidanceRoute !== this.route) {
+          this._guidanceRoute = this.route;
+          this._guidanceTracker = api.createGuidanceTracker();
+        }
+        const accuracy = this.lastPosition?.accuracy;
+        const local = !this.isParentPhysicalWalkAuthority() && !this.isParentSimulatorAuthority();
+        const fresh = local
+          ? this._guidancePositionAt != null && performance.now() - this._guidancePositionAt <= 10000
+          : this._guidanceSyncAt != null && performance.now() - this._guidanceSyncAt <= 10000 && this._guidanceParentReliable !== false;
+        return this._guidanceTracker.update({
           arrived: this.arrived,
           destinationName: this.route?.destinationName,
           alignmentDeltaDeg: delta,
           distanceToTargetMeters: distRaw,
           remainingMeters: this.distanceRemainingToDestinationMeters(),
-        });
+          positionReliable: !!this.lastPosition && fresh && (!local || (Number.isFinite(accuracy) && accuracy <= 20 && this.positionSource !== 'routeOrigin')),
+          offRoute: Number.isFinite(this._gpsOffRouteMeters) && this._gpsOffRouteMeters > this.offRouteThresholdMeters(),
+        }, performance.now());
       }
 
-      // Fallback if live-guidance.js failed to load.
-      if (this.arrived) {
-        return {
-          primary: {
-            label: `Arrived at ${this.route?.destinationName || "destination"}`,
-            symbol: "flag",
-          },
-          then: null,
-          distanceLabel: "You have reached your destination",
-          distanceMeters: 0,
-          alignmentDelta: null,
-        };
-      }
-      if (delta != null && Math.abs(delta) >= 18) {
-        const primary =
-          Math.abs(delta) >= 135
-            ? { label: "Turn around", symbol: "u_turn_right" }
-            : delta > 0
-              ? { label: "Turn right", symbol: "turn_right" }
-              : { label: "Turn left", symbol: "turn_left" };
-        return {
-          primary,
-          then: null,
-          distanceLabel: "Face the path",
-          distanceMeters: distRaw,
-          alignmentDelta: delta,
-          distToTurn: distRaw,
-        };
-      }
+      // A missing guidance module must not issue an unverified walking command.
       return {
-        primary: { label: "Head straight", symbol: "straight" },
-        then: null,
-        distanceLabel: "",
-        distanceMeters: distRaw,
-        alignmentDelta: delta,
-        distToTurn: distRaw,
+        primary: { label: 'Navigation unavailable', symbol: 'explore' },
+        distanceLabel: 'Use the map to continue',
+        alignmentDelta: null,
+        alignmentPrompt: null,
+        uncertain: true,
       };
     }
 

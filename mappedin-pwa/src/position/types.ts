@@ -30,6 +30,8 @@ export type NavigationAuthority = 'parent-simulator' | 'parent-physical-walk' | 
  * from that clock.
  */
 export interface NavigationProgressSnapshot {
+  /** Current sensor readiness, independent of committed walking distance. */
+  positionReliable?: boolean;
   alongPathMeters: number;
   routeTraveledMeters: number;
   routeRemainingMeters: number | null;

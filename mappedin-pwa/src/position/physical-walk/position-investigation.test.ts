@@ -28,21 +28,21 @@ describe('diagnostic reproductions and corrected rendering regressions', () => {
     const events = JSON.parse(s.recorder.report()).events;
     expect(events.some((e: any) => e.type === 'movement.accepted' && e.data.reason === 'sustained-low-scatter-trajectory')).toBe(true);
   });
-  it('accepts a persistent GPS offset after reported accuracy changes', () => {
+  it('holds a persistent GPS offset after reported accuracy changes', () => {
     const s = ready();
     s.ingest(fix(6, 0, 4000, 12), 4000);
     s.ingest(fix(6, 0, 5000, 3), 5000);
     s.ingest(fix(6, 0, 6000, 3), 6000);
-    expect(s.position!.east).toBeCloseTo(6, 5);
+    expect(s.position!.east).toBe(0);
   });
-  it('can publish capture-window displacement after origin selection, without post-capture motion', () => {
+  it('does not count capture-window displacement without post-capture motion', () => {
     const s = new PhysicalWalkSession(true); s.start(options, 0);
     s.ingest(fix(0, 0, 1000, 1), 1000);
     s.ingest(fix(2, 0, 2000, 4), 2000);
     s.ingest(fix(4, 0, 3000, 4), 3000);
     expect(s.position!.east).toBe(0); expect(s.position!.timestamp).toBe(1000);
     s.ingest(fix(4, 0, 4000), 4000); s.ingest(fix(4, 0, 5000), 5000);
-    expect(s.position!.east).toBeCloseTo(4, 5);
+    expect(s.position!.east).toBe(0);
   });
   it('sparse 6m/10s observations never establish the required coherent evidence', () => {
     const s = ready(); const animation = new PositionInterpolation();
@@ -136,8 +136,10 @@ describe('opt-in position audit', () => {
   });
   it('observer failures cannot interrupt GPS ingestion', () => {
     const s = ready(); const remove = s.recorder.subscribe(() => { throw new Error('diagnostic failure'); });
-    expect(() => s.ingest(fix(0, 5, 6000), 6000)).not.toThrow();
-    expect(() => s.ingest(fix(0, 5, 7000), 7000)).not.toThrow(); expect(s.position!.north).toBeCloseTo(5, 5); remove();
+    for (let n = 1; n <= 5; n++) {
+      const t = 3000 + n * 1000;
+      expect(() => s.ingest(fix(0, n, t), t)).not.toThrow();
+    } expect(s.position!.north).toBeCloseTo(5, 5); remove();
   });
   it('disabled overlay never touches the map; enabled overlay reuses and removes debug markers', () => {
     const audit = new PositionPipelineAudit(new PhysicalWalkRecorder(), () => 0); audit.begin(options, route);

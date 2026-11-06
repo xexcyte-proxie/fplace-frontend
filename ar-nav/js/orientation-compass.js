@@ -288,8 +288,14 @@
 
     getDeviceHeading() {
       if (window.FplacesSlamHeading?.isActive?.()) {
+        const tracking = window.FplacesSpatialAlignment?.diagnosticSnapshot?.();
+        if (tracking && (tracking.needsManual || tracking.status !== "NORMAL" || tracking.sampleAgeMs == null || tracking.sampleAgeMs > 3000)) return null;
+        if (!window.FplacesSlamHeading.isCalibrated?.()) return null;
         return window.FplacesSlamHeading.getHeadingDegrees?.() ?? null;
       }
+      const accuracy = this.getCompassAccuracy();
+      if (accuracy != null && (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 30)) return null;
+      if (!this.isHeadingFresh(1500)) return null;
       return laneHeading()?.getInstantHeading?.() ?? null;
     },
 
